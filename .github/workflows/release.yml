@@ -85,7 +85,7 @@ jobs:
           ECTO_APK_PATH="./compose-app/build/outputs/apk/arm64/release/${ECTO_APK_BASENAME}.apk"
 
           echo "Validating Termux APKs"
-          for abi in arm64-v8a armeabi-v7a x86_64 x86; do
+          for abi in arm64-v8a armeabi-v7a x86_64; do
             if ! test -f "$APK_DIR_PATH/${APK_BASENAME_PREFIX}_$abi.apk"; then
               files_found="$(ls "$APK_DIR_PATH")"
               exit_on_error "Failed to find built APK at '$APK_DIR_PATH/${APK_BASENAME_PREFIX}_$abi.apk'. Files found: "$'\n'"$files_found"
@@ -103,7 +103,6 @@ jobs:
             "${APK_BASENAME_PREFIX}_arm64-v8a.apk" \
             "${APK_BASENAME_PREFIX}_armeabi-v7a.apk" \
             "${APK_BASENAME_PREFIX}_x86_64.apk" \
-            "${APK_BASENAME_PREFIX}_x86.apk" \
             > "${APK_BASENAME_PREFIX}_sha256sums"); then
             exit_on_error "Generate sha256sums failed for release."
           fi
@@ -129,7 +128,6 @@ jobs:
               "$APK_DIR_PATH/${APK_BASENAME_PREFIX}_arm64-v8a.apk" \
               "$APK_DIR_PATH/${APK_BASENAME_PREFIX}_armeabi-v7a.apk" \
               "$APK_DIR_PATH/${APK_BASENAME_PREFIX}_x86_64.apk" \
-              "$APK_DIR_PATH/${APK_BASENAME_PREFIX}_x86.apk" \
               "$ECTO_APK_PATH"; do
               echo "Verifying $apk"
               "$apksigner" verify --verbose "$apk"
@@ -162,13 +160,6 @@ jobs:
         with:
           name: ${{ env.APK_BASENAME_PREFIX }}_x86_64
           path: ${{ env.APK_DIR_PATH }}/${{ env.APK_BASENAME_PREFIX }}_x86_64.apk
-          retention-days: 14
-
-      - name: Upload x86 APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.APK_BASENAME_PREFIX }}_x86
-          path: ${{ env.APK_DIR_PATH }}/${{ env.APK_BASENAME_PREFIX }}_x86.apk
           retention-days: 14
 
       - name: Upload sha256sums
