@@ -1576,11 +1576,13 @@ const Handler = struct {
             .decaln => try self.session.terminal.decaln(),
             .window_title => try self.session.replacePendingTitle(value.title),
             .report_pwd => {},
+            .resize_window, .osc_unknown, .request_xt_checksum, .xt_checksum_extension, .program_status => {},
             .show_desktop_notification => try self.session.replacePendingNotification(value.title, value.body),
             .progress_report => self.progressReport(value),
             .start_hyperlink => try self.session.terminal.screens.active.startHyperlink(value.uri, value.id),
             .clipboard_contents => try self.clipboardContents(value.kind, value.data),
             .mouse_shape => self.session.terminal.mouse_shape = value,
+            .mouse_shape_reset => self.session.terminal.mouse_shape = .text,
             .configure_charset => self.session.terminal.configureCharset(value.slot, value.charset),
             .set_attribute => switch (value) {
                 .unknown => {},
@@ -2090,12 +2092,14 @@ pub export fn termux_ghostty_session_set_color_scheme(
         return -1;
     }
 
-    var palette: @TypeOf(handle.terminal.colors.palette.original) = undefined;
+    var palette: ghostty.color.Palette = undefined;
     for (&palette, 0..) |*entry, index| {
         entry.* = argbToRgb(@bitCast(colors[index]));
     }
 
-    handle.terminal.colors.palette = .init(palette);
+    const next_palette = ghostty.color.DynamicPalette.init(handle.alloc, palette) catch return -1;
+    handle.terminal.colors.palette.deinit(handle.alloc);
+    handle.terminal.colors.palette = next_palette;
     handle.terminal.colors.foreground = .init(argbToRgb(@bitCast(colors[@intCast(termux_default_foreground)])));
     handle.terminal.colors.background = .init(argbToRgb(@bitCast(colors[@intCast(termux_default_background)])));
     handle.terminal.colors.cursor = .init(argbToRgb(@bitCast(colors[@intCast(termux_default_cursor)])));
