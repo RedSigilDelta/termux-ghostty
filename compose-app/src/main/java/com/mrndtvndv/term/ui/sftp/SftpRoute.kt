@@ -35,6 +35,8 @@ import com.mrndtvndv.term.domain.SftpFile
 import com.mrndtvndv.term.navigation.AppNavDisplay
 import com.mrndtvndv.term.navigation.SftpFolder
 import com.mrndtvndv.term.ui.sftp.transfer.TransferType
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -70,6 +72,7 @@ fun SftpScreenRoute(
     var isSearchActive by rememberSaveable { mutableStateOf(false) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var treeMode by rememberSaveable { mutableStateOf(false) }
+    val hazeState = rememberHazeState()
 
     fun showMessage(message: String) {
         scope.launch { snackbarHostState.showSnackbar(message) }
@@ -177,7 +180,9 @@ fun SftpScreenRoute(
                             .padding(innerPadding)
                     ) {
                         Column(
-                            modifier = Modifier.fillMaxSize()
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .hazeSource(hazeState)
                         ) {
                             SftpBreadcrumbs(
                                 currentPath = currentPath,
@@ -230,6 +235,7 @@ fun SftpScreenRoute(
                             onSearchQueryChange = { searchQuery = it },
                             onToggleTree = { treeMode = !treeMode },
                             onUploadClick = { uploadPicker.launch("*/*") },
+                            hazeState = hazeState,
                             modifier = Modifier
                                 .align(Alignment.BottomCenter)
                                 .then(

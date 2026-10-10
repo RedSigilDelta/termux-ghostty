@@ -79,6 +79,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.mrndtvndv.term.ui.theme.codeFontFamily
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
 
 private const val MaxRefChips = 2
 
@@ -200,6 +202,7 @@ internal fun FileChangesList(
         )
     }
 
+    val hazeState = rememberHazeState()
     Box(modifier = modifier.fillMaxSize()) {
         val pullToRefreshState = rememberPullToRefreshState()
             PullToRefreshBox(
@@ -232,7 +235,7 @@ internal fun FileChangesList(
                     is ReviewUiState.Success -> {
                         val graph = remember(content.recentCommits) { layoutGraph(content.recentCommits) }
                         LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
+                            modifier = Modifier.fillMaxSize().hazeSource(hazeState),
                             contentPadding = PaddingValues(
                                 top = 8.dp,
                                 bottom = 88.dp + WindowInsets.navigationBars
@@ -330,6 +333,7 @@ internal fun FileChangesList(
                         checkedFiles = if (checkedFiles.size == allFiles.size) emptySet() else allFiles.toSet()
                     },
                     onClearSelection = { checkedFiles = emptySet() },
+                    hazeState = hazeState,
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .navigationBarsPadding()

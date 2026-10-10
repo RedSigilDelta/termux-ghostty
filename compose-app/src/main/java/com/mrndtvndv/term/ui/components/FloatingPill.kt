@@ -33,6 +33,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import dev.chrisbanes.haze.HazeInput
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.blur.HazeBlurStyle
+import dev.chrisbanes.haze.blur.HazeColorEffect
+import dev.chrisbanes.haze.blur.hazeBlur
 
 private val PillShape = RoundedCornerShape(28.dp)
 private val PillSizeSpring = spring<IntSize>(dampingRatio = 0.8f, stiffness = 380f)
@@ -41,10 +46,12 @@ private val PillSizeSpring = spring<IntSize>(dampingRatio = 0.8f, stiffness = 38
 @Composable
 fun <T> FloatingPill(
     state: T,
+    hazeState: HazeState,
     modifier: Modifier = Modifier,
     label: String = "FloatingPill",
     content: @Composable (T) -> Unit
 ) {
+    val glassTint = MaterialTheme.colorScheme.surfaceContainerHighest
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -54,11 +61,20 @@ fun <T> FloatingPill(
         Surface(
             modifier = Modifier
                 .shadow(elevation = 6.dp, shape = PillShape)
-                .clip(PillShape),
+                .clip(PillShape)
+                .hazeBlur(
+                    input = HazeInput.Sources(hazeState),
+                    style = HazeBlurStyle {
+                        blurEnabled(true)
+                        blurRadius(24.dp)
+                        backgroundColor(glassTint)
+                        colorEffects(listOf(HazeColorEffect.tint(glassTint.copy(alpha = 0.55f))))
+                        fallbackColorEffect(HazeColorEffect.tint(glassTint))
+                    }
+                ),
             shape = PillShape,
-            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+            color = Color.Transparent,
             contentColor = MaterialTheme.colorScheme.onSurface,
-            tonalElevation = 6.dp,
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
         ) {
             AnimatedContent(

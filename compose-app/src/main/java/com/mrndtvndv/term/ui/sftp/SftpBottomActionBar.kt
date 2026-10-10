@@ -36,6 +36,7 @@ import com.mrndtvndv.term.ui.components.FloatingPill
 import com.mrndtvndv.term.ui.components.PillActions
 import com.mrndtvndv.term.ui.components.PillDivider
 import com.mrndtvndv.term.ui.components.PillIconButton
+import dev.chrisbanes.haze.HazeState
 
 /** SFTP pill: search, tree toggle and upload actions that morph into an inline search field. */
 @Suppress("LongParameterList")
@@ -49,13 +50,19 @@ fun SftpBottomActionBar(
     onSearchQueryChange: (String) -> Unit,
     onToggleTree: () -> Unit,
     onUploadClick: () -> Unit,
+    hazeState: HazeState,
     modifier: Modifier = Modifier
 ) {
     BackHandler(enabled = isSearchActive) {
         onCloseSearch()
     }
 
-    FloatingPill(state = isSearchActive, modifier = modifier, label = "SftpBottomActionBar") { active ->
+    FloatingPill(
+        state = isSearchActive,
+        hazeState = hazeState,
+        modifier = modifier,
+        label = "SftpBottomActionBar"
+    ) { active ->
         if (active) {
             SearchEditField(
                 query = searchQuery,

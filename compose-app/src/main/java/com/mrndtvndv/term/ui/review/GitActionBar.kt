@@ -37,6 +37,7 @@ import com.mrndtvndv.term.ui.components.FloatingPill
 import com.mrndtvndv.term.ui.components.PillActions
 import com.mrndtvndv.term.ui.components.PillDivider
 import com.mrndtvndv.term.ui.components.PillIconButton
+import dev.chrisbanes.haze.HazeState
 
 private enum class GitBarMode { Sync, Commit, Selection }
 
@@ -63,6 +64,7 @@ internal fun GitActionBar(
     onDiscardSelected: () -> Unit,
     onSelectAll: () -> Unit,
     onClearSelection: () -> Unit,
+    hazeState: HazeState,
     modifier: Modifier = Modifier
 ) {
     val mode = when {
@@ -71,7 +73,7 @@ internal fun GitActionBar(
         else -> GitBarMode.Sync
     }
 
-    FloatingPill(state = mode, modifier = modifier, label = "GitActionBar") { target ->
+    FloatingPill(state = mode, hazeState = hazeState, modifier = modifier, label = "GitActionBar") { target ->
         PillActions {
             if (target == GitBarMode.Selection) {
                 if (selectedUnstagedCount > 0) {
