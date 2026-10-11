@@ -27,6 +27,10 @@ class WorkspaceViewModel(
 
     fun observeTerminalProgress(session: TerminalSession) = sessionManager.observeTerminalProgress(session)
 
+    fun observeProgramStatus(session: TerminalSession) = sessionManager.observeProgramStatus(session)
+
+    fun markProgramStatusSeen(session: TerminalSession) = sessionManager.markProgramStatusSeen(session)
+
     fun loadHerdrAgents() {
         val resolver = coordinator.getServer(serverId)?.herdrResolver()
         if (resolver == null) {
@@ -61,7 +65,12 @@ class WorkspaceViewModel(
     }
 
     fun focusPane(pane: HerdrWorkspaceResolver.HerdrPaneNode) {
-        viewModelScope.launch { coordinator.focusHerdr(serverId) { this.focusPane(pane) } }
+        // Assume the focus succeeds; the refresh after the command restores the real state if it did not.
+        _herdrState.update { state -> state.copy(workspaces = state.workspaces.withFocusedPane(pane)) }
+        viewModelScope.launch {
+            coordinator.focusHerdr(serverId) { this.focusPane(pane) }
+            loadHerdrAgents()
+        }
     }
 
     fun closePane(pane: HerdrWorkspaceResolver.HerdrPaneNode) {
@@ -72,6 +81,19 @@ class WorkspaceViewModel(
             runCatching { resolver.closePane(pane.paneId) }
             loadHerdrAgents()
         }
+    }
+
+    private fun List<HerdrWorkspaceResolver.HerdrWorkspaceNode>.withFocusedPane(
+        target: HerdrWorkspaceResolver.HerdrPaneNode,
+    ): List<HerdrWorkspaceResolver.HerdrWorkspaceNode> = map { workspace ->
+        workspace.copy(
+            tabs = workspace.tabs.map { tab ->
+                tab.copy(
+                    focused = tab.tabId == target.tabId,
+                    panes = tab.panes.map { it.copy(focused = it.paneId == target.paneId) },
+                )
+            },
+        )
     }
 
     private fun List<HerdrWorkspaceResolver.HerdrWorkspaceNode>.withoutPane(
