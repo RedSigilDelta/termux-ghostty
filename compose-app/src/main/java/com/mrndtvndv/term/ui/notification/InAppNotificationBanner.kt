@@ -1,12 +1,14 @@
 package com.mrndtvndv.term.ui.notification
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -19,7 +21,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import kotlin.math.abs
+import kotlin.math.roundToInt
+import kotlin.math.sign
+import kotlinx.coroutines.launch
+
+// Drag past this fraction of the card width to dismiss; release earlier to snap back.
+private const val SwipeDismissThreshold = 0.4f
+// Fly past the card's own width so its edge clears the screen, including the padding and shadow.
+private const val SwipeExitFraction = 1.5f
 
 @Composable
 fun InAppNotificationBanner(
@@ -29,9 +42,12 @@ fun InAppNotificationBanner(
     modifier: Modifier = Modifier
 ) {
     var visible by remember { mutableStateOf(false) }
+    // Holds the last notification so it can animate out after onDismiss clears the source.
+    var shown by remember { mutableStateOf<ActiveNotification?>(null) }
 
     LaunchedEffect(activeNotification) {
         if (activeNotification != null) {
+            shown = activeNotification
             visible = true
             kotlinx.coroutines.delay(4000)
             visible = false
@@ -48,15 +64,18 @@ fun InAppNotificationBanner(
         exit = slideOutVertically(targetOffsetY = { -it }) + fadeOut(),
         modifier = modifier
     ) {
-        if (activeNotification != null) {
-            NotificationCard(
-                activeNotification = activeNotification,
-                onClick = onClick,
-                onClose = {
-                    visible = false
-                    onDismiss()
-                },
-            )
+        shown?.let { notification ->
+            // Keyed so a new notification starts with its swipe offset reset.
+            key(notification) {
+                NotificationCard(
+                    activeNotification = notification,
+                    onClick = onClick,
+                    onClose = {
+                        visible = false
+                        onDismiss()
+                    },
+                )
+            }
         }
     }
 }
@@ -67,6 +86,10 @@ private fun NotificationCard(
     onClick: (() -> Unit)?,
     onClose: () -> Unit,
 ) {
+    val currentOnClose by rememberUpdatedState(onClose)
+    val scope = rememberCoroutineScope()
+    var offsetX by remember { mutableFloatStateOf(0f) }
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -75,6 +98,26 @@ private fun NotificationCard(
     ) {
         val cardModifier = Modifier
             .fillMaxWidth()
+            .offset { IntOffset(offsetX.roundToInt(), 0) }
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures(
+                    onDragEnd = {
+                        val dismiss = abs(offsetX) > size.width * SwipeDismissThreshold
+                        val target = if (dismiss) sign(offsetX) * size.width * SwipeExitFraction else 0f
+                        scope.launch {
+                            animate(offsetX, target) { value, _ -> offsetX = value }
+                            if (dismiss) currentOnClose()
+                        }
+                    },
+                    onDragCancel = {
+                        scope.launch { animate(offsetX, 0f) { value, _ -> offsetX = value } }
+                    },
+                    onHorizontalDrag = { change, dragAmount ->
+                        change.consume()
+                        offsetX += dragAmount
+                    },
+                )
+            }
             .shadow(12.dp, RoundedCornerShape(16.dp))
             .border(
                 width = 1.dp,
