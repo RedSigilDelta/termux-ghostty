@@ -12,7 +12,9 @@ interface RenderOptions {
 }
 
 interface AndroidBridge {
+  onBundleReady?: (version: string) => void;
   onRenderComplete?: (fileCount: number, hunkCount: number) => void;
+  onDiffPainted?: (fileCount: number, hunkCount: number) => void;
   onError?: (errorMessage: string) => void;
   onFileClick?: (fileName: string) => void;
   onHorizontalScrollState?: (canScrollLeft: boolean, canScrollRight: boolean) => void;
@@ -45,6 +47,9 @@ declare global {
 }
 
 let activeFileDiffInstances: FileDiff[] = [];
+// render() returns false without writing the DOM while the highlighter isn't ready.
+// The library re-renders those instances later and reports it through onPostRender.
+const pendingPaints = new Map<FileDiff, () => void>();
 let currentOptions: RenderOptions = {
   isDark: true,
   diffStyle: 'unified',
@@ -132,6 +137,10 @@ function createDiffInstance(options: RenderOptions): FileDiff {
     overflow: 'scroll',
     preferredHighlighter: 'shiki-js',
     tokenizeMaxLineLength: 1000,
+    onPostRender: (_node, instance) => {
+      pendingPaints.get(instance)?.();
+      pendingPaints.delete(instance);
+    },
     renderHeaderPrefix: () => {
       const chevron = document.createElement('span');
       chevron.className = 'diff-collapse-chevron';
@@ -442,7 +451,20 @@ function setFileCollapsedByIndex(index: number, collapsed: boolean) {
   }
 }
 
+/**
+ * Reports onDiffPainted once the DOM written so far has been drawn: two animation frames
+ * after the current task, so the native overlay only clears on pixels that are on screen.
+ */
+async function reportDiffPainted(fileCount: number, hunkCount: number) {
+  await new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  });
+  window.AndroidDiffBridge?.onDiffPainted?.(fileCount, hunkCount);
+}
+
 function cleanupActiveInstances() {
+  // Clear first: cleanUp() emits onPostRender('unmount'), which would otherwise settle stale paints.
+  pendingPaints.clear();
   for (const instance of activeFileDiffInstances) {
     try {
       instance.cleanUp?.();
@@ -475,6 +497,7 @@ async function renderPatch(patchString: string, optionsJson?: string) {
   if (!patchString || patchString.trim() === '') {
     showMessage('No changes detected in file.');
     window.AndroidDiffBridge?.onRenderComplete?.(0, 0);
+    await reportDiffPainted(0, 0);
     return;
   }
 
@@ -484,15 +507,18 @@ async function renderPatch(patchString: string, optionsJson?: string) {
       if (/^Binary files .+ differ\s*$/m.test(patchString) || /^GIT binary patch/m.test(patchString)) {
         showMessage('Binary file changed (diff not available).');
         window.AndroidDiffBridge?.onRenderComplete?.(1, 0);
+        await reportDiffPainted(1, 0);
         return;
       }
       showMessage('No patch hunks found.');
       window.AndroidDiffBridge?.onRenderComplete?.(0, 0);
+      await reportDiffPainted(0, 0);
       return;
     }
 
     let totalFiles = 0;
     let totalHunks = 0;
+    const paints: Promise<void>[] = [];
 
     for (const patch of patches) {
       for (const fileDiff of patch.files) {
@@ -508,10 +534,13 @@ async function renderPatch(patchString: string, optionsJson?: string) {
         container.style.marginBottom = '16px';
         rootElement.appendChild(container);
 
-        await instance.render({
+        const painted = instance.render({
           fileDiff,
           containerWrapper: container,
         });
+        if (!painted) {
+          paints.push(new Promise<void>((resolve) => pendingPaints.set(instance, resolve)));
+        }
 
         if (hunkCount === 0) {
           const isBinary = /^Binary files .+ differ\s*$/m.test(patchString) || /^GIT binary patch/m.test(patchString);
@@ -532,7 +561,9 @@ async function renderPatch(patchString: string, optionsJson?: string) {
     }
 
     applyLineNumbersToDOM(currentOptions.showLineNumbers !== false);
+    await Promise.all(paints);
     window.AndroidDiffBridge?.onRenderComplete?.(totalFiles, totalHunks);
+    await reportDiffPainted(totalFiles, totalHunks);
   } catch (err: any) {
     console.error('Failed to parse or render patch:', err);
     showMessage(`Failed to render diff: ${err?.message || err}`, true);
@@ -766,6 +797,8 @@ function clear() {
   lastFilename = '';
 }
 
+// Identifies which bundle is running in logcat (PierreDiffView tag).
+window.AndroidDiffBridge?.onBundleReady?.('paint-gate-1');
 window.diffViewer = {
   renderPatch,
   renderFiles,
