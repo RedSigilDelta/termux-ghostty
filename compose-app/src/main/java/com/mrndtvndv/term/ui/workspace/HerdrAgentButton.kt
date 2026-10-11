@@ -139,7 +139,7 @@ fun HerdrAgentButton(
                     .padding(bottom = 16.dp),
             ) {
                 when {
-                    isLoading -> {
+                    workspaces.isEmpty() && isLoading -> {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -149,7 +149,7 @@ fun HerdrAgentButton(
                             LoadingIndicator()
                         }
                     }
-                    error != null -> {
+                    workspaces.isEmpty() && error != null -> {
                         Text(
                             text = error,
                             color = MaterialTheme.colorScheme.error,
@@ -164,6 +164,13 @@ fun HerdrAgentButton(
                         )
                     }
                     else -> {
+                        error?.let { message ->
+                            Text(
+                                text = message,
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.padding(16.dp),
+                            )
+                        }
                         LazyColumn(modifier = Modifier.fillMaxWidth()) {
                             workspaces.forEach { workspace ->
                                 val isExpanded = expandedWorkspaceIds[workspace.workspaceId] ?: true

@@ -6,6 +6,8 @@ import com.mrndtvndv.term.server.AppSessionManagerAccess
 import com.mrndtvndv.term.server.HerdrWorkspaceResolver
 import com.mrndtvndv.term.server.herdrResolver
 import com.termux.terminal.TerminalSession
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -21,25 +23,36 @@ class WorkspaceViewModel(
 
     private val _herdrState = MutableStateFlow(HerdrUiState())
     val herdrState: StateFlow<HerdrUiState> = _herdrState.asStateFlow()
+    private var herdrRefreshJob: Job? = null
 
     fun observeTerminalProgress(session: TerminalSession) = sessionManager.observeTerminalProgress(session)
 
     fun loadHerdrAgents() {
         val resolver = coordinator.getServer(serverId)?.herdrResolver()
         if (resolver == null) {
-            _herdrState.value = HerdrUiState(error = "Herdr is unavailable for this session")
+            _herdrState.update { it.copy(isLoading = false, error = "Herdr is unavailable for this session") }
             return
         }
 
-        _herdrState.update { it.copy(isLoading = true, error = null) }
-        viewModelScope.launch {
-            runCatching { resolver.listWorkspaceTabs() }.fold(
-                onSuccess = { workspaces -> _herdrState.value = HerdrUiState(workspaces = workspaces) },
-                onFailure = { error ->
-                    _herdrState.value =
-                        HerdrUiState(error = error.message ?: "Unable to query Herdr workspaces")
-                },
-            )
+        // A warm cache stays on screen. StateFlow drops the refresh when the data is unchanged.
+        if (_herdrState.value.workspaces.isEmpty()) {
+            _herdrState.update { it.copy(isLoading = true, error = null) }
+        }
+        herdrRefreshJob?.cancel()
+        herdrRefreshJob = viewModelScope.launch {
+            runCatching { resolver.listWorkspaceTabs() }
+                // A cancelled refresh must not publish an error over the newer request's state.
+                .onFailure { error -> if (error is CancellationException) throw error }
+                .fold(
+                    onSuccess = { workspaces ->
+                        _herdrState.update { it.copy(workspaces = workspaces, isLoading = false, error = null) }
+                    },
+                    onFailure = { error ->
+                        _herdrState.update {
+                            it.copy(isLoading = false, error = error.message ?: "Unable to query Herdr workspaces")
+                        }
+                    },
+                )
         }
     }
 
@@ -53,9 +66,25 @@ class WorkspaceViewModel(
 
     fun closePane(pane: HerdrWorkspaceResolver.HerdrPaneNode) {
         val resolver = coordinator.getServer(serverId)?.herdrResolver() ?: return
+        // Drop the row now so the cached sheet does not keep showing a closed pane until the refresh lands.
+        _herdrState.update { state -> state.copy(workspaces = state.workspaces.withoutPane(pane.paneId)) }
         viewModelScope.launch {
             runCatching { resolver.closePane(pane.paneId) }
             loadHerdrAgents()
         }
+    }
+
+    private fun List<HerdrWorkspaceResolver.HerdrWorkspaceNode>.withoutPane(
+        paneId: String,
+    ): List<HerdrWorkspaceResolver.HerdrWorkspaceNode> = mapNotNull { workspace ->
+        val tabs = workspace.tabs.mapNotNull { tab ->
+            val panes = tab.panes.filter { it.paneId != paneId }
+            when {
+                panes.size == tab.panes.size -> tab
+                panes.isEmpty() -> null
+                else -> tab.copy(panes = panes)
+            }
+        }
+        workspace.copy(tabs = tabs).takeIf { tabs.isNotEmpty() }
     }
 }
