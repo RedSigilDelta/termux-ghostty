@@ -1,6 +1,7 @@
 package com.mrndtvndv.term.ui.theme
 
 import android.os.Build
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
@@ -48,23 +49,6 @@ private val LightColorScheme = lightColorScheme(
     error = Color(0xFFBF616A) // Nord 11
 )
 
-private val BlackColorScheme = darkColorScheme(
-    primary = Primary,
-    secondary = Secondary,
-    tertiary = Tertiary,
-    background = Color.Black,
-    surface = Color.Black,
-    surfaceVariant = Color(0xFF121212),
-    onPrimary = Color.Black,
-    onSecondary = Color.Black,
-    onTertiary = Color.Black,
-    onBackground = TextPrimary,
-    onSurface = TextPrimary,
-    onSurfaceVariant = TextSecondary,
-    outline = Border,
-    error = ErrorColor
-)
-
 /** Custom font chosen for the whole UI, if enabled in settings. */
 val LocalCustomFontFamily = compositionLocalOf<FontFamily?> { null }
 
@@ -72,9 +56,17 @@ val LocalCustomFontFamily = compositionLocalOf<FontFamily?> { null }
 @Composable
 fun codeFontFamily(): FontFamily = LocalCustomFontFamily.current ?: FontFamily.Monospace
 
+/** Maps the saved theme to "Light" or "Dark". "System" follows the device's dark mode. */
+@Composable
+fun resolveAppTheme(theme: String): String = when (theme) {
+    "System" -> if (isSystemInDarkTheme()) "Dark" else "Light"
+    else -> theme
+}
+
 @Composable
 fun TermuxGhosttyTheme(
-    theme: String = "Black",
+    theme: String = "Dark",
+    amoledBlack: Boolean = true,
     customFontFamily: FontFamily? = null,
     content: @Composable () -> Unit
 ) {
@@ -89,25 +81,22 @@ fun TermuxGhosttyTheme(
                 LightColorScheme
             }
         }
-        "Black" -> {
-            val baseDark = if (supportsDynamic) {
-                dynamicDarkColorScheme(context)
-            } else {
-                BlackColorScheme
-            }
-            baseDark.copy(
-                background = Color.Black,
-                surface = Color.Black,
-                surfaceVariant = Color(0xFF121212),
-                onBackground = Color.White,
-                onSurface = Color.White
-            )
-        }
         else -> { // "Dark"
-            if (supportsDynamic) {
+            val darkScheme = if (supportsDynamic) {
                 dynamicDarkColorScheme(context)
             } else {
                 DarkColorScheme
+            }
+            if (amoledBlack) {
+                darkScheme.copy(
+                    background = Color.Black,
+                    surface = Color.Black,
+                    surfaceVariant = Color(0xFF121212),
+                    onBackground = Color.White,
+                    onSurface = Color.White
+                )
+            } else {
+                darkScheme
             }
         }
     }

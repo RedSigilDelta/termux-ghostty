@@ -41,6 +41,7 @@ import com.mrndtvndv.term.ui.settings.SettingsViewModel
 import com.mrndtvndv.term.ui.sftp.SftpFileViewerScreen
 import com.mrndtvndv.term.ui.theme.TerminalThemeSync
 import com.mrndtvndv.term.ui.theme.TermuxGhosttyTheme
+import com.mrndtvndv.term.ui.theme.resolveAppTheme
 import com.mrndtvndv.term.ui.workspace.DebugHud
 import com.mrndtvndv.term.ui.workspace.FileUploadBlockingOverlay
 import com.mrndtvndv.term.ui.workspace.TerminalAppearance
@@ -87,7 +88,8 @@ fun TermApp(
         container.fontStore.loadTypeface() ?: Typeface.MONOSPACE
     }
 
-    TermuxGhosttyTheme(theme = settings.theme, customFontFamily = customFontFamily) {
+    val appTheme = resolveAppTheme(settings.theme)
+    TermuxGhosttyTheme(theme = appTheme, amoledBlack = settings.amoledBlack, customFontFamily = customFontFamily) {
         CompositionLocalProvider(LocalAnimationsEnabled provides settings.animationsEnabled) {
             Surface(modifier = Modifier.fillMaxSize()) {
                 // Drop the in-memory decoded wallpaper once wallpapering is disabled so its
@@ -117,7 +119,7 @@ fun TermApp(
                 LaunchedEffect(focusedSession) {
                     onActiveTerminalSessionChanged(focusedSession)
                 }
-                TerminalThemeSync(termSession = currentSession, appTheme = settings.theme)
+                TerminalThemeSync(termSession = currentSession, appTheme = appTheme)
 
                 Box(modifier = Modifier.fillMaxSize()) {
                     AppNavDisplay(

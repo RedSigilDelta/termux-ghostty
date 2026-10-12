@@ -12,6 +12,7 @@ import com.termux.terminal.compose.WallpaperScaling
 @Suppress("LongParameterList")
 data class AppSettings(
     val theme: String,
+    val amoledBlack: Boolean,
     val extraKeysEnabled: Boolean,
     val extraKeysPreset: String,
     val extraKeysCustomJson: String,

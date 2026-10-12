@@ -411,7 +411,7 @@ fun SettingsScreen(
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            val themes = listOf("Light", "Dark", "Black")
+                            val themes = listOf("System", "Light", "Dark")
                             themes.forEach { themeName ->
                                 val isSelected = settings.theme == themeName
                                 val containerColor = if (isSelected) {
@@ -442,6 +442,26 @@ fun SettingsScreen(
                                 }
                             }
                         }
+                    }
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("AMOLED Black", style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                text = "Pure black backgrounds in dark themes",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = settings.amoledBlack,
+                            onCheckedChange = { enabled -> onUpdate { it.copy(amoledBlack = enabled) } }
+                        )
                     }
                     HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
 

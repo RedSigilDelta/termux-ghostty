@@ -17,6 +17,7 @@ private const val MinHerdrAgentFabOpacity = 0.25f
 
 private object Key {
     const val Theme = "app_theme"
+    const val AmoledBlack = "amoled_black"
     const val ExtraKeysEnabled = "extra_keys_enabled"
     const val ExtraKeysPreset = "extra_keys_preset"
     const val ExtraKeysCustomJson = "extra_keys_custom_json"
@@ -45,8 +46,13 @@ private object Key {
     const val WallpaperId = "terminal_wallpaper_id"
 }
 
+// "Black" was the old default theme. It is now Dark with AMOLED black on, which looks the same.
+private fun themeFromPref(value: String?): String =
+    listOf("System", "Light", "Dark").firstOrNull { it == value } ?: "Dark"
+
 private fun SharedPreferences.Editor.write(settings: AppSettings) {
     putString(Key.Theme, settings.theme)
+    putBoolean(Key.AmoledBlack, settings.amoledBlack)
     putBoolean(Key.ExtraKeysEnabled, settings.extraKeysEnabled)
     putString(Key.ExtraKeysPreset, settings.extraKeysPreset)
     putString(Key.ExtraKeysCustomJson, settings.extraKeysCustomJson)
@@ -98,7 +104,8 @@ class AppPreferences(
 
     private fun load(): AppSettings = normalize(
         AppSettings(
-            theme = prefs.getString(Key.Theme, "Black") ?: "Black",
+            theme = themeFromPref(prefs.getString(Key.Theme, null)),
+            amoledBlack = prefs.getBoolean(Key.AmoledBlack, true),
             extraKeysEnabled = prefs.getBoolean(Key.ExtraKeysEnabled, true),
             extraKeysPreset = prefs.getString(Key.ExtraKeysPreset, "Double Row") ?: "Double Row",
             extraKeysCustomJson = prefs.getString(Key.ExtraKeysCustomJson, "[]") ?: "[]",
