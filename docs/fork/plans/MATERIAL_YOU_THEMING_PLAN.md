@@ -305,6 +305,8 @@ public class MaterialYouTerminalColors {
 
 The exact tonal palette stops can be extracted via `ColorRoles` from the `DynamicColors` API, or by resolving theme attributes at runtime using `ThemeUtils.getSystemAttrColor()`.
 
+**Light-theme readability:** the container roles sit near white (tone 90) on light surfaces, so slots 3, 6, 9, 12 and 13 are rebuilt there. Normal slots 3 and 6 use tone 40, and bright slots 9, 12 and 13 use the lightest tone that still reaches 4.5:1 against `surface`. Slot 8 is tone 56 and slot 7 is tone 24. Herdr's `terminal` theme paints active rows with slot 8 and writes default-foreground text on them, and uses slot 7 as secondary text. Hue is kept. Dark themes still use the table as written, and their container slots are about 2:1 against the background. The mapping lives in `MaterialYouTerminalColors.toTerminalProperties()`, which both the legacy app and the Compose app call.
+
 ### 5. Integration point
 
 **`TermuxTerminalSessionActivityClient.java` — `checkForFontAndColors()`**

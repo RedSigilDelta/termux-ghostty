@@ -2,10 +2,10 @@ package com.termux.shared.termux.theme;
 
 import android.annotation.SuppressLint;
 import android.content.Context;
-import android.graphics.Color;
 
 import androidx.annotation.NonNull;
 
+import com.google.android.material.color.utilities.Contrast;
 import com.google.android.material.color.utilities.Hct;
 import com.termux.shared.theme.ThemeUtils;
 
@@ -14,6 +14,18 @@ import java.util.Properties;
 
 /** Generates terminal colors from the active Material 3 theme palette. */
 public final class MaterialYouTerminalColors {
+
+    /** WCAG AA for body text, which is how terminal glyphs are read. */
+    private static final double MIN_TEXT_CONTRAST = 4.5;
+    /** Normal-intensity ink tone on light surfaces, where the container roles are near-white. */
+    private static final double LIGHT_INK_TONE = 40;
+    /** Secondary text on light surfaces. Herdr also writes it on the slot 8 row background. */
+    private static final double LIGHT_SECONDARY_TONE = 24;
+    /**
+     * Herdr paints active rows with slot 8 and writes default-foreground text on them. This tone keeps
+     * that text at 4.5:1 while still reading as muted text on the surface.
+     */
+    private static final double LIGHT_BRIGHT_BLACK_TONE = 56;
 
     private static final int DEFAULT_LIGHT_SURFACE = 0xFFFFFBFE;
     private static final int DEFAULT_DARK_SURFACE = 0xFF1C1B1F;
@@ -65,6 +77,26 @@ public final class MaterialYouTerminalColors {
         int tertiaryContainer = resolveColor(context, com.google.android.material.R.attr.colorTertiaryContainer,
             shiftTone(tertiary, isDarkTheme ? 30 : 90));
 
+        return toTerminalProperties(isDarkTheme, surface, onSurface, onSurfaceVariant, outline,
+            surfaceContainerHighest, error, errorContainer, primary, primaryContainer,
+            secondary, secondaryContainer, tertiary, tertiaryContainer);
+    }
+
+    /**
+     * Maps Material roles onto the 16 ANSI slots. On light surfaces the chromatic slots are rebuilt
+     * so each one clears {@link #MIN_TEXT_CONTRAST} against the background. Slots 7 and 8 are darkened
+     * for secondary text and highlight rows. Slots 0 and 15 are unchanged.
+     */
+    @SuppressLint("RestrictedApi")
+    @NonNull
+    public static Properties toTerminalProperties(boolean isDarkTheme, int surface, int onSurface,
+                                                  int onSurfaceVariant, int outline, int surfaceContainerHighest,
+                                                  int error, int errorContainer, int primary, int primaryContainer,
+                                                  int secondary, int secondaryContainer, int tertiary,
+                                                  int tertiaryContainer) {
+        // Lightest tone that still clears the minimum contrast on this surface.
+        double brightInkTone = Contrast.darker(Hct.fromInt(surface).getTone(), MIN_TEXT_CONTRAST);
+
         Properties properties = new Properties();
         putColor(properties, "foreground", onSurface);
         putColor(properties, "background", surface);
@@ -72,17 +104,17 @@ public final class MaterialYouTerminalColors {
         putColor(properties, "color0", surfaceContainerHighest);
         putColor(properties, "color1", error);
         putColor(properties, "color2", tertiary);
-        putColor(properties, "color3", primaryContainer);
+        putColor(properties, "color3", isDarkTheme ? primaryContainer : shiftTone(primaryContainer, LIGHT_INK_TONE));
         putColor(properties, "color4", primary);
         putColor(properties, "color5", secondary);
-        putColor(properties, "color6", tertiaryContainer);
-        putColor(properties, "color7", onSurfaceVariant);
-        putColor(properties, "color8", outline);
-        putColor(properties, "color9", errorContainer);
+        putColor(properties, "color6", isDarkTheme ? tertiaryContainer : shiftTone(tertiaryContainer, LIGHT_INK_TONE));
+        putColor(properties, "color7", isDarkTheme ? onSurfaceVariant : shiftTone(onSurfaceVariant, LIGHT_SECONDARY_TONE));
+        putColor(properties, "color8", isDarkTheme ? outline : shiftTone(outline, LIGHT_BRIGHT_BLACK_TONE));
+        putColor(properties, "color9", isDarkTheme ? errorContainer : shiftTone(error, brightInkTone));
         putColor(properties, "color10", shiftTone(tertiary, isDarkTheme ? 88 : 28));
         putColor(properties, "color11", shiftTone(primary, isDarkTheme ? 88 : 28));
-        putColor(properties, "color12", primaryContainer);
-        putColor(properties, "color13", secondaryContainer);
+        putColor(properties, "color12", isDarkTheme ? primaryContainer : shiftTone(primary, brightInkTone));
+        putColor(properties, "color13", isDarkTheme ? secondaryContainer : shiftTone(secondary, brightInkTone));
         putColor(properties, "color14", shiftTone(tertiaryContainer, isDarkTheme ? 92 : 24));
         putColor(properties, "color15", onSurface);
         return properties;
@@ -105,7 +137,7 @@ public final class MaterialYouTerminalColors {
 
     @NonNull
     private static String toTerminalColor(int color) {
-        return String.format(Locale.US, "#%02x%02x%02x", Color.red(color), Color.green(color), Color.blue(color));
+        return String.format(Locale.US, "#%02x%02x%02x", (color >> 16) & 0xFF, (color >> 8) & 0xFF, color & 0xFF);
     }
 
 }
