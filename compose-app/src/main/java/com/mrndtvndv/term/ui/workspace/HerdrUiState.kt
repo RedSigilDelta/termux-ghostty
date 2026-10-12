@@ -6,4 +6,5 @@ data class HerdrUiState(
     val workspaces: List<HerdrWorkspaceResolver.HerdrWorkspaceNode> = emptyList(),
     val isLoading: Boolean = false,
     val error: String? = null,
+    val collapsedWorkspaceIds: Set<String> = emptySet(),
 )

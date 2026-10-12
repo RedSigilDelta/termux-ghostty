@@ -55,6 +55,7 @@ class HerdrBinding(
     val onFocusTab: (HerdrWorkspaceResolver.HerdrTabNode) -> Unit,
     val onFocusPane: (HerdrWorkspaceResolver.HerdrPaneNode) -> Unit,
     val onClosePane: (HerdrWorkspaceResolver.HerdrPaneNode) -> Unit,
+    val onToggleWorkspace: (String) -> Unit,
 )
 
 @Composable
@@ -152,6 +153,8 @@ private fun TerminalFabs(
                 onFocusTab = herdr.onFocusTab,
                 onFocusPane = herdr.onFocusPane,
                 onClosePane = herdr.onClosePane,
+                collapsedWorkspaceIds = herdr.state.collapsedWorkspaceIds,
+                onToggleWorkspace = herdr.onToggleWorkspace,
                 fabOpacity = settings.herdrAgentFabOpacity
             )
         }

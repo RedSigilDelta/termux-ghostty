@@ -44,7 +44,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -85,11 +84,12 @@ fun HerdrAgentButton(
     onFocusTab: (HerdrTabNode) -> Unit,
     onFocusPane: (HerdrPaneNode) -> Unit,
     onClosePane: (HerdrPaneNode) -> Unit = {},
+    collapsedWorkspaceIds: Set<String> = emptySet(),
+    onToggleWorkspace: (String) -> Unit = {},
     fabOpacity: Float = 0.7f,
     modifier: Modifier = Modifier,
 ) {
     var showAgents by remember { mutableStateOf(false) }
-    val expandedWorkspaceIds = remember { mutableStateMapOf<String, Boolean>() }
     val sheetState = rememberBottomSheetState(
         initialValue = SheetValue.Hidden,
         enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
@@ -173,14 +173,12 @@ fun HerdrAgentButton(
                         }
                         LazyColumn(modifier = Modifier.fillMaxWidth()) {
                             workspaces.forEach { workspace ->
-                                val isExpanded = expandedWorkspaceIds[workspace.workspaceId] ?: true
+                                val isExpanded = workspace.workspaceId !in collapsedWorkspaceIds
                                 item(key = "workspace:${workspace.workspaceId}") {
                                     WorkspaceListItem(
                                         workspace = workspace,
                                         isExpanded = isExpanded,
-                                        onClick = {
-                                            expandedWorkspaceIds[workspace.workspaceId] = !isExpanded
-                                        },
+                                        onClick = { onToggleWorkspace(workspace.workspaceId) },
                                     )
                                 }
                                 if (isExpanded) {

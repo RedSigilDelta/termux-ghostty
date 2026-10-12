@@ -3,8 +3,10 @@ package com.mrndtvndv.term
 import android.content.Context
 import com.mrndtvndv.term.data.prefs.AppPreferences
 import com.mrndtvndv.term.data.prefs.CustomFontStore
+import com.mrndtvndv.term.data.prefs.HerdrCollapseStore
 import com.mrndtvndv.term.data.prefs.LastSessionStore
 import com.mrndtvndv.term.server.AppSessionManager
+import com.mrndtvndv.term.server.HerdrWorkspaceCache
 import com.termux.shared.termux.settings.preferences.TermuxAppSharedPreferences
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -25,7 +27,13 @@ class AppContainer(context: Context) {
 
     val fontStore = CustomFontStore(appContext)
 
-    val lastSessionStore = LastSessionStore(appContext.getSharedPreferences("ssh_prefs", Context.MODE_PRIVATE))
+    private val sshPrefs = appContext.getSharedPreferences("ssh_prefs", Context.MODE_PRIVATE)
+
+    val lastSessionStore = LastSessionStore(sshPrefs)
+
+    val herdrCollapseStore = HerdrCollapseStore(sshPrefs)
+
+    val herdrWorkspaceCache = HerdrWorkspaceCache()
 
     init {
         CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate).launch {

@@ -62,7 +62,12 @@ fun WorkspaceRoute(
     val sessionManager = container.sessionManager
     val store = appViewModel.connectionStore(serverId)
     val workspaceViewModel = viewModel(viewModelStoreOwner = store) {
-        WorkspaceViewModel(serverId, sessionManager)
+        WorkspaceViewModel(
+            serverId = serverId,
+            sessionManager = sessionManager,
+            collapseStore = container.herdrCollapseStore,
+            workspaceCache = container.herdrWorkspaceCache,
+        )
     }
     val reviewViewModel = if (WorkspaceTab.Review in workspace.tabs) reviewViewModel(server, store) else null
     val sftpViewModel = if (WorkspaceTab.Sftp in workspace.tabs) sftpViewModel(server, store, sessionManager) else null
@@ -155,6 +160,7 @@ private fun WorkspaceViewModel.herdrBinding(state: HerdrUiState) = HerdrBinding(
     onFocusTab = ::focusTab,
     onFocusPane = ::focusPane,
     onClosePane = ::closePane,
+    onToggleWorkspace = ::toggleWorkspace,
 )
 
 private fun TerminalHostCallbacks.paneCallbacks(

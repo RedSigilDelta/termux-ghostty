@@ -2,7 +2,9 @@ package com.mrndtvndv.term.ui.workspace
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.mrndtvndv.term.data.prefs.HerdrCollapseStore
 import com.mrndtvndv.term.server.AppSessionManagerAccess
+import com.mrndtvndv.term.server.HerdrWorkspaceCache
 import com.mrndtvndv.term.server.HerdrWorkspaceResolver
 import com.mrndtvndv.term.server.herdrResolver
 import com.termux.terminal.TerminalSession
@@ -11,19 +13,37 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 class WorkspaceViewModel(
     private val serverId: String,
     private val sessionManager: AppSessionManagerAccess,
+    private val collapseStore: HerdrCollapseStore,
+    private val workspaceCache: HerdrWorkspaceCache,
 ) : ViewModel() {
 
     private val coordinator get() = sessionManager.coordinator
 
-    private val _herdrState = MutableStateFlow(HerdrUiState())
+    // Seeded from the process-scoped cache and prefs so a reopened sheet paints before the refresh lands.
+    private val _herdrState = MutableStateFlow(
+        HerdrUiState(
+            workspaces = workspaceCache.get(serverId),
+            collapsedWorkspaceIds = collapseStore.load(serverId),
+        ),
+    )
     val herdrState: StateFlow<HerdrUiState> = _herdrState.asStateFlow()
     private var herdrRefreshJob: Job? = null
+
+    init {
+        viewModelScope.launch {
+            _herdrState.map { it.workspaces }
+                .distinctUntilChanged()
+                .collect { workspaceCache.put(serverId, it) }
+        }
+    }
 
     fun observeTerminalProgress(session: TerminalSession) = sessionManager.observeTerminalProgress(session)
 
@@ -58,6 +78,14 @@ class WorkspaceViewModel(
                     },
                 )
         }
+    }
+
+    fun toggleWorkspace(workspaceId: String) {
+        val collapsed = _herdrState.value.collapsedWorkspaceIds.let { ids ->
+            if (workspaceId in ids) ids - workspaceId else ids + workspaceId
+        }
+        _herdrState.update { it.copy(collapsedWorkspaceIds = collapsed) }
+        collapseStore.save(serverId, collapsed)
     }
 
     fun focusTab(tab: HerdrWorkspaceResolver.HerdrTabNode) {
