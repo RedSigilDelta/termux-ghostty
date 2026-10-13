@@ -21,10 +21,8 @@ import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.WindowManager;
-import android.widget.HorizontalScrollView;
 import android.widget.ImageButton;
 import android.widget.LinearLayout;
-import android.widget.ListView;
 import android.widget.RelativeLayout;
 import android.widget.Toast;
 
@@ -32,7 +30,6 @@ import com.google.android.material.color.DynamicColors;
 import com.termux.R;
 import com.termux.app.api.file.FileReceiverActivity;
 import com.termux.app.settings.ConfigErrorsDialogKt;
-import com.termux.app.settings.TabBarAlign;
 import com.termux.app.settings.TabBarPosition;
 import com.termux.app.settings.TermuxSettings;
 import com.termux.app.settings.TermuxSettingsRepository;
@@ -51,8 +48,8 @@ import com.termux.app.activities.HelpActivity;
 import com.termux.app.activities.SettingsActivity;
 import com.termux.shared.termux.crash.TermuxCrashUtils;
 import com.termux.shared.termux.settings.preferences.TermuxAppSharedPreferences;
-import com.termux.app.terminal.SessionTabStripController;
-import com.termux.app.terminal.TermuxSessionsListViewController;
+import com.termux.app.terminal.SessionsUiKt;
+import com.termux.app.terminal.SessionsUiState;
 import com.termux.app.terminal.io.TerminalToolbarKt;
 import com.termux.app.terminal.io.TerminalToolbarState;
 import com.termux.app.terminal.TermuxTerminalViewClient;
@@ -139,14 +136,9 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
     TermuxTerminalExtraKeys mTermuxTerminalExtraKeys;
 
     /**
-     * The termux sessions list controller.
+     * The state of the session drawer list and the session tab strip.
      */
-    TermuxSessionsListViewController mTermuxSessionListViewController;
-
-    /**
-     * The session tab strip controller for the tabs view mode.
-     */
-    SessionTabStripController mSessionTabStripController;
+    SessionsUiState mSessionsUiState;
 
     /**
      * Whether session tabs mode is enabled via termux.toml.
@@ -261,6 +253,8 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         setTermuxTerminalViewAndClients();
 
         setTerminalToolbarView(savedInstanceState);
+
+        mSessionsUiState = new SessionsUiState();
 
         setSettingsButtonView();
 
@@ -673,51 +667,49 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
     }
 
     private void setTermuxSessionsListView() {
-        ListView termuxSessionsListView = findViewById(R.id.terminal_sessions_list);
-        mTermuxSessionListViewController = new TermuxSessionsListViewController(this, mTermuxService.getTermuxSessions());
-        termuxSessionsListView.setAdapter(mTermuxSessionListViewController);
-        termuxSessionsListView.setOnItemClickListener(mTermuxSessionListViewController);
-        termuxSessionsListView.setOnItemLongClickListener(mTermuxSessionListViewController);
+        ComposeView termuxSessionsListView = findViewById(R.id.terminal_sessions_list);
+        SessionsUiKt.bindSessionDrawerList(termuxSessionsListView, mSessionsUiState, (session, longPress) -> {
+            if (longPress) {
+                mTermuxTerminalSessionActivityClient.renameSession(session);
+            } else {
+                mTermuxTerminalSessionActivityClient.setCurrentSession(session);
+                getDrawer().closeDrawers();
+            }
+        });
     }
 
     private void setSessionTabStripView() {
         mUseSessionTabs = getSettings().getUseSessionTabs();
 
-        HorizontalScrollView tabScrollView = findViewById(R.id.session_tab_strip_scroll);
-        LinearLayout tabStrip = findViewById(R.id.session_tab_strip);
+        ComposeView tabStripView = findViewById(R.id.session_tab_strip);
 
         if (mUseSessionTabs) {
             LinearLayout contentLayout = findViewById(R.id.activity_termux_content_layout);
-            if (contentLayout != null && tabScrollView != null) {
-                contentLayout.removeView(tabScrollView);
+            if (contentLayout != null && tabStripView != null) {
+                contentLayout.removeView(tabStripView);
                 if (getSettings().getSessionTabBarPosition() == TabBarPosition.TOP) {
-                    contentLayout.addView(tabScrollView, 0);
+                    contentLayout.addView(tabStripView, 0);
                 } else {
                     // default is bottom
-                    contentLayout.addView(tabScrollView, 1);
+                    contentLayout.addView(tabStripView, 1);
                 }
             }
 
-            if (tabScrollView != null && tabStrip != null) {
-                if (getSettings().getSessionTabBarAlign() == TabBarAlign.RIGHT) {
-                    tabScrollView.setFillViewport(true);
-                    tabStrip.setGravity(Gravity.RIGHT | Gravity.CENTER_VERTICAL);
-                } else if (getSettings().getSessionTabBarAlign() == TabBarAlign.CENTER) {
-                    tabScrollView.setFillViewport(true);
-                    tabStrip.setGravity(Gravity.CENTER);
-                } else {
-                    // default is left
-                    tabScrollView.setFillViewport(false);
-                    tabStrip.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL);
-                }
+            if (tabStripView != null) {
+                tabStripView.setVisibility(View.VISIBLE);
+                SessionsUiKt.bindSessionTabStrip(tabStripView, mSessionsUiState, getSettings().getSessionTabBarAlign(),
+                    (session, longPress) -> {
+                        if (longPress) {
+                            mTermuxTerminalSessionActivityClient.renameSession(session);
+                        } else {
+                            mTermuxTerminalSessionActivityClient.setCurrentSession(session);
+                        }
+                    },
+                    failsafe -> mTermuxTerminalSessionActivityClient.addNewSession(failsafe, null));
             }
-
-            mSessionTabStripController = new SessionTabStripController(this, tabStrip, tabScrollView);
-            mSessionTabStripController.setVisible(true);
-            mSessionTabStripController.notifyDataSetChanged();
         } else {
-            if (tabScrollView != null) {
-                tabScrollView.setVisibility(View.GONE);
+            if (tabStripView != null) {
+                tabStripView.setVisibility(View.GONE);
             }
         }
     }
@@ -1057,21 +1049,16 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
 
     public void termuxSessionListNotifyUpdated() {
-        if (mTermuxSessionListViewController != null) mTermuxSessionListViewController.notifyDataSetChanged();
-        if (mSessionTabStripController != null) {
-            mSessionTabStripController.notifyDataSetChanged();
-        }
+        if (mTermuxService != null) mSessionsUiState.refresh(mTermuxService.getTermuxSessions(), getCurrentSession());
     }
 
     /** Call when only the current session changes (no structural changes). */
     public void onCurrentSessionChanged() {
-        if (mSessionTabStripController != null) {
-            mSessionTabStripController.onSessionChanged();
-        }
+        if (mTermuxService != null) mSessionsUiState.refresh(mTermuxService.getTermuxSessions(), getCurrentSession());
     }
 
-    public SessionTabStripController getSessionTabStripController() {
-        return mSessionTabStripController;
+    public SessionsUiState getSessionsUiState() {
+        return mSessionsUiState;
     }
 
     public boolean isVisible() {

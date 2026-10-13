@@ -8,7 +8,6 @@ import android.content.pm.PackageManager;
 import android.media.AudioAttributes;
 import android.media.SoundPool;
 import android.text.TextUtils;
-import android.widget.ListView;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -40,9 +39,6 @@ public class TermuxTerminalSessionActivityClient extends TermuxTerminalSessionCl
     private final TermuxActivity mActivity;
 
     private static final int MAX_SESSIONS = TermuxConstants.TERMUX_APP_MAX_TERMINAL_SESSIONS;
-
-    /** Drawer scroll delay; the target index is resolved when the scroll runs. */
-    private static final long SESSION_LIST_SCROLL_DELAY_MILLIS = 1000;
 
     private SoundPool mBellSoundPool;
 
@@ -532,23 +528,9 @@ public class TermuxTerminalSessionActivityClient extends TermuxTerminalSessionCl
         TermuxService service = mActivity.getTermuxService();
         if (service == null) return;
 
-        final int indexOfSession = service.getIndexOfSession(session);
-        if (indexOfSession < 0) return;
-        final ListView termuxSessionsListView = mActivity.findViewById(R.id.terminal_sessions_list);
-        if (termuxSessionsListView == null) return;
-
-        termuxSessionsListView.setItemChecked(indexOfSession, true);
-        // Delay is necessary otherwise sometimes scroll to newly added session does not happen.
-        // The index is re-resolved when the scroll runs: sessions may be added or
-        // removed during the delay, and the adapter is backed by the live session list.
-        termuxSessionsListView.postDelayed(() -> {
-            TermuxService currentService = mActivity.getTermuxService();
-            if (currentService == null) return;
-            int currentIndex = currentService.getIndexOfSession(session);
-            if (currentIndex < 0) return;
-            termuxSessionsListView.setItemChecked(currentIndex, true);
-            termuxSessionsListView.smoothScrollToPosition(currentIndex);
-        }, SESSION_LIST_SCROLL_DELAY_MILLIS);
+        if (service.getIndexOfSession(session) < 0) return;
+        mActivity.getSessionsUiState().refresh(service.getTermuxSessions(), session);
+        mActivity.getSessionsUiState().requestScrollToCurrent();
     }
 
 
@@ -585,6 +567,7 @@ public class TermuxTerminalSessionActivityClient extends TermuxTerminalSessionCl
         int backgroundColor = TermuxTerminalStyling.resolveBackgroundColor(mActivity.getCurrentSession());
         mActivity.getWindow().getDecorView().setBackgroundColor(backgroundColor);
         mActivity.getTerminalToolbarState().setBackgroundColor(backgroundColor);
+        mActivity.getSessionsUiState().setBackgroundColor(backgroundColor);
     }
 
 }
