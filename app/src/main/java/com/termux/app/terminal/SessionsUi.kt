@@ -14,7 +14,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
@@ -25,7 +24,6 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.termux.app.settings.TabBarAlign
-import com.termux.app.ui.TermuxTheme
 import com.termux.shared.termux.shell.command.runner.terminal.TermuxSession
 import com.termux.terminal.TerminalSession
 
@@ -65,24 +63,6 @@ class SessionsUiState {
 
     fun requestScrollToCurrent() {
         scrollRequest++
-    }
-}
-
-fun bindSessionDrawerList(view: ComposeView, state: SessionsUiState, listener: SessionListener) {
-    view.setContent {
-        TermuxTheme { SessionDrawerList(state, listener) }
-    }
-}
-
-fun bindSessionTabStrip(
-    view: ComposeView,
-    state: SessionsUiState,
-    align: TabBarAlign,
-    listener: SessionListener,
-    newListener: NewSessionListener,
-) {
-    view.setContent {
-        TermuxTheme { SessionTabStrip(state, align, listener, newListener) }
     }
 }
 

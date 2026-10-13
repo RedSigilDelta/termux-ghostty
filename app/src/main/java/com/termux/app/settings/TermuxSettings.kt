@@ -136,7 +136,6 @@ data class TermuxSettings(
     @SerialName("unconditional-soft-keyboard-on-tap") val unconditionalSoftKeyboardOnTap: Boolean = true,
     @SerialName("ctrl-space-workaround") val ctrlSpaceWorkaround: Boolean = false,
     @SerialName("fullscreen") val fullscreen: Boolean = false,
-    @SerialName("use-fullscreen-workaround") val useFullscreenWorkaround: Boolean = false,
     @SerialName("use-session-tabs") val useSessionTabs: Boolean = false,
     @SerialName("bell-character") val bellBehaviour: BellBehaviour = BellBehaviour.VIBRATE,
     @SerialName("delete-tmpdir-files-older-than-x-days-on-exit") val deleteTmpdirFilesOlderThanXDaysOnExit: Int = 3,

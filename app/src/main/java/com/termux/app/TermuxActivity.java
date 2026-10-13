@@ -1,6 +1,5 @@
 package com.termux.app;
 
-import android.annotation.SuppressLint;
 import android.app.AlertDialog;
 import android.app.WallpaperManager;
 import android.content.ActivityNotFoundException;
@@ -21,19 +20,13 @@ import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.WindowManager;
-import android.widget.ImageButton;
-import android.widget.LinearLayout;
-import android.widget.RelativeLayout;
 import android.widget.Toast;
 
 import com.google.android.material.color.DynamicColors;
 import com.termux.R;
 import com.termux.app.api.file.FileReceiverActivity;
-import com.termux.app.settings.ConfigErrorsDialogKt;
-import com.termux.app.settings.TabBarPosition;
 import com.termux.app.settings.TermuxSettings;
 import com.termux.app.settings.TermuxSettingsRepository;
-import com.termux.app.terminal.TermuxActivityRootView;
 import com.termux.app.terminal.TermuxTerminalSessionActivityClient;
 import com.termux.app.terminal.io.TermuxTerminalExtraKeys;
 import com.termux.shared.activities.ReportActivity;
@@ -48,9 +41,7 @@ import com.termux.app.activities.HelpActivity;
 import com.termux.app.activities.SettingsActivity;
 import com.termux.shared.termux.crash.TermuxCrashUtils;
 import com.termux.shared.termux.settings.preferences.TermuxAppSharedPreferences;
-import com.termux.app.terminal.SessionsUiKt;
 import com.termux.app.terminal.SessionsUiState;
-import com.termux.app.terminal.io.TerminalToolbarKt;
 import com.termux.app.terminal.io.TerminalToolbarState;
 import com.termux.app.terminal.TermuxTerminalViewClient;
 import com.termux.shared.termux.interact.TextInputDialogUtils;
@@ -58,7 +49,6 @@ import com.termux.shared.logger.Logger;
 import com.termux.shared.termux.TermuxUtils;
 import com.termux.shared.termux.terminal.TermuxTerminalStyling;
 import com.termux.shared.termux.theme.TermuxThemeUtils;
-import com.termux.shared.view.ViewUtils;
 import com.termux.terminal.TerminalSession;
 import com.termux.terminal.TerminalSessionClient;
 import com.termux.terminal.compose.ModifierKeyReader;
@@ -67,8 +57,10 @@ import com.termux.terminal.compose.TerminalComposeView;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.activity.EdgeToEdge;
 import androidx.compose.ui.platform.ComposeView;
-import androidx.drawerlayout.widget.DrawerLayout;
+import androidx.core.view.WindowInsetsCompat;
+import androidx.core.view.WindowInsetsControllerCompat;
 
 import java.util.Arrays;
 
@@ -116,16 +108,6 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
     private TermuxAppSharedPreferences mPreferences;
 
     /**
-     * The root view of the {@link TermuxActivity}.
-     */
-    TermuxActivityRootView mTermuxActivityRootView;
-
-    /**
-     * The space at the bottom of {@link @mTermuxActivityRootView} of the {@link TermuxActivity}.
-     */
-    View mTermuxActivityBottomSpaceView;
-
-    /**
      * The state of the Compose terminal toolbar.
      */
     TerminalToolbarState mTerminalToolbarState;
@@ -141,9 +123,9 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
     SessionsUiState mSessionsUiState;
 
     /**
-     * Whether session tabs mode is enabled via termux.toml.
+     * The state of the Compose root: drawer, session tabs and terminal margins.
      */
-    boolean mUseSessionTabs;
+    TermuxScreenState mScreenState;
 
     /**
      * The {@link TermuxActivity} broadcast receiver for various things like terminal style configuration changes.
@@ -177,8 +159,6 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
      * The {@link TermuxActivity} is in an invalid state and must not be run.
      */
     private boolean mIsInvalidState;
-
-    private int mNavBarHeight;
 
     private int mLastMaterialYouWallpaperId;
 
@@ -220,9 +200,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         applyMaterialYouThemeOverlay();
 
         super.onCreate(savedInstanceState);
-
-        setContentView(R.layout.activity_termux);
-        ConfigErrorsDialogKt.attachConfigErrorsDialog(this);
+        EdgeToEdge.enable(this);
 
         // Load termux shared preferences
         // This will also fail if TermuxConstants.TERMUX_PACKAGE_NAME does not equal applicationId
@@ -233,21 +211,10 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
             return;
         }
 
-        setMargins();
-
-        mTermuxActivityRootView = findViewById(R.id.activity_termux_root_view);
-        mTermuxActivityRootView.setActivity(this);
-        mTermuxActivityBottomSpaceView = findViewById(R.id.activity_termux_bottom_space_view);
-        mTermuxActivityRootView.setOnApplyWindowInsetsListener(new TermuxActivityRootView.WindowInsetsListener());
-
-        View content = findViewById(android.R.id.content);
-        content.setOnApplyWindowInsetsListener((v, insets) -> {
-            mNavBarHeight = insets.getSystemWindowInsetBottom();
-            return insets;
-        });
-
         if (getSettings().getFullscreen()) {
-            getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+            WindowInsetsControllerCompat insetsController = new WindowInsetsControllerCompat(getWindow(), getWindow().getDecorView());
+            insetsController.setSystemBarsBehavior(WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+            insetsController.hide(WindowInsetsCompat.Type.systemBars());
         }
 
         setTermuxTerminalViewAndClients();
@@ -256,11 +223,13 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
         mSessionsUiState = new SessionsUiState();
 
-        setSettingsButtonView();
+        TermuxSettings settings = getSettings();
+        mScreenState = new TermuxScreenState(settings.getUseSessionTabs(), settings.getSessionTabBarPosition(),
+            settings.getSessionTabBarAlign(), settings.getTerminalMarginHorizontal(), settings.getTerminalMarginVertical());
 
-        setNewSessionButtonView();
-
-        setToggleKeyboardView();
+        ComposeView root = new ComposeView(this);
+        setContentView(root);
+        TermuxScreenKt.bindTermuxScreen(root, mScreenState, mTerminalView, mTerminalToolbarState, mSessionsUiState, new ScreenActions());
 
         registerForContextMenu(mTerminalView);
 
@@ -305,9 +274,6 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
         if (mTermuxTerminalViewClient != null)
             mTermuxTerminalViewClient.onStart();
-
-        if (mPreferences.isTerminalMarginAdjustmentEnabled())
-            addTermuxActivityRootViewGlobalLayoutListener();
 
         registerTermuxActivityBroadcastReceiver();
     }
@@ -367,10 +333,8 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         if (mTermuxTerminalViewClient != null)
             mTermuxTerminalViewClient.onStop();
 
-        removeTermuxActivityRootViewGlobalLayoutListener();
-
         unregisterTermuxActivityBroadcastReceiver();
-        getDrawer().closeDrawers();
+        mScreenState.closeDrawer();
     }
 
     @Override
@@ -423,9 +387,6 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         Logger.logDebug(LOG_TAG, "onServiceConnected");
 
         mTermuxService = ((TermuxService.LocalBinder) service).service;
-
-        setTermuxSessionsListView();
-        setSessionTabStripView();
 
         final Intent intent = getIntent();
         setIntent(null);
@@ -527,22 +488,8 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
     }
 
     private void setMargins() {
-        RelativeLayout relativeLayout = findViewById(R.id.activity_termux_root_relative_layout);
-        int marginHorizontal = getSettings().getTerminalMarginHorizontal();
-        int marginVertical = getSettings().getTerminalMarginVertical();
-        ViewUtils.setLayoutMarginsInDp(relativeLayout, marginHorizontal, marginVertical, marginHorizontal, marginVertical);
-    }
-
-
-
-    public void addTermuxActivityRootViewGlobalLayoutListener() {
-        if (getTermuxActivityRootView() == null) return;
-        getTermuxActivityRootView().setTerminalMarginAdjustmentEnabled(true);
-    }
-
-    public void removeTermuxActivityRootViewGlobalLayoutListener() {
-        if (getTermuxActivityRootView() == null) return;
-        getTermuxActivityRootView().setTerminalMarginAdjustmentEnabled(false);
+        mScreenState.setMarginHorizontal(getSettings().getTerminalMarginHorizontal());
+        mScreenState.setMarginVertical(getSettings().getTerminalMarginVertical());
     }
 
 
@@ -553,7 +500,9 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         mTermuxTerminalViewClient = new TermuxTerminalViewClient(this, mTermuxTerminalSessionActivityClient);
 
         // Set termux terminal view
-        mTerminalView = findViewById(R.id.terminal_view);
+        mTerminalView = new TerminalComposeView(this);
+        mTerminalView.setFocusableInTouchMode(true);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) mTerminalView.setDefaultFocusHighlightEnabled(false);
         mTerminalView.setListener(new TerminalComposeView.Listener() {
             @Override
             public void onSelectionChanged(String selectedText, boolean selecting) {
@@ -666,56 +615,6 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
             mTermuxTerminalSessionActivityClient.onCreate();
     }
 
-    private void setTermuxSessionsListView() {
-        ComposeView termuxSessionsListView = findViewById(R.id.terminal_sessions_list);
-        SessionsUiKt.bindSessionDrawerList(termuxSessionsListView, mSessionsUiState, (session, longPress) -> {
-            if (longPress) {
-                mTermuxTerminalSessionActivityClient.renameSession(session);
-            } else {
-                mTermuxTerminalSessionActivityClient.setCurrentSession(session);
-                getDrawer().closeDrawers();
-            }
-        });
-    }
-
-    private void setSessionTabStripView() {
-        mUseSessionTabs = getSettings().getUseSessionTabs();
-
-        ComposeView tabStripView = findViewById(R.id.session_tab_strip);
-
-        if (mUseSessionTabs) {
-            LinearLayout contentLayout = findViewById(R.id.activity_termux_content_layout);
-            if (contentLayout != null && tabStripView != null) {
-                contentLayout.removeView(tabStripView);
-                if (getSettings().getSessionTabBarPosition() == TabBarPosition.TOP) {
-                    contentLayout.addView(tabStripView, 0);
-                } else {
-                    // default is bottom
-                    contentLayout.addView(tabStripView, 1);
-                }
-            }
-
-            if (tabStripView != null) {
-                tabStripView.setVisibility(View.VISIBLE);
-                SessionsUiKt.bindSessionTabStrip(tabStripView, mSessionsUiState, getSettings().getSessionTabBarAlign(),
-                    (session, longPress) -> {
-                        if (longPress) {
-                            mTermuxTerminalSessionActivityClient.renameSession(session);
-                        } else {
-                            mTermuxTerminalSessionActivityClient.setCurrentSession(session);
-                        }
-                    },
-                    failsafe -> mTermuxTerminalSessionActivityClient.addNewSession(failsafe, null));
-            }
-        } else {
-            if (tabStripView != null) {
-                tabStripView.setVisibility(View.GONE);
-            }
-        }
-    }
-
-
-
     private void setTerminalToolbarView(Bundle savedInstanceState) {
         mTermuxTerminalExtraKeys = new TermuxTerminalExtraKeys(this, mTerminalView,
             mTermuxTerminalViewClient, mTermuxTerminalSessionActivityClient);
@@ -730,14 +629,6 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
             String savedTextInput = savedInstanceState.getString(ARG_TERMINAL_TOOLBAR_TEXT_INPUT);
             if (savedTextInput != null) mTerminalToolbarState.setTextInput(savedTextInput);
         }
-
-        ComposeView terminalToolbarView = findViewById(R.id.terminal_toolbar);
-        TerminalToolbarKt.bindTerminalToolbar(terminalToolbarView, mTerminalToolbarState,
-            () -> getCurrentSession(),
-            (key, ctrl, alt, shift, fn) -> mTermuxTerminalExtraKeys.onTerminalExtraKeyButtonClick(null, key, ctrl, alt, shift, fn),
-            () -> mTermuxTerminalViewClient.onToggleSoftKeyboardRequest(),
-            this::sendTerminalToolbarText,
-            () -> mTerminalView.requestFocus());
     }
 
     private void sendTerminalToolbarText(String text) {
@@ -772,46 +663,76 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
 
 
-    private void setSettingsButtonView() {
-        ImageButton settingsButton = findViewById(R.id.settings_button);
-        settingsButton.setOnClickListener(v -> {
-            ActivityUtils.startActivity(this, new Intent(this, SettingsActivity.class));
-        });
-    }
+    private final class ScreenActions implements TermuxScreenActions {
 
-    private void setNewSessionButtonView() {
-        View newSessionButton = findViewById(R.id.new_session_button);
-        newSessionButton.setOnClickListener(v -> mTermuxTerminalSessionActivityClient.addNewSession(false, null));
-        newSessionButton.setOnLongClickListener(v -> {
+        @Override
+        public void openSettings() {
+            ActivityUtils.startActivity(TermuxActivity.this, new Intent(TermuxActivity.this, SettingsActivity.class));
+        }
+
+        @Override
+        public void toggleSoftKeyboard() {
+            mTermuxTerminalViewClient.onToggleSoftKeyboardRequest();
+        }
+
+        @Override
+        public void toggleTerminalToolbar() {
+            TermuxActivity.this.toggleTerminalToolbar();
+        }
+
+        @Override
+        public void newSession(boolean failsafe) {
+            mTermuxTerminalSessionActivityClient.addNewSession(failsafe, null);
+        }
+
+        @Override
+        public void showNewNamedSessionDialog() {
             TextInputDialogUtils.textInput(TermuxActivity.this, R.string.title_create_named_session, null,
                 R.string.action_create_named_session_confirm, text -> mTermuxTerminalSessionActivityClient.addNewSession(false, text),
                 R.string.action_new_session_failsafe, text -> mTermuxTerminalSessionActivityClient.addNewSession(true, text),
                 -1, null, null);
-            return true;
-        });
+        }
+
+        @Override
+        public void onSessionEvent(TerminalSession session, boolean longPress) {
+            if (longPress) {
+                mTermuxTerminalSessionActivityClient.renameSession(session);
+            } else {
+                mTermuxTerminalSessionActivityClient.setCurrentSession(session);
+                mScreenState.closeDrawer();
+            }
+        }
+
+        @Nullable
+        @Override
+        public TerminalSession currentSession() {
+            return getCurrentSession();
+        }
+
+        @Override
+        public void onExtraKey(String key, boolean ctrl, boolean alt, boolean shift, boolean fn) {
+            mTermuxTerminalExtraKeys.onTerminalExtraKeyButtonClick(null, key, ctrl, alt, shift, fn);
+        }
+
+        @Override
+        public void sendText(String text) {
+            sendTerminalToolbarText(text);
+        }
+
+        @Override
+        public void onKeysPageSelected() {
+            mTerminalView.requestFocus();
+        }
     }
 
-    private void setToggleKeyboardView() {
-        findViewById(R.id.toggle_keyboard_button).setOnClickListener(v -> {
-            mTermuxTerminalViewClient.onToggleSoftKeyboardRequest();
-            getDrawer().closeDrawers();
-        });
-
-        findViewById(R.id.toggle_keyboard_button).setOnLongClickListener(v -> {
-            toggleTerminalToolbar();
-            return true;
-        });
-    }
 
 
 
 
-
-    @SuppressLint("RtlHardcoded")
     @Override
     public void onBackPressed() {
-        if (getDrawer().isDrawerOpen(Gravity.LEFT)) {
-            getDrawer().closeDrawers();
+        if (mScreenState != null && mScreenState.isDrawerOpen()) {
+            mScreenState.closeDrawer();
         } else {
             finishActivityIfNotFinishing();
         }
@@ -1018,24 +939,12 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
 
 
-    public int getNavBarHeight() {
-        return mNavBarHeight;
-    }
-
-    public TermuxActivityRootView getTermuxActivityRootView() {
-        return mTermuxActivityRootView;
-    }
-
-    public View getTermuxActivityBottomSpaceView() {
-        return mTermuxActivityBottomSpaceView;
-    }
-
     public TermuxTerminalExtraKeys getTermuxTerminalExtraKeys() {
         return mTermuxTerminalExtraKeys;
     }
 
-    public DrawerLayout getDrawer() {
-        return (DrawerLayout) findViewById(R.id.drawer_layout);
+    public TermuxScreenState getScreenState() {
+        return mScreenState;
     }
 
 
@@ -1199,7 +1108,9 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
             getSettings().getNightMode().getValue(), getSettings().getMaterialYouTheme().getValue()));
 
         setMargins();
-        setSessionTabStripView();
+        mScreenState.setUseSessionTabs(getSettings().getUseSessionTabs());
+        mScreenState.setTabBarPosition(getSettings().getSessionTabBarPosition());
+        mScreenState.setTabBarAlign(getSettings().getSessionTabBarAlign());
 
         FileReceiverActivity.updateFileReceiverActivityComponentsState(this);
 

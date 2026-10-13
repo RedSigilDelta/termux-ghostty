@@ -84,16 +84,6 @@ public class TermuxAppSharedPreferences extends AppSharedPreferences {
 
 
 
-    public boolean isTerminalMarginAdjustmentEnabled() {
-        return SharedPreferenceUtils.getBoolean(mSharedPreferences, TERMUX_APP.KEY_TERMINAL_MARGIN_ADJUSTMENT, TERMUX_APP.DEFAULT_TERMINAL_MARGIN_ADJUSTMENT);
-    }
-
-    public void setTerminalMarginAdjustment(boolean value) {
-        SharedPreferenceUtils.setBoolean(mSharedPreferences, TERMUX_APP.KEY_TERMINAL_MARGIN_ADJUSTMENT, value, false);
-    }
-
-
-
     public boolean isSoftKeyboardEnabled() {
         return SharedPreferenceUtils.getBoolean(mSharedPreferences, TERMUX_APP.KEY_SOFT_KEYBOARD_ENABLED, TERMUX_APP.DEFAULT_VALUE_KEY_SOFT_KEYBOARD_ENABLED);
     }
@@ -130,28 +120,6 @@ public class TermuxAppSharedPreferences extends AppSharedPreferences {
         if (TERMUX_APP.VALUE_LAST_SOFT_KEYBOARD_STATE_VISIBLE.equals(value)) return value;
         if (TERMUX_APP.VALUE_LAST_SOFT_KEYBOARD_STATE_HIDDEN.equals(value)) return value;
         return TERMUX_APP.VALUE_LAST_SOFT_KEYBOARD_STATE_UNKNOWN;
-    }
-
-    public int getLastSoftKeyboardHeightPortrait() {
-        return SharedPreferenceUtils.getInt(mSharedPreferences,
-            TERMUX_APP.KEY_LAST_SOFT_KEYBOARD_HEIGHT_PORTRAIT,
-            TERMUX_APP.DEFAULT_VALUE_KEY_LAST_SOFT_KEYBOARD_HEIGHT_PORTRAIT);
-    }
-
-    public void setLastSoftKeyboardHeightPortrait(int value) {
-        SharedPreferenceUtils.setInt(mSharedPreferences, TERMUX_APP.KEY_LAST_SOFT_KEYBOARD_HEIGHT_PORTRAIT,
-            value, false);
-    }
-
-    public int getLastSoftKeyboardHeightLandscape() {
-        return SharedPreferenceUtils.getInt(mSharedPreferences,
-            TERMUX_APP.KEY_LAST_SOFT_KEYBOARD_HEIGHT_LANDSCAPE,
-            TERMUX_APP.DEFAULT_VALUE_KEY_LAST_SOFT_KEYBOARD_HEIGHT_LANDSCAPE);
-    }
-
-    public void setLastSoftKeyboardHeightLandscape(int value) {
-        SharedPreferenceUtils.setInt(mSharedPreferences, TERMUX_APP.KEY_LAST_SOFT_KEYBOARD_HEIGHT_LANDSCAPE,
-            value, false);
     }
 
 

@@ -1,7 +1,5 @@
 package com.termux.app.settings
 
-import android.view.ViewGroup
-import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -14,10 +12,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.res.stringResource
 import com.termux.R
-import com.termux.app.ui.TermuxTheme
 import com.termux.shared.termux.TermuxConstants
 
 @Composable
@@ -42,22 +38,11 @@ fun ConfigErrorsDialog(errors: List<String>, onDismiss: () -> Unit) {
 /** Survives activity recreation so a dismissed list isn't shown again. */
 private var dismissedErrors by mutableStateOf<List<String>>(emptyList())
 
-fun attachConfigErrorsDialog(activity: ComponentActivity) {
-    val view = ComposeView(activity).apply {
-        // The dialog has its own window; keep this host from taking focus from the terminal.
-        descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
-        setContent {
-            val effective by TermuxSettingsRepository.get().effective.collectAsState()
-            val errors = effective.errors
-            TermuxTheme {
-                if (errors.isNotEmpty() && errors != dismissedErrors) {
-                    ConfigErrorsDialog(errors) { dismissedErrors = errors }
-                }
-            }
-        }
+@Composable
+fun ConfigErrorsDialogHost() {
+    val effective by TermuxSettingsRepository.get().effective.collectAsState()
+    val errors = effective.errors
+    if (errors.isNotEmpty() && errors != dismissedErrors) {
+        ConfigErrorsDialog(errors) { dismissedErrors = errors }
     }
-    activity.addContentView(
-        view,
-        ViewGroup.LayoutParams(0, 0),
-    )
 }

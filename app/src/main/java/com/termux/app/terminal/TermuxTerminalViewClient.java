@@ -9,7 +9,6 @@ import android.media.AudioManager;
 import android.os.Build;
 import android.os.Environment;
 import android.text.TextUtils;
-import android.view.Gravity;
 import android.view.InputDevice;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
@@ -57,7 +56,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 
 import androidx.annotation.Nullable;
-import androidx.drawerlayout.widget.DrawerLayout;
 
 public class TermuxTerminalViewClient extends TermuxTerminalClientBase {
 
@@ -111,8 +109,6 @@ public class TermuxTerminalViewClient extends TermuxTerminalClientBase {
         // from the settings activity and returns.
         boolean isTerminalViewKeyLoggingEnabled = mActivity.getPreferences().isTerminalViewKeyLoggingEnabled();
 
-        // Piggyback on the terminal view key logging toggle for now, should add a separate toggle in future
-        mActivity.getTermuxActivityRootView().setIsRootViewLoggingEnabled(isTerminalViewKeyLoggingEnabled);
         ViewUtils.setIsViewUtilsLoggingEnabled(isTerminalViewKeyLoggingEnabled);
     }
 
@@ -285,7 +281,7 @@ public class TermuxTerminalViewClient extends TermuxTerminalClientBase {
     @Override
     public void copyModeChanged(boolean copyMode) {
         // Disable drawer while copying.
-        mActivity.getDrawer().setDrawerLockMode(copyMode ? DrawerLayout.LOCK_MODE_LOCKED_CLOSED : DrawerLayout.LOCK_MODE_UNLOCKED);
+        mActivity.getScreenState().setDrawerLocked(copyMode);
     }
 
 
@@ -308,9 +304,9 @@ public class TermuxTerminalViewClient extends TermuxTerminalClientBase {
             } else if (keyCode == KeyEvent.KEYCODE_DPAD_UP || unicodeChar == 'p' /* previous */) {
                 mTermuxTerminalSessionActivityClient.switchToSession(false);
             } else if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
-                mActivity.getDrawer().openDrawer(Gravity.LEFT);
+                mActivity.getScreenState().openDrawer();
             } else if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
-                mActivity.getDrawer().closeDrawers();
+                mActivity.getScreenState().closeDrawer();
             } else if (unicodeChar == 'k'/* keyboard */) {
                 onToggleSoftKeyboardRequest();
             } else if (unicodeChar == 'm'/* menu */) {

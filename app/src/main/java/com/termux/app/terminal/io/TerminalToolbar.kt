@@ -28,7 +28,6 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.IntOffset
@@ -76,20 +75,6 @@ class TerminalToolbarState(visible: Boolean) {
 
     fun requestTextInputFocus() {
         textInputFocusRequest++
-    }
-}
-
-fun bindTerminalToolbar(
-    view: ComposeView,
-    state: TerminalToolbarState,
-    session: () -> TerminalSession?,
-    onKey: ExtraKeyListener,
-    onToggleKeyboard: Runnable,
-    onSendText: TextInputListener,
-    onKeysPageSelected: Runnable,
-) {
-    view.setContent {
-        TerminalToolbar(state, session, onKey, onToggleKeyboard, onSendText, onKeysPageSelected)
     }
 }
 

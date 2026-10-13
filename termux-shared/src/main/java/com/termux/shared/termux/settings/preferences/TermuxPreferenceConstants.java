@@ -92,15 +92,6 @@ public final class TermuxPreferenceConstants {
     public static final class TERMUX_APP {
 
         /**
-         * Defines the key for whether terminal view margin adjustment that is done to prevent soft
-         * keyboard from covering bottom part of terminal view on some devices is enabled or not.
-         * Margin adjustment may cause screen flickering on some devices and so should be disabled.
-         */
-        public static final String KEY_TERMINAL_MARGIN_ADJUSTMENT =  "terminal_margin_adjustment";
-        public static final boolean DEFAULT_TERMINAL_MARGIN_ADJUSTMENT = true;
-
-
-        /**
          * Defines the key for whether to show terminal toolbar containing extra keys and text input field.
          */
         public static final String KEY_SHOW_TERMINAL_TOOLBAR = "show_extra_keys";
@@ -129,19 +120,6 @@ public final class TermuxPreferenceConstants {
         public static final String VALUE_LAST_SOFT_KEYBOARD_STATE_HIDDEN = "hidden";
         public static final String VALUE_LAST_SOFT_KEYBOARD_STATE_UNKNOWN = "unknown";
         public static final String DEFAULT_VALUE_KEY_LAST_SOFT_KEYBOARD_STATE = VALUE_LAST_SOFT_KEYBOARD_STATE_UNKNOWN;
-
-        /**
-         * Defines the key for the last remembered soft keyboard height in portrait mode.
-         */
-        public static final String KEY_LAST_SOFT_KEYBOARD_HEIGHT_PORTRAIT = "last_soft_keyboard_height_portrait";
-        public static final int DEFAULT_VALUE_KEY_LAST_SOFT_KEYBOARD_HEIGHT_PORTRAIT = 0;
-
-        /**
-         * Defines the key for the last remembered soft keyboard height in landscape mode.
-         */
-        public static final String KEY_LAST_SOFT_KEYBOARD_HEIGHT_LANDSCAPE = "last_soft_keyboard_height_landscape";
-        public static final int DEFAULT_VALUE_KEY_LAST_SOFT_KEYBOARD_HEIGHT_LANDSCAPE = 0;
-
 
         /**
          * Defines the key for whether to always keep screen on.

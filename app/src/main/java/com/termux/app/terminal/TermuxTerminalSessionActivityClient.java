@@ -11,6 +11,8 @@ import android.text.TextUtils;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.core.graphics.ColorUtils;
+import androidx.core.view.WindowInsetsControllerCompat;
 
 import com.termux.R;
 import com.termux.shared.interact.ShareUtils;
@@ -399,7 +401,7 @@ public class TermuxTerminalSessionActivityClient extends TermuxTerminalSessionCl
             TerminalSession newTerminalSession = newTermuxSession.getTerminalSession();
             setCurrentSession(newTerminalSession);
 
-            mActivity.getDrawer().closeDrawers();
+            mActivity.getScreenState().closeDrawer();
         }
     }
 
@@ -568,6 +570,11 @@ public class TermuxTerminalSessionActivityClient extends TermuxTerminalSessionCl
         mActivity.getWindow().getDecorView().setBackgroundColor(backgroundColor);
         mActivity.getTerminalToolbarState().setBackgroundColor(backgroundColor);
         mActivity.getSessionsUiState().setBackgroundColor(backgroundColor);
+
+        WindowInsetsControllerCompat insetsController = new WindowInsetsControllerCompat(mActivity.getWindow(), mActivity.getWindow().getDecorView());
+        boolean lightSystemBars = ColorUtils.calculateLuminance(backgroundColor) > 0.5;
+        insetsController.setAppearanceLightStatusBars(lightSystemBars);
+        insetsController.setAppearanceLightNavigationBars(lightSystemBars);
     }
 
 }
