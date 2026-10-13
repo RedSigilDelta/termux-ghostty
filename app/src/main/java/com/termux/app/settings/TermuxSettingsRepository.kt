@@ -18,9 +18,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.descriptors.elementNames
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 
 /** The settings the app runs with, and the keys that `termux.toml` set. */
@@ -57,10 +55,6 @@ class TermuxSettingsRepository private constructor(context: Context) : TermuxSet
         scope.launch { store.updateData { stored } }
     }
 
-    fun set(key: String, value: Boolean) = set(key, JsonPrimitive(value))
-
-    fun set(key: String, value: String) = set(key, JsonPrimitive(value))
-
     @Synchronized
     fun reload() {
         configFile = TermuxConfigFile.read()
@@ -72,9 +66,6 @@ class TermuxSettingsRepository private constructor(context: Context) : TermuxSet
     override fun shouldRunTermuxAmSocketServer() = current().runTermuxAmSocketServer
 
     override fun getDeleteTMPDIRFilesOlderThanXDaysOnExit() = current().deleteTmpdirFilesOlderThanXDaysOnExit
-
-    private fun set(key: String, value: JsonElement) =
-        update { json.decodeFromJsonElement<TermuxSettings>(JsonObject(encode(it) + (key to value))) }
 
     private fun encode(settings: TermuxSettings) = json.encodeToJsonElement(TermuxSettings.serializer(), settings).jsonObject
 

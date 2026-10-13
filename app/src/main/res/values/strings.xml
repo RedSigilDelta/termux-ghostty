@@ -145,14 +145,10 @@
 
     <!-- Termux App Preferences -->
     <string name="termux_preferences_title">&TERMUX_APP_NAME;</string>
-    <string name="termux_preferences_summary">Preferences for &TERMUX_APP_NAME; app</string>
 
         <!-- Debugging Preferences -->
         <string name="termux_debugging_preferences_title">Debugging</string>
-        <string name="termux_debugging_preferences_summary">Preferences for debugging</string>
 
-            <!-- Logging Category -->
-            <string name="termux_logging_header">Logging</string>
 
                 <!-- Log Level -->
                 <string name="termux_log_level_title">Log Level</string>
@@ -174,9 +170,6 @@
                 <string name="termux_crash_report_notifications_enabled_on">Show notifications for crash reports. (Default)</string>
 
 
-        <!-- Terminal IO Preferences -->
-        <string name="termux_terminal_io_preferences_title">Terminal I/O</string>
-        <string name="termux_terminal_io_preferences_summary">Preferences for terminal I/O</string>
 
             <!-- Keyboard Category -->
             <string name="termux_keyboard_header">Keyboard</string>
@@ -199,25 +192,21 @@
 
     <!-- Termux:API App Preferences -->
     <string name="termux_api_preferences_title">&TERMUX_API_APP_NAME;</string>
-    <string name="termux_api_preferences_summary">Preferences for &TERMUX_API_APP_NAME; app</string>
 
 
 
     <!-- Termux:Float App Preferences -->
     <string name="termux_float_preferences_title">&TERMUX_FLOAT_APP_NAME;</string>
-    <string name="termux_float_preferences_summary">Preferences for &TERMUX_FLOAT_APP_NAME; app</string>
 
 
 
     <!-- Termux:Tasker App Preferences -->
     <string name="termux_tasker_preferences_title">&TERMUX_TASKER_APP_NAME;</string>
-    <string name="termux_tasker_preferences_summary">Preferences for &TERMUX_TASKER_APP_NAME; app</string>
 
 
 
     <!-- Termux:Widget App Preferences -->
     <string name="termux_widget_preferences_title">&TERMUX_WIDGET_APP_NAME;</string>
-    <string name="termux_widget_preferences_summary">Preferences for &TERMUX_WIDGET_APP_NAME; app</string>
 
 
 
@@ -228,26 +217,18 @@
     <string name="donate_preference_title">Donate</string>
 
     <!-- Ghostty Fork Settings -->
-    <string name="termux_ghostty_preferences_title">Ghostty Fork Features</string>
-    <string name="termux_ghostty_preferences_summary">Configure custom QoL features added in this fork</string>
 
-    <string name="termux_ghostty_session_tabs_category_title">Session Tabs</string>
     <string name="termux_ghostty_use_session_tabs_title">Use Session Tabs</string>
     <string name="termux_ghostty_use_session_tabs_summary">Show horizontal session tabs above the terminal instead of using the drawer sidebar</string>
     <string name="termux_ghostty_session_tab_bar_position_title">Tab Bar Position</string>
-    <string name="termux_ghostty_session_tab_bar_position_summary">Select the vertical position of the session tab bar</string>
     <string name="termux_ghostty_session_tab_bar_align_title">Tab Bar Alignment</string>
-    <string name="termux_ghostty_session_tab_bar_align_summary">Select horizontal alignment of tab items</string>
 
-    <string name="termux_ghostty_theme_keyboard_category_title">Theme &amp; Keyboard</string>
     <string name="termux_ghostty_material_you_theme_title">Material You Theme</string>
-    <string name="termux_ghostty_material_you_theme_summary">Theme the app chrome and ANSI palette using wallpaper colors (Android 12+)</string>
     <string name="termux_ghostty_remember_soft_keyboard_state_title">Remember Soft Keyboard State</string>
     <string name="termux_ghostty_remember_soft_keyboard_state_summary">Restore the last soft keyboard visibility state when reopening the app</string>
     <string name="termux_ghostty_unconditional_soft_keyboard_on_tap_title">Unconditional Keyboard On Tap</string>
     <string name="termux_ghostty_unconditional_soft_keyboard_on_tap_summary">Show soft keyboard on tap even when mouse tracking (e.g. tmux) is active</string>
 
-    <string name="termux_ghostty_interaction_category_title">Interactions</string>
     <string name="termux_ghostty_terminal_onclick_url_open_title">Clickable Terminal Links</string>
     <string name="termux_ghostty_terminal_onclick_url_open_summary">Tap URLs/links in the terminal to open them in a browser</string>
     <string name="termux_ghostty_terminal_onclick_url_open_when_mouse_tracking_active_title">Url Tap Overrides Mouse Tracking</string>
@@ -255,6 +236,89 @@
 
     <string name="config_errors_title">Problems in termux.toml</string>
     <string name="config_errors_message">Some settings in %1$s were ignored and use their in-app values instead:</string>
+
+    <string name="action_back">Back</string>
+    <string name="settings_section_config_file">termux.toml</string>
+    <string name="settings_file_keys_count">%1$d settings set in the file</string>
+    <string name="settings_file_problems">%1$d problems</string>
+    <string name="settings_reload_config">Reload termux.toml</string>
+    <string name="settings_set_in_config_file">Set in termux.toml</string>
+    <string name="settings_only_in_config_file">Only settable in termux.toml</string>
+    <string name="settings_invalid_value">Invalid value for %1$s</string>
+    <string name="settings_number_range">Enter %1$s to %2$s</string>
+    <string name="settings_invalid_extra_keys">Extra keys must be a JSON array of key rows</string>
+    <string name="settings_invalid_shortcut">Use the form ctrl+x</string>
+
+    <string name="settings_section_appearance">Appearance</string>
+    <string name="settings_section_sessions">Sessions</string>
+    <string name="settings_section_links">Links and input</string>
+    <string name="settings_section_integration">Integration</string>
+    <string name="settings_section_plugins">Plugins</string>
+    <string name="settings_plugin_log_level">%1$s log level</string>
+    <string name="settings_plugin_key_logging">%1$s terminal view key logging</string>
+
+    <string name="settings_night_mode">Night mode</string>
+    <string name="settings_option_on">On</string>
+    <string name="settings_option_off">Off</string>
+    <string name="settings_option_system">System</string>
+    <string name="settings_material_you_disabled">Disabled</string>
+    <string name="settings_material_you_light">Light</string>
+    <string name="settings_material_you_dark">Dark</string>
+    <string name="settings_material_you_black">Black</string>
+    <string name="settings_cursor_style">Cursor style</string>
+    <string name="settings_cursor_block">Block</string>
+    <string name="settings_cursor_underline">Underline</string>
+    <string name="settings_cursor_bar">Bar</string>
+    <string name="settings_cursor_blink_rate">Cursor blink rate</string>
+    <string name="settings_margin_horizontal">Horizontal margin</string>
+    <string name="settings_margin_vertical">Vertical margin</string>
+    <string name="settings_fullscreen">Fullscreen</string>
+
+    <string name="settings_tab_bar_bottom">Bottom</string>
+    <string name="settings_tab_bar_top">Top</string>
+    <string name="settings_tab_align_left">Left</string>
+    <string name="settings_tab_align_center">Center</string>
+    <string name="settings_tab_align_right">Right</string>
+    <string name="settings_default_working_directory">Default working directory</string>
+    <string name="settings_transcript_rows">Transcript rows</string>
+    <string name="settings_disable_session_change_toast">Disable session change toast</string>
+    <string name="settings_bell_character">Bell character</string>
+    <string name="settings_bell_vibrate">Vibrate</string>
+    <string name="settings_bell_beep">Beep</string>
+    <string name="settings_bell_ignore">Ignore</string>
+
+    <string name="settings_extra_keys">Extra keys</string>
+    <string name="settings_extra_keys_style">Extra keys style</string>
+    <string name="settings_extra_keys_style_default">Default</string>
+    <string name="settings_extra_keys_style_arrows_only">Arrows only</string>
+    <string name="settings_extra_keys_style_arrows_all">Arrows all</string>
+    <string name="settings_extra_keys_style_all">All</string>
+    <string name="settings_extra_keys_style_none">None</string>
+    <string name="settings_extra_keys_all_caps">Extra keys text all caps</string>
+    <string name="settings_toolbar_height">Toolbar height</string>
+    <string name="settings_hide_keyboard_on_startup">Hide soft keyboard on startup</string>
+    <string name="settings_soft_keyboard_toggle">Soft keyboard toggle behaviour</string>
+    <string name="settings_toggle_show_hide">Show/hide</string>
+    <string name="settings_toggle_enable_disable">Enable/disable</string>
+    <string name="settings_enforce_char_input">Enforce character-based input</string>
+    <string name="settings_ctrl_space_workaround">Ctrl+Space workaround</string>
+    <string name="settings_back_key">Back key</string>
+    <string name="settings_back_key_back">Back</string>
+    <string name="settings_back_key_escape">Escape</string>
+    <string name="settings_volume_keys">Volume keys</string>
+    <string name="settings_volume_keys_virtual">Virtual</string>
+    <string name="settings_volume_keys_volume">Volume</string>
+    <string name="settings_disable_hardware_shortcuts">Disable hardware keyboard shortcuts</string>
+    <string name="settings_shortcut_create_session">Create session shortcut</string>
+    <string name="settings_shortcut_next_session">Next session shortcut</string>
+    <string name="settings_shortcut_previous_session">Previous session shortcut</string>
+    <string name="settings_shortcut_rename_session">Rename session shortcut</string>
+
+    <string name="settings_allow_external_apps">Allow external apps</string>
+    <string name="settings_run_am_socket_server">Run termux-am socket server</string>
+    <string name="settings_disable_file_share_receiver">Disable file share receiver</string>
+    <string name="settings_disable_file_view_receiver">Disable file view receiver</string>
+    <string name="settings_delete_tmpdir_days">Delete tmpdir files older than (days) on exit</string>
 
 </resources>
 

@@ -158,6 +158,8 @@ class TermuxActivity : AppCompatActivity(), ServiceConnection {
 
     private var mLastMaterialYouWallpaperId = 0
 
+    private var mAppliedSettings: TermuxSettings? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         Logger.logDebug(LOG_TAG, "onCreate")
         mIsOnResumeAfterOnCreate = true
@@ -233,6 +235,8 @@ class TermuxActivity : AppCompatActivity(), ServiceConnection {
         // Send the {@link TermuxConstants#BROADCAST_TERMUX_OPENED} broadcast to notify apps that Termux
         // app has been opened.
         TermuxUtils.sendTermuxOpenedBroadcast(this)
+
+        mAppliedSettings = getSettings()
     }
 
     override fun onStart() {
@@ -241,6 +245,13 @@ class TermuxActivity : AppCompatActivity(), ServiceConnection {
         Logger.logDebug(LOG_TAG, "onStart")
 
         if (mIsInvalidState) return
+
+        val appliedSettings = mAppliedSettings
+        val settings = getSettings()
+        if (appliedSettings != null && settings != appliedSettings) {
+            reloadActivityStyling(settings.nightMode != appliedSettings.nightMode ||
+                settings.materialYouTheme != appliedSettings.materialYouTheme)
+        }
 
         mIsVisible = true
 
@@ -1037,6 +1048,8 @@ class TermuxActivity : AppCompatActivity(), ServiceConnection {
             Logger.logDebug(LOG_TAG, "Recreating activity")
             this@TermuxActivity.recreate()
         }
+
+        mAppliedSettings = getSettings()
     }
 
     private fun reloadMaterialYouThemeIfNeeded() {
