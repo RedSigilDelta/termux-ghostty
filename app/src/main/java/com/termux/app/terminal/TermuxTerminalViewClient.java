@@ -14,7 +14,6 @@ import android.view.InputDevice;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
-import android.widget.EditText;
 import android.widget.ListView;
 import android.widget.Toast;
 
@@ -38,6 +37,7 @@ import com.termux.app.settings.BackKeyBehaviour;
 import com.termux.app.settings.SoftKeyboardToggleBehaviour;
 import com.termux.app.settings.TermuxSettings;
 import com.termux.app.settings.VolumeKeysBehaviour;
+import com.termux.app.terminal.io.ExtraKeysController;
 import com.termux.app.terminal.io.KeyboardShortcut;
 import com.termux.shared.termux.settings.preferences.TermuxPreferenceConstants.TERMUX_APP;
 import com.termux.shared.data.DataUtils;
@@ -277,7 +277,7 @@ public class TermuxTerminalViewClient extends TermuxTerminalClientBase {
 
     @Override
     public boolean isTerminalViewSelected() {
-        return mActivity.getTerminalToolbarViewPager() == null || mActivity.isTerminalViewSelected() || mActivity.getTerminalView().hasFocus();
+        return mActivity.isTerminalViewSelected() || mActivity.getTerminalView().hasFocus();
     }
 
 
@@ -396,13 +396,21 @@ public class TermuxTerminalViewClient extends TermuxTerminalClientBase {
     }
 
     public boolean readExtraKeysSpecialButton(SpecialButton specialButton) {
-        if (mActivity.getExtraKeysView() == null) return false;
-        Boolean state = mActivity.getExtraKeysView().readSpecialButton(specialButton, true);
-        if (state == null) {
-            Logger.logError(LOG_TAG,"Failed to read an unregistered " + specialButton + " special button value from extra keys.");
+        ExtraKeysController modifiers = mActivity.getTerminalToolbarState().getModifiers();
+        boolean pressed;
+        if (specialButton == SpecialButton.CTRL) {
+            pressed = modifiers.readControl();
+        } else if (specialButton == SpecialButton.ALT) {
+            pressed = modifiers.readAlt();
+        } else if (specialButton == SpecialButton.SHIFT) {
+            pressed = modifiers.readShift();
+        } else if (specialButton == SpecialButton.FN) {
+            pressed = modifiers.readFn();
+        } else {
             return false;
         }
-        return state;
+        modifiers.clearConsumedModifiers();
+        return pressed;
     }
 
     @Override
@@ -684,9 +692,7 @@ public class TermuxTerminalViewClient extends TermuxTerminalClientBase {
             public void onFocusChange(View view, boolean hasFocus) {
                 // Force show soft keyboard if TerminalView or toolbar text input view has
                 // focus and close it if they don't
-                boolean textInputViewHasFocus = false;
-                final EditText textInputView =  mActivity.findViewById(R.id.terminal_toolbar_text_input);
-                if (textInputView != null) textInputViewHasFocus = textInputView.hasFocus();
+                boolean textInputViewHasFocus = mActivity.getTerminalToolbarState().isTextInputSelected();
 
                 if (hasFocus || textInputViewHasFocus) {
                     if (mShowSoftKeyboardIgnoreOnce) {

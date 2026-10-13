@@ -582,10 +582,9 @@ public class TermuxTerminalSessionActivityClient extends TermuxTerminalSessionCl
     public void updateBackgroundColor() {
         if (!mActivity.isVisible()) return;
 
-        TermuxTerminalStyling.applyBackgroundColor(mActivity.getCurrentSession(),
-            mActivity.getWindow().getDecorView(),
-            mActivity.getExtraKeysView(),
-            mActivity.getTerminalToolbarViewPager());
+        int backgroundColor = TermuxTerminalStyling.resolveBackgroundColor(mActivity.getCurrentSession());
+        mActivity.getWindow().getDecorView().setBackgroundColor(backgroundColor);
+        mActivity.getTerminalToolbarState().setBackgroundColor(backgroundColor);
     }
 
 }

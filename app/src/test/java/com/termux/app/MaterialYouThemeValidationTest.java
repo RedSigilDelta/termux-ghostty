@@ -1,10 +1,7 @@
 package com.termux.app;
 
-import android.graphics.drawable.ColorDrawable;
 import android.util.TypedValue;
 import android.view.ContextThemeWrapper;
-import android.view.LayoutInflater;
-import android.view.View;
 
 import com.termux.R;
 import com.termux.shared.termux.theme.TermuxThemeUtils;
@@ -65,17 +62,6 @@ public class MaterialYouThemeValidationTest {
 
         Assert.assertEquals(0xFF000000, extraKeysBackground);
         Assert.assertEquals(0xFF000000, drawerBackground);
-    }
-
-    @Test
-    public void blackTheme_inflatesBlackExtraKeysBackgrounds() {
-        ContextThemeWrapper context = new ContextThemeWrapper(RuntimeEnvironment.getApplication(),
-            R.style.Theme_TermuxActivity_M3_Black_NoActionBar);
-        LayoutInflater inflater = LayoutInflater.from(context);
-
-        View toolbarExtraKeys = inflater.inflate(R.layout.view_terminal_toolbar_extra_keys, null, false);
-        Assert.assertTrue(toolbarExtraKeys.getBackground() instanceof ColorDrawable);
-        Assert.assertEquals(0xFF000000, ((ColorDrawable) toolbarExtraKeys.getBackground()).getColor());
     }
 
     private void assertButtonBarButtonStyle(int themeRes, int expectedStyleRes) {

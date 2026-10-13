@@ -41,14 +41,14 @@ public class TermuxTerminalExtraKeys extends TerminalExtraKeys {
         mTermuxTerminalViewClient = termuxTerminalViewClient;
         mTermuxTerminalSessionActivityClient = termuxTerminalSessionActivityClient;
 
-        setExtraKeys();
+        reloadExtraKeys();
     }
 
 
     /**
      * Set the terminal extra keys and style.
      */
-    private void setExtraKeys() {
+    public void reloadExtraKeys() {
         mExtraKeysInfo = loadExtraKeysInfo(mActivity, mActivity.getSettings());
     }
 
