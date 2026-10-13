@@ -3,6 +3,9 @@ package com.termux.app.settings
 import com.termux.shared.logger.Logger
 import com.termux.shared.termux.TermuxConstants
 import com.termux.terminal.TerminalConstants
+import com.termux.terminal.compose.CursorEffect
+import com.termux.terminal.compose.TerminalWallpaperConfig
+import com.termux.terminal.compose.WallpaperScaling
 import java.io.File
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -111,7 +114,55 @@ enum class TabBarAlign {
     RIGHT,
 }
 
-private val DEFAULT_EXTRA_KEYS: JsonArray = Json.parseToJsonElement(
+@Serializable
+enum class WallpaperScalingSetting(val scaling: WallpaperScaling) {
+    @SerialName("center-crop")
+    CENTER_CROP(WallpaperScaling.CENTER_CROP),
+
+    @SerialName("fit-center")
+    FIT_CENTER(WallpaperScaling.FIT_CENTER),
+
+    @SerialName("fit-xy")
+    FIT_XY(WallpaperScaling.FIT_XY),
+
+    @SerialName("center")
+    CENTER(WallpaperScaling.CENTER),
+}
+
+@Serializable
+enum class CursorTrail(val effect: CursorEffect?) {
+    @SerialName("none")
+    NONE(null),
+
+    @SerialName("warp")
+    WARP(CursorEffect.WARP),
+
+    @SerialName("sweep")
+    SWEEP(CursorEffect.SWEEP),
+
+    @SerialName("tail")
+    TAIL(CursorEffect.TAIL),
+}
+
+@Serializable
+enum class EffectFrameRate(val framesPerSecond: Float?) {
+    @SerialName("vsync")
+    VSYNC(null),
+
+    @SerialName("30")
+    FPS_30(30f),
+
+    @SerialName("60")
+    FPS_60(60f),
+
+    @SerialName("90")
+    FPS_90(90f),
+
+    @SerialName("120")
+    FPS_120(120f),
+}
+
+private val DEFAULT_EXTRA_KEYS: JsonArray =Json.parseToJsonElement(
     """[["ESC","/",{"key":"-","popup":"|"},"HOME","UP","END","PGUP"],["TAB","CTRL","ALT","LEFT","DOWN","RIGHT","PGDN"]]""",
 ) as JsonArray
 
@@ -162,6 +213,16 @@ data class TermuxSettings(
     @SerialName("volume-keys") val volumeKeys: VolumeKeysBehaviour = VolumeKeysBehaviour.VIRTUAL,
     @SerialName("session-tab-bar-position") val sessionTabBarPosition: TabBarPosition = TabBarPosition.BOTTOM,
     @SerialName("session-tab-bar-align") val sessionTabBarAlign: TabBarAlign = TabBarAlign.LEFT,
+    @SerialName("wallpaper") val wallpaper: Boolean = true,
+    @SerialName("wallpaper-background-opacity")
+    val wallpaperBackgroundOpacity: Float = TerminalWallpaperConfig.DefaultBackgroundOpacity,
+    @SerialName("wallpaper-scaling") val wallpaperScaling: WallpaperScalingSetting = WallpaperScalingSetting.CENTER_CROP,
+    @SerialName("cursor-trail") val cursorTrail: CursorTrail = CursorTrail.WARP,
+    @SerialName("visual-effect-frame-rate") val visualEffectFrameRate: EffectFrameRate = EffectFrameRate.VSYNC,
+    @SerialName("animations") val animations: Boolean = true,
+    @SerialName("keyboard-fab") val keyboardFab: Boolean = false,
+    @SerialName("keyboard-fab-hide-while-typing") val keyboardFabHideWhileTyping: Boolean = true,
+    @SerialName("custom-font-for-ui") val customFontForUi: Boolean = false,
 ) {
     init {
         require(deleteTmpdirFilesOlderThanXDaysOnExit in -1..100000) { "delete-tmpdir-files-older-than-x-days-on-exit" }
@@ -175,6 +236,7 @@ data class TermuxSettings(
             terminalTranscriptRows in TerminalConstants.TERMINAL_TRANSCRIPT_ROWS_MIN..TerminalConstants.TERMINAL_TRANSCRIPT_ROWS_MAX,
         ) { "terminal-transcript-rows" }
         require(terminalToolbarHeight in 0.4f..3f) { "terminal-toolbar-height" }
+        require(wallpaperBackgroundOpacity in 0f..1f) { "wallpaper-background-opacity" }
     }
 
     /** The configured working directory, or the home directory if it is not a readable directory. */

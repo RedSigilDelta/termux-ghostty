@@ -33,6 +33,22 @@ extra-keys = [
 
 `~/.termux/termux.properties` is no longer read. `colors.properties` and `font.ttf` work as before.
 
+The Customization settings cover the wallpaper, cursor trail, effect frame rate, animations, keyboard button and custom font. Each one is also a `termux.toml` key:
+
+| Key | Default | Values |
+| --- | --- | --- |
+| `wallpaper` | `true` | `true`, `false`. Shows `~/.termux/wallpaper` when the file exists |
+| `wallpaper-background-opacity` | `0.7` | `0` to `1` |
+| `wallpaper-scaling` | `"center-crop"` | `"center-crop"`, `"fit-center"`, `"fit-xy"`, `"center"` |
+| `cursor-trail` | `"warp"` | `"none"`, `"warp"`, `"sweep"`, `"tail"` |
+| `visual-effect-frame-rate` | `"vsync"` | `"vsync"`, `"30"`, `"60"`, `"90"`, `"120"` |
+| `animations` | `true` | `true`, `false` |
+| `keyboard-fab` | `false` | `true`, `false` |
+| `keyboard-fab-hide-while-typing` | `true` | `true`, `false` |
+| `custom-font-for-ui` | `false` | `true`, `false` |
+
+Choosing a wallpaper copies the image to `~/.termux/wallpaper`, and choosing a font copies it to `~/.termux/font.ttf`. Removing or resetting either one deletes the file.
+
 ## Ecto (`compose-app`)
 
 A vibe coding companion for Android — an SSH client with Herdr integration and a Ghostty terminal backend, built as a separate Jetpack Compose app (`com.mrndtvndv.term`).

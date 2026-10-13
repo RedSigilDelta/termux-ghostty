@@ -29,14 +29,18 @@ import com.termux.app.settings.BackKeyBehaviour
 import com.termux.app.settings.BellBehaviour
 import com.termux.app.settings.ConfigErrorsDialog
 import com.termux.app.settings.CursorStyle
+import com.termux.app.settings.CursorTrail
+import com.termux.app.settings.EffectFrameRate
 import com.termux.app.settings.MaterialYouTheme
 import com.termux.app.settings.NightModeSetting
 import com.termux.app.settings.SoftKeyboardToggleBehaviour
 import com.termux.app.settings.TabBarAlign
 import com.termux.app.settings.TabBarPosition
+import com.termux.app.settings.TermuxFiles
 import com.termux.app.settings.TermuxSettings
 import com.termux.app.settings.TermuxSettingsRepository
 import com.termux.app.settings.VolumeKeysBehaviour
+import com.termux.app.settings.WallpaperScalingSetting
 import com.termux.shared.activities.ReportActivity
 import com.termux.shared.android.AndroidUtils
 import com.termux.shared.android.PackageUtils
@@ -72,7 +76,14 @@ private class Availability(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(onBack: () -> Unit) {
+fun SettingsScreen(
+    onBack: () -> Unit,
+    fileRevision: Int,
+    pickWallpaper: () -> Unit,
+    pickFont: () -> Unit,
+    removeWallpaper: () -> Unit,
+    resetFont: () -> Unit,
+) {
     val context = LocalContext.current
     val repository = TermuxSettingsRepository.get()
     val effective by repository.effective.collectAsState()
@@ -82,6 +93,8 @@ fun SettingsScreen(onBack: () -> Unit) {
         value = withContext(Dispatchers.IO) { loadAvailability(context) }
     }
     var showErrors by remember { mutableStateOf(false) }
+    val wallpaperSet = remember(fileRevision) { TermuxFiles.TERMUX_WALLPAPER_FILE.isFile }
+    val fontSet = remember(fileRevision) { TermuxFiles.fontFile.isFile }
     val invalidExtraKeys = stringResource(R.string.settings_invalid_extra_keys)
     val invalidShortcut = stringResource(R.string.settings_invalid_shortcut)
     val hasPlugins = listOfNotNull(availability?.api, availability?.float, availability?.tasker, availability?.widget).isNotEmpty()
@@ -198,6 +211,132 @@ fun SettingsScreen(onBack: () -> Unit) {
                     checked = settings.fullscreen,
                     onChange = { checked -> save { it.copy(fullscreen = checked) } },
                     locked = isLocked("fullscreen"),
+                )
+            }
+
+            item { SectionHeader(stringResource(R.string.settings_section_customization)) }
+            item {
+                ActionRow(
+                    title = stringResource(R.string.settings_choose_wallpaper),
+                    summary = stringResource(if (wallpaperSet) R.string.settings_file_set else R.string.settings_file_not_set),
+                    onClick = pickWallpaper,
+                )
+            }
+            if (wallpaperSet) {
+                item {
+                    ActionRow(
+                        title = stringResource(R.string.settings_remove_wallpaper),
+                        onClick = removeWallpaper,
+                    )
+                }
+            }
+            item {
+                SwitchRow(
+                    title = stringResource(R.string.settings_wallpaper),
+                    checked = settings.wallpaper,
+                    onChange = { checked -> save { it.copy(wallpaper = checked) } },
+                    locked = isLocked("wallpaper"),
+                )
+            }
+            item {
+                NumberRow(
+                    title = stringResource(R.string.settings_wallpaper_background_opacity),
+                    value = settings.wallpaperBackgroundOpacity,
+                    range = 0f..1f,
+                    isFloat = true,
+                    onChange = { value -> save { it.copy(wallpaperBackgroundOpacity = value.toFloat()) } },
+                    locked = isLocked("wallpaper-background-opacity"),
+                )
+            }
+            item {
+                ChoiceRow(
+                    title = stringResource(R.string.settings_wallpaper_scaling),
+                    options = listOf(
+                        WallpaperScalingSetting.CENTER_CROP.name to stringResource(R.string.settings_wallpaper_scaling_crop),
+                        WallpaperScalingSetting.FIT_CENTER.name to stringResource(R.string.settings_wallpaper_scaling_fit),
+                        WallpaperScalingSetting.FIT_XY.name to stringResource(R.string.settings_wallpaper_scaling_stretch),
+                        WallpaperScalingSetting.CENTER.name to stringResource(R.string.settings_wallpaper_scaling_center),
+                    ),
+                    selected = settings.wallpaperScaling.name,
+                    onSelect = { value -> save { it.copy(wallpaperScaling = WallpaperScalingSetting.valueOf(value)) } },
+                    locked = isLocked("wallpaper-scaling"),
+                )
+            }
+            item {
+                ChoiceRow(
+                    title = stringResource(R.string.settings_cursor_trail),
+                    options = listOf(
+                        CursorTrail.NONE.name to stringResource(R.string.settings_cursor_trail_none),
+                        CursorTrail.WARP.name to stringResource(R.string.settings_cursor_trail_warp),
+                        CursorTrail.SWEEP.name to stringResource(R.string.settings_cursor_trail_sweep),
+                        CursorTrail.TAIL.name to stringResource(R.string.settings_cursor_trail_tail),
+                    ),
+                    selected = settings.cursorTrail.name,
+                    onSelect = { value -> save { it.copy(cursorTrail = CursorTrail.valueOf(value)) } },
+                    locked = isLocked("cursor-trail"),
+                )
+            }
+            item {
+                ChoiceRow(
+                    title = stringResource(R.string.settings_visual_effect_frame_rate),
+                    options = listOf(
+                        EffectFrameRate.VSYNC.name to stringResource(R.string.settings_frame_rate_vsync),
+                        EffectFrameRate.FPS_30.name to stringResource(R.string.settings_frame_rate_30),
+                        EffectFrameRate.FPS_60.name to stringResource(R.string.settings_frame_rate_60),
+                        EffectFrameRate.FPS_90.name to stringResource(R.string.settings_frame_rate_90),
+                        EffectFrameRate.FPS_120.name to stringResource(R.string.settings_frame_rate_120),
+                    ),
+                    selected = settings.visualEffectFrameRate.name,
+                    onSelect = { value -> save { it.copy(visualEffectFrameRate = EffectFrameRate.valueOf(value)) } },
+                    locked = isLocked("visual-effect-frame-rate"),
+                )
+            }
+            item {
+                SwitchRow(
+                    title = stringResource(R.string.settings_animations),
+                    checked = settings.animations,
+                    onChange = { checked -> save { it.copy(animations = checked) } },
+                    locked = isLocked("animations"),
+                )
+            }
+            item {
+                SwitchRow(
+                    title = stringResource(R.string.settings_keyboard_fab),
+                    checked = settings.keyboardFab,
+                    onChange = { checked -> save { it.copy(keyboardFab = checked) } },
+                    locked = isLocked("keyboard-fab"),
+                )
+            }
+            item {
+                SwitchRow(
+                    title = stringResource(R.string.settings_keyboard_fab_hide_while_typing),
+                    checked = settings.keyboardFabHideWhileTyping,
+                    onChange = { checked -> save { it.copy(keyboardFabHideWhileTyping = checked) } },
+                    locked = isLocked("keyboard-fab-hide-while-typing"),
+                    enabled = settings.keyboardFab,
+                )
+            }
+            item {
+                ActionRow(
+                    title = stringResource(R.string.settings_choose_font),
+                    summary = stringResource(if (fontSet) R.string.settings_file_set else R.string.settings_file_not_set),
+                    onClick = pickFont,
+                )
+            }
+            if (fontSet) {
+                item {
+                    ActionRow(
+                        title = stringResource(R.string.settings_reset_font),
+                        onClick = resetFont,
+                    )
+                }
+            }
+            item {
+                SwitchRow(
+                    title = stringResource(R.string.settings_custom_font_for_ui),
+                    checked = settings.customFontForUi,
+                    onChange = { checked -> save { it.copy(customFontForUi = checked) } },
+                    locked = isLocked("custom-font-for-ui"),
                 )
             }
 

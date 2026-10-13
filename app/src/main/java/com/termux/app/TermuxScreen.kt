@@ -10,11 +10,14 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
@@ -32,6 +35,7 @@ import com.termux.R
 import com.termux.app.settings.ConfigErrorsDialogHost
 import com.termux.app.settings.TabBarAlign
 import com.termux.app.settings.TabBarPosition
+import com.termux.app.settings.TermuxSettingsRepository
 import com.termux.app.terminal.NewSessionListener
 import com.termux.app.terminal.SessionDrawerList
 import com.termux.app.terminal.SessionListener
@@ -56,6 +60,8 @@ class TermuxScreenState(
     var tabBarAlign by mutableStateOf(tabBarAlign)
     var marginHorizontal by mutableIntStateOf(marginHorizontal)
     var marginVertical by mutableIntStateOf(marginVertical)
+    var imeVisible by mutableStateOf(false)
+    var fontStamp by mutableLongStateOf(0L)
 
     fun openDrawer() {
         drawerOpen = true
@@ -101,7 +107,7 @@ fun bindTermuxScreen(
     actions: TermuxScreenActions,
 ) {
     view.setContent {
-        TermuxTheme { TermuxScreen(screen, terminalView, toolbar, sessions, actions) }
+        TermuxTheme(screen.fontStamp) { TermuxScreen(screen, terminalView, toolbar, sessions, actions) }
     }
 }
 
@@ -113,13 +119,21 @@ fun TermuxScreen(
     sessions: SessionsUiState,
     actions: TermuxScreenActions,
 ) {
+    val effective by TermuxSettingsRepository.get().effective.collectAsState()
+    val settings = effective.settings
+    val animations = settings.animations
+    val showKeyboardFab = settings.keyboardFab && !(settings.keyboardFabHideWhileTyping && screen.imeVisible)
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val sessionListener = SessionListener { session, longPress -> actions.onSessionEvent(session, longPress) }
     val newSessionListener = NewSessionListener { failsafe -> actions.newSession(failsafe) }
     val edgeSlop = with(LocalDensity.current) { 24.dp.toPx() }
 
     LaunchedEffect(screen.drawerOpen) {
-        if (screen.drawerOpen) drawerState.open() else drawerState.close()
+        when {
+            !animations -> drawerState.snapTo(if (screen.drawerOpen) DrawerValue.Open else DrawerValue.Closed)
+            screen.drawerOpen -> drawerState.open()
+            else -> drawerState.close()
+        }
     }
     LaunchedEffect(drawerState) {
         snapshotFlow { drawerState.currentValue }.collect { screen.drawerOpen = it == DrawerValue.Open }
@@ -169,7 +183,24 @@ fun TermuxScreen(
                 if (screen.useSessionTabs && screen.tabBarPosition == TabBarPosition.TOP) {
                     SessionTabStrip(sessions, screen.tabBarAlign, sessionListener, newSessionListener)
                 }
-                AndroidView(factory = { terminalView }, modifier = Modifier.weight(1f).fillMaxWidth())
+                Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                    AndroidView(factory = { terminalView }, modifier = Modifier.fillMaxSize())
+                    if (showKeyboardFab) {
+                        SmallFloatingActionButton(
+                            onClick = actions::toggleSoftKeyboard,
+                            modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        ) {
+                            Icon(
+                                painter = painterResource(
+                                    if (screen.imeVisible) R.drawable.ic_keyboard_hide else R.drawable.ic_keyboard,
+                                ),
+                                contentDescription = stringResource(R.string.action_toggle_soft_keyboard),
+                            )
+                        }
+                    }
+                }
                 if (screen.useSessionTabs && screen.tabBarPosition == TabBarPosition.BOTTOM) {
                     SessionTabStrip(sessions, screen.tabBarAlign, sessionListener, newSessionListener)
                 }

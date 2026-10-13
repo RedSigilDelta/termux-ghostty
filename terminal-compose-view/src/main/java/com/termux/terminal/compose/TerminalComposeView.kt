@@ -87,6 +87,8 @@ class TerminalComposeView @JvmOverloads constructor(
     private var minimumFontSizeState by mutableIntStateOf(8)
     private var maximumFontSizeState by mutableIntStateOf(256)
     private var typefaceState by mutableStateOf<Typeface?>(Typeface.MONOSPACE)
+    private var cursorEffectState by mutableStateOf<CursorEffect?>(null)
+    private var preferredFrameRateState by mutableStateOf<Float?>(null)
     private var wallpaperState by mutableStateOf(TerminalWallpaperConfig())
     private var accessibilityEnabledState by mutableStateOf(false)
     private var unconditionalKeyboardOnTapState by mutableStateOf(true)
@@ -161,7 +163,9 @@ class TerminalComposeView @JvmOverloads constructor(
                     minimumFontSize = minimumFontSizeState,
                     maximumFontSize = maximumFontSizeState,
                     typeface = typefaceState,
+                    cursorEffect = cursorEffectState,
                     wallpaper = wallpaperState,
+                    preferredFrameRate = preferredFrameRateState,
                     unconditionalKeyboardOnTap = unconditionalKeyboardOnTapState,
                     autoShowKeyboardOnTap = autoShowKeyboardOnTapState,
                     accessibilityEnabled = accessibilityEnabledState,
@@ -235,6 +239,14 @@ class TerminalComposeView @JvmOverloads constructor(
 
     fun setTypeface(typeface: Typeface?) {
         typefaceState = typeface ?: Typeface.MONOSPACE
+    }
+
+    fun setCursorEffect(effect: CursorEffect?) {
+        cursorEffectState = effect
+    }
+
+    fun setPreferredFrameRate(framesPerSecond: Float?) {
+        preferredFrameRateState = framesPerSecond
     }
 
     /** Installs or replaces the wallpaper rendering policy. */

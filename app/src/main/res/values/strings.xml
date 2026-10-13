@@ -319,6 +319,38 @@
     <string name="settings_disable_file_share_receiver">Disable file share receiver</string>
     <string name="settings_disable_file_view_receiver">Disable file view receiver</string>
     <string name="settings_delete_tmpdir_days">Delete tmpdir files older than (days) on exit</string>
+    <string name="settings_section_customization">Customization</string>
+    <string name="settings_choose_wallpaper">Choose wallpaper</string>
+    <string name="settings_remove_wallpaper">Remove wallpaper</string>
+    <string name="settings_file_set">Set</string>
+    <string name="settings_file_not_set">Not set</string>
+    <string name="settings_wallpaper">Show wallpaper</string>
+    <string name="settings_wallpaper_background_opacity">Wallpaper background opacity</string>
+    <string name="settings_wallpaper_scaling">Wallpaper scaling</string>
+    <string name="settings_wallpaper_scaling_crop">Crop</string>
+    <string name="settings_wallpaper_scaling_fit">Fit</string>
+    <string name="settings_wallpaper_scaling_stretch">Stretch</string>
+    <string name="settings_wallpaper_scaling_center">Center</string>
+    <string name="settings_cursor_trail">Cursor trail</string>
+    <string name="settings_cursor_trail_none">None</string>
+    <string name="settings_cursor_trail_warp">Warp</string>
+    <string name="settings_cursor_trail_sweep">Sweep</string>
+    <string name="settings_cursor_trail_tail">Tail</string>
+    <string name="settings_visual_effect_frame_rate">Visual effect frame rate</string>
+    <string name="settings_frame_rate_vsync">VSync (display rate)</string>
+    <string name="settings_frame_rate_30">30 FPS</string>
+    <string name="settings_frame_rate_60">60 FPS</string>
+    <string name="settings_frame_rate_90">90 FPS</string>
+    <string name="settings_frame_rate_120">120 FPS</string>
+    <string name="settings_animations">Animations</string>
+    <string name="settings_keyboard_fab">Keyboard button</string>
+    <string name="settings_keyboard_fab_hide_while_typing">Hide keyboard button while typing</string>
+    <string name="settings_choose_font">Choose font</string>
+    <string name="settings_reset_font">Reset font</string>
+    <string name="settings_custom_font_for_ui">Use custom font for the whole app</string>
+    <string name="settings_wallpaper_set_toast">Wallpaper set</string>
+    <string name="settings_font_set_toast">Font set</string>
+    <string name="settings_file_copy_failed">Could not copy the file</string>
 
 </resources>
 

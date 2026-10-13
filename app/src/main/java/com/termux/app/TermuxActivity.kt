@@ -9,6 +9,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.ServiceConnection
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -28,11 +30,13 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.ui.platform.ComposeView
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.lifecycleScope
 import com.google.android.material.color.DynamicColors
 import com.termux.R
 import com.termux.app.activities.HelpActivity
 import com.termux.app.activities.SettingsActivity
 import com.termux.app.api.file.FileReceiverActivity
+import com.termux.app.settings.TermuxFiles
 import com.termux.app.settings.TermuxSettings
 import com.termux.app.settings.TermuxSettingsRepository
 import com.termux.app.terminal.SessionsUiState
@@ -59,6 +63,12 @@ import com.termux.terminal.TerminalSession
 import com.termux.terminal.compose.ModifierKeyReader
 import com.termux.terminal.compose.TerminalComposeView
 import com.termux.terminal.compose.TerminalDiagnostic
+import com.termux.terminal.compose.TerminalWallpaper
+import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * A terminal emulator activity.
@@ -160,6 +170,10 @@ class TermuxActivity : AppCompatActivity(), ServiceConnection {
 
     private var mAppliedSettings: TermuxSettings? = null
 
+    private var mAppliedFileStamps: List<Long>? = null
+
+    private var mWallpaperJob: Job? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         Logger.logDebug(LOG_TAG, "onCreate")
         mIsOnResumeAfterOnCreate = true
@@ -205,6 +219,7 @@ class TermuxActivity : AppCompatActivity(), ServiceConnection {
         val settings = getSettings()
         mScreenState = TermuxScreenState(settings.useSessionTabs, settings.sessionTabBarPosition,
             settings.sessionTabBarAlign, settings.terminalMarginHorizontal, settings.terminalMarginVertical)
+        mScreenState.fontStamp = TermuxFiles.fontFile.lastModified()
 
         val root = ComposeView(this)
         setContentView(root)
@@ -236,7 +251,9 @@ class TermuxActivity : AppCompatActivity(), ServiceConnection {
         // app has been opened.
         TermuxUtils.sendTermuxOpenedBroadcast(this)
 
+        applyTerminalCustomizations()
         mAppliedSettings = getSettings()
+        mAppliedFileStamps = getFileStamps()
     }
 
     override fun onStart() {
@@ -248,7 +265,7 @@ class TermuxActivity : AppCompatActivity(), ServiceConnection {
 
         val appliedSettings = mAppliedSettings
         val settings = getSettings()
-        if (appliedSettings != null && settings != appliedSettings) {
+        if (appliedSettings != null && (settings != appliedSettings || getFileStamps() != mAppliedFileStamps)) {
             reloadActivityStyling(settings.nightMode != appliedSettings.nightMode ||
                 settings.materialYouTheme != appliedSettings.materialYouTheme)
         }
@@ -529,6 +546,7 @@ class TermuxActivity : AppCompatActivity(), ServiceConnection {
             }
 
             override fun onImeVisibilityChanged(isVisible: Boolean) {
+                mScreenState.imeVisible = isVisible
                 mTermuxTerminalViewClient.onSoftKeyboardVisibilityChanged(isVisible)
             }
 
@@ -1032,6 +1050,9 @@ class TermuxActivity : AppCompatActivity(), ServiceConnection {
         mScreenState.useSessionTabs = getSettings().useSessionTabs
         mScreenState.tabBarPosition = getSettings().sessionTabBarPosition
         mScreenState.tabBarAlign = getSettings().sessionTabBarAlign
+        mScreenState.fontStamp = TermuxFiles.fontFile.lastModified()
+
+        applyTerminalCustomizations()
 
         FileReceiverActivity.updateFileReceiverActivityComponentsState(this)
 
@@ -1050,7 +1071,59 @@ class TermuxActivity : AppCompatActivity(), ServiceConnection {
         }
 
         mAppliedSettings = getSettings()
+        mAppliedFileStamps = getFileStamps()
     }
+
+    private fun applyTerminalCustomizations() {
+        val settings = getSettings()
+        mTerminalView.setCursorEffect(settings.cursorTrail.effect)
+        mTerminalView.setPreferredFrameRate(settings.visualEffectFrameRate.framesPerSecond)
+        mTerminalView.setWallpaperScaling(settings.wallpaperScaling.scaling)
+        mTerminalView.setWallpaperBackgroundOpacity(settings.wallpaperBackgroundOpacity)
+        applyWallpaper()
+    }
+
+    private fun applyWallpaper() {
+        mWallpaperJob?.cancel()
+        val file = TermuxFiles.TERMUX_WALLPAPER_FILE
+        if (!getSettings().wallpaper || !file.isFile) {
+            mTerminalView.setWallpaper(null)
+            return
+        }
+        val id = file.lastModified()
+        if (mTerminalView.getWallpaperConfig().wallpaper?.id == id) return
+        mWallpaperJob = lifecycleScope.launch {
+            val wallpaper = withContext(Dispatchers.IO) { decodeWallpaper(file, id) }
+            mTerminalView.setWallpaper(wallpaper)
+        }
+    }
+
+    private fun decodeWallpaper(file: File, id: Long): TerminalWallpaper? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.path, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        val options = BitmapFactory.Options().apply {
+            inSampleSize = calculateSampleSize(bounds.outWidth, bounds.outHeight, WALLPAPER_DECODE_MAX_DIMENSION)
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
+        val bitmap = BitmapFactory.decodeFile(file.path, options) ?: return null
+        return try {
+            TerminalWallpaper.fromBitmap(id, bitmap)
+        } finally {
+            bitmap.recycle()
+        }
+    }
+
+    private fun calculateSampleSize(width: Int, height: Int, maxDimension: Int): Int {
+        var sampleSize = 1
+        while (width / sampleSize > maxDimension || height / sampleSize > maxDimension) {
+            sampleSize *= 2
+        }
+        return sampleSize
+    }
+
+    private fun getFileStamps(): List<Long> =
+        listOf(TermuxFiles.TERMUX_WALLPAPER_FILE.lastModified(), TermuxFiles.fontFile.lastModified())
 
     private fun reloadMaterialYouThemeIfNeeded() {
         if (!shouldReloadMaterialYouThemeForWallpaperChanges()) return
@@ -1094,6 +1167,8 @@ class TermuxActivity : AppCompatActivity(), ServiceConnection {
 
         private const val ARG_TERMINAL_TOOLBAR_TEXT_INPUT = "terminal_toolbar_text_input"
         private const val ARG_ACTIVITY_RECREATED = "activity_recreated"
+
+        private const val WALLPAPER_DECODE_MAX_DIMENSION = 2048
 
         private const val LOG_TAG = "TermuxActivity"
 
