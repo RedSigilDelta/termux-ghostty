@@ -150,7 +150,7 @@ internal class GlesTerminalRenderer(
         val currentResources = resources
         if (snapshot == null || currentResources == null) {
             skippedDrawCount++
-            clear(0xFF000000.toInt())
+            clear(snapshot?.let(::backgroundColor) ?: 0xFF000000.toInt())
             return
         }
         val imageProgram = currentResources.imageProgram

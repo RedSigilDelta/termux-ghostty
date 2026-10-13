@@ -14,6 +14,8 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import com.termux.terminal.compose.CursorEffectSnapshot
@@ -451,8 +453,9 @@ fun GlesTerminalSurface(
     val lifecycleOwner = LocalLifecycleOwner.current
     val lifecycle = lifecycleOwner.lifecycle
     key(surface) {
+        val stableHeight = remember { StableSurfaceHeight() }
         AndroidView(
-            modifier = modifier,
+            modifier = modifier.stableSurfaceHeight(stableHeight),
             factory = { GlesTerminalSurfaceView(context, surface) },
             update = { view ->
                 view.contentDescription = contentDescription
@@ -489,3 +492,30 @@ fun GlesTerminalSurface(
         }
     }
 }
+
+private class StableSurfaceHeight {
+    var width = -1
+    var height = 0
+}
+
+/**
+ * Keeps the GL surface at the tallest height seen for the current width, top-aligned.
+ *
+ * A SurfaceView buffer lags its view bounds by a frame or more, and any part of the hole it
+ * does not cover shows black. With edge-to-edge insets the IME animation resizes the canvas
+ * every frame; holding the surface size makes the IME cover and uncover already-drawn pixels.
+ * Rows are positioned from the top of the viewport, so the extra height only adds background.
+ */
+private fun Modifier.stableSurfaceHeight(state: StableSurfaceHeight): Modifier =
+    layout { measurable, constraints ->
+        if (!constraints.hasBoundedWidth || !constraints.hasBoundedHeight) {
+            val placeable = measurable.measure(constraints)
+            return@layout layout(placeable.width, placeable.height) { placeable.place(0, 0) }
+        }
+        val width = constraints.maxWidth
+        val height = constraints.maxHeight
+        state.height = if (width == state.width) maxOf(state.height, height) else height
+        state.width = width
+        val placeable = measurable.measure(Constraints.fixed(width, state.height))
+        layout(width, height) { placeable.place(0, 0) }
+    }
