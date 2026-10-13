@@ -4,6 +4,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
+import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -11,12 +12,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.platform.ComposeView
 import androidx.lifecycle.lifecycleScope
 import com.termux.R
 import com.termux.app.settings.TermuxFiles
 import com.termux.app.settings.TermuxSettingsRepository
-import com.termux.app.settings.ui.SettingsScreen
+import com.termux.app.settings.ui.SettingsNavHost
+import com.termux.app.settings.ui.rememberSettingsState
 import com.termux.app.ui.TermuxTheme
 import com.termux.shared.activity.media.AppCompatActivityUtils
 import com.termux.shared.termux.TermuxConstants
@@ -51,21 +52,23 @@ class SettingsActivity : AppCompatActivity() {
         if (!settings.animations) overrideTransition(OVERRIDE_TRANSITION_OPEN)
 
         enableEdgeToEdge()
-        setContentView(ComposeView(this).apply {
-            setContent {
-                val fontStamp = remember(fileRevision) { TermuxFiles.fontFile.lastModified() }
-                TermuxTheme(fontStamp = fontStamp) {
-                    SettingsScreen(
-                        onBack = ::finish,
+        // AppCompatActivity.setContentView skips this, and NavDisplay needs the NavigationEventDispatcherOwner it installs.
+        initializeViewTreeOwners()
+        setContent {
+            val fontStamp = remember(fileRevision) { TermuxFiles.fontFile.lastModified() }
+            TermuxTheme(fontStamp = fontStamp) {
+                SettingsNavHost(
+                    state = rememberSettingsState(
                         fileRevision = fileRevision,
                         pickWallpaper = { pickWallpaper.launch("image/*") },
                         pickFont = { pickFont.launch("*/*") },
                         removeWallpaper = ::removeWallpaper,
                         resetFont = ::resetFont,
-                    )
-                }
+                    ),
+                    onExit = ::finish,
+                )
             }
-        })
+        }
     }
 
     override fun finish() {

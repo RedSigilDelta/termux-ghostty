@@ -254,6 +254,31 @@
     <string name="settings_plugin_log_level">%1$s log level</string>
     <string name="settings_plugin_key_logging">%1$s terminal view key logging</string>
 
+    <string name="settings_category_appearance">Appearance</string>
+    <string name="settings_category_appearance_summary">Theme, night mode, margins, animations</string>
+    <string name="settings_category_wallpaper">Wallpaper</string>
+    <string name="settings_category_wallpaper_summary">Background image, opacity, scaling</string>
+    <string name="settings_category_terminal">Terminal</string>
+    <string name="settings_category_terminal_summary">Cursor, font, scrollback, bell</string>
+    <string name="settings_category_sessions">Sessions &amp; tabs</string>
+    <string name="settings_category_sessions_summary">Session tabs and tab bar</string>
+    <string name="settings_category_keyboard">Keyboard</string>
+    <string name="settings_category_keyboard_summary">Extra keys, soft keyboard, floating button</string>
+    <string name="settings_category_shortcuts">Keys &amp; shortcuts</string>
+    <string name="settings_category_shortcuts_summary">Back and volume keys, session shortcuts</string>
+    <string name="settings_category_links">Links</string>
+    <string name="settings_category_links_summary">Opening URLs on tap</string>
+    <string name="settings_category_integrations">Integrations</string>
+    <string name="settings_category_integrations_summary">External apps, am socket, receivers</string>
+    <string name="settings_category_debugging">Debugging</string>
+    <string name="settings_category_debugging_summary">Logging and notifications</string>
+    <string name="settings_category_about">About</string>
+    <string name="settings_category_about_summary">Version info and donate</string>
+
+    <string name="settings_group_extra_keys">Extra keys</string>
+    <string name="settings_group_soft_keyboard">Soft keyboard</string>
+    <string name="settings_group_floating_button">Floating button</string>
+
     <string name="settings_night_mode">Night mode</string>
     <string name="settings_option_on">On</string>
     <string name="settings_option_off">Off</string>

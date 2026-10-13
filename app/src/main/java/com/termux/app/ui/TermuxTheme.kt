@@ -3,7 +3,7 @@ package com.termux.app.ui
 import android.graphics.Typeface
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MaterialExpressiveTheme
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
@@ -36,7 +36,7 @@ fun TermuxTheme(fontStamp: Long, content: @Composable () -> Unit) {
         val typeface = if (customFont) loadCustomTypeface() else null
         if (typeface != null) Typography().withFontFamily(FontFamily(typeface)) else Typography()
     }
-    MaterialTheme(colorScheme = colorScheme, typography = typography, content = content)
+    MaterialExpressiveTheme(colorScheme = colorScheme, typography = typography, content = content)
 }
 
 private fun Typography.withFontFamily(fontFamily: FontFamily) = Typography(

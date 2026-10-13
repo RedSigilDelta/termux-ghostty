@@ -1,6 +1,6 @@
 package com.termux.app.settings.ui
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -9,10 +9,12 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.ListItemShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -23,7 +25,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardType
@@ -31,19 +32,31 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.termux.R
 
+typealias SettingRowContent = @Composable (ListItemShapes) -> Unit
+
 @Composable
 fun SectionHeader(text: String) {
     Text(
         text = text,
         style = MaterialTheme.typography.titleSmall,
         color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(start = 16.dp, top = 24.dp, end = 16.dp, bottom = 8.dp),
+        modifier = Modifier.padding(start = 12.dp, top = 20.dp, end = 12.dp, bottom = 8.dp),
     )
 }
 
 @Composable
-fun ActionRow(title: String, summary: String? = null, onClick: (() -> Unit)? = null) {
-    SettingRow(title = title, summary = summary, locked = false, enabled = true, onClick = onClick)
+fun SettingsGroup(title: String? = null, rows: List<SettingRowContent>) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+        if (title != null) SectionHeader(title)
+        Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
+            rows.forEachIndexed { index, row -> row(ListItemDefaults.segmentedShapes(index, rows.size)) }
+        }
+    }
+}
+
+@Composable
+fun ActionRow(title: String, shapes: ListItemShapes, summary: String? = null, onClick: (() -> Unit)? = null) {
+    SettingRow(title = title, summary = summary, locked = false, enabled = true, shapes = shapes, onClick = onClick)
 }
 
 @Composable
@@ -51,6 +64,7 @@ fun SwitchRow(
     title: String,
     checked: Boolean,
     onChange: (Boolean) -> Unit,
+    shapes: ListItemShapes,
     summary: String? = null,
     locked: Boolean = false,
     enabled: Boolean = true,
@@ -60,6 +74,7 @@ fun SwitchRow(
         summary = summary,
         locked = locked,
         enabled = enabled,
+        shapes = shapes,
         onClick = { onChange(!checked) },
         trailing = { Switch(checked = checked, onCheckedChange = null, enabled = !locked && enabled) },
     )
@@ -71,6 +86,7 @@ fun ChoiceRow(
     options: List<Pair<String, String>>,
     selected: String,
     onSelect: (String) -> Unit,
+    shapes: ListItemShapes,
     locked: Boolean = false,
     enabled: Boolean = true,
 ) {
@@ -81,6 +97,7 @@ fun ChoiceRow(
         summary = options.firstOrNull { it.first == selected }?.second,
         locked = locked,
         enabled = enabled,
+        shapes = shapes,
         onClick = { open = true },
     )
 
@@ -125,6 +142,7 @@ fun NumberRow(
     range: ClosedRange<Float>,
     isFloat: Boolean,
     onChange: (Number) -> Unit,
+    shapes: ListItemShapes,
     locked: Boolean = false,
     enabled: Boolean = true,
     isValid: (Number) -> Boolean = { it.toFloat() in range },
@@ -136,6 +154,7 @@ fun NumberRow(
         summary = value.toString(),
         locked = locked,
         enabled = enabled,
+        shapes = shapes,
         onClick = { open = true },
     )
 
@@ -203,6 +222,7 @@ fun TextRow(
     multiline: Boolean,
     validate: (String) -> String?,
     onChange: (String) -> Unit,
+    shapes: ListItemShapes,
     locked: Boolean = false,
     enabled: Boolean = true,
 ) {
@@ -213,6 +233,7 @@ fun TextRow(
         summary = value,
         locked = locked,
         enabled = enabled,
+        shapes = shapes,
         onClick = { open = true },
     )
 
@@ -275,20 +296,35 @@ private fun SettingRow(
     summary: String?,
     locked: Boolean,
     enabled: Boolean,
+    shapes: ListItemShapes,
     onClick: (() -> Unit)?,
     trailing: (@Composable () -> Unit)? = null,
 ) {
     val disabled = locked || !enabled
-    ListItem(
-        supportingContent = {
-            val text = if (locked) stringResource(R.string.settings_set_in_config_file) else summary
-            if (text != null) Text(text, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        },
-        trailingContent = trailing,
-        modifier = Modifier
-            .alpha(if (disabled) 0.38f else 1f)
-            .clickable(enabled = onClick != null && !disabled) { onClick?.invoke() },
-    ) {
-        Text(title)
+    val supporting: @Composable () -> Unit = {
+        val text = if (locked) stringResource(R.string.settings_set_in_config_file) else summary
+        if (text != null) Text(text, maxLines = 2, overflow = TextOverflow.Ellipsis)
+    }
+    if (onClick != null) {
+        SegmentedListItem(
+            onClick = onClick,
+            shapes = shapes,
+            enabled = !disabled,
+            supportingContent = supporting,
+            trailingContent = trailing,
+            colors = ListItemDefaults.segmentedColors(),
+        ) {
+            Text(title)
+        }
+    } else {
+        SegmentedListItem(
+            shapes = shapes,
+            enabled = !disabled,
+            supportingContent = supporting,
+            trailingContent = trailing,
+            colors = ListItemDefaults.segmentedColors(),
+        ) {
+            Text(title)
+        }
     }
 }
