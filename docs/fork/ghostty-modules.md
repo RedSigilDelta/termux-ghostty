@@ -162,8 +162,8 @@ implementation 'com.termux:terminal-view:0.118.0'
 ### Contains
 - `TermuxConstants`, `TermuxBootstrap` — app paths, bootstrap config
 - `TermuxSession` — higher-level session manager
-- `ExtraKeysView`, `ExtraKeysInfo` — the extra keys bar
-- `TermuxSharedProperties` — settings from `termux.properties`
+- `ExtraKeysInfo` — parses the extra keys layout (the toolbar itself is Compose in each host)
+- `TermuxSettingsProvider` — the few settings termux-shared reads, supplied by the host app (the `app` host backs it with DataStore and `~/.termux/termux.toml`)
 - `ShellUtils`, `ExecutionCommand` — shell utilities
 - `CrashHandler`, `Logger`, `NotificationUtils`
 - App preferences for every Termux companion app (API, Boot, Float, Widget...)

@@ -1,50 +1,34 @@
 # Session Tabs View Mode
 
-A new view mode that shows session tabs horizontally above the terminal instead of using the drawer sidebar.
+Shows sessions as a horizontal tab strip next to the terminal instead of only in the drawer.
 
 ## Configuration
 
-Add to `~/.termux/termux.properties`:
+Turn it on in **Settings → Sessions**, or in `~/.termux/termux.toml`:
 
-```properties
-use-session-tabs=true
+```toml
+use-session-tabs = true
 
-# Choose the position of the session tab bar.
-# - bottom: Just above the extra keys (default)
-# - top: At the top of the terminal screen
-session-tab-bar-position=bottom
+# "bottom" (default): just above the extra keys
+# "top": at the top of the terminal screen
+session-tab-bar-position = "bottom"
 
-# Choose the alignment of the session tab bar.
-# - left: Tabs start from the left (default)
-# - center: Tabs are centered horizontally
-# - right: Tabs are aligned to the right
-session-tab-bar-align=left
+# "left" (default), "center" or "right"
+session-tab-bar-align = "left"
 ```
 
-Default for `use-session-tabs`: `false` (drawer mode)
-Default for `session-tab-bar-position`: `bottom`
-Default for `session-tab-bar-align`: `left`
+Keys set in `termux.toml` override the in-app values and show as locked in Settings. Changes apply when you return to the terminal; no restart is needed.
 
 ## Features
 
-- **Horizontal tab strip** - Sessions shown as scrollable tabs at the top of the terminal
-- **Quick switching** - Tap a tab to switch to that session
-- **New session** - Tap the `+` button to create a new session
-- **Failsafe mode** - Long-press the `+` button to create a failsafe session
-- **Session context menu** - Long-press a tab to rename or bubble the session
+- **Horizontal tab strip**: sessions shown as scrollable tabs
+- **Quick switching**: tap a tab to switch to that session
+- **New session**: tap `+` for a new session, long-press it for a failsafe session
+- **Rename**: long-press a tab
 - **Visual indicators**:
-  - Current session tab is highlighted (bold + background)
-  - Finished sessions show strikethrough text
-  - Failed sessions (non-zero exit) show red text
+  - the current session tab is highlighted (bold, primary container)
+  - finished sessions are struck through
+  - sessions that exited with a non-zero status are shown in the error color
+- **Right alignment** lists sessions in reverse order so the newest sits next to `+`
 
-## Usage
-
-1. Enable in `termux.properties`
-2. Restart Termux
-3. Tabs appear at the top of the terminal view
-4. Tap `+` to add sessions, tap tabs to switch
-
-The drawer is still accessible via swipe from the left edge for:
-- Settings
-- Keyboard toggle
-- Failsafe new session (via drawer button)
+The drawer is still available from a swipe at the left edge (or the `DRAWER` extra key) for settings, the session list, the keyboard toggle and named sessions.
