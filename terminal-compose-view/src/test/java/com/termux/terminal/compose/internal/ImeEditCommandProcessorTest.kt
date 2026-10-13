@@ -10,6 +10,7 @@ import androidx.compose.ui.text.input.SetComposingRegionCommand
 import androidx.compose.ui.text.input.SetComposingTextCommand
 import androidx.compose.ui.text.input.SetSelectionCommand
 import org.junit.Assert.assertEquals
+import org.junit.Ignore
 import org.junit.Test
 
 /**
@@ -361,10 +362,79 @@ class ImeEditCommandProcessorTest {
         assertEquals(listOf("cp:102", "cp:111", "cp:111", "cp:46"), terminal.events)
     }
 
+    // Tapping a suggestion for an already-committed word: the IME selects the old word's
+    // range and commits the replacement. The old word must be replaced, not appended to.
+    @Test
+    fun suggestionReplacesAlreadyCommittedWord() {
+        val field = TextBufferTerminal()
+        val ime = ImeEditCommandProcessor(field)
+        ime.process(listOf(SetComposingTextCommand("teh", 1)))
+        ime.process(listOf(CommitTextCommand("teh", 1)))
+        ime.process(listOf(SetComposingRegionCommand(0, 3)))
+        ime.process(listOf(CommitTextCommand("the", 1)))
+
+        assertEquals("the", field.text.toString())
+    }
+
+    // Gboard re-corrects the word before a period: the region covers the committed word and
+    // the commit carries the corrected word plus the period. Re-composition must still diff.
+    @Test
+    fun periodRecorrectionReplacesCommittedWordAndKeepsPunctuation() {
+        val field = TextBufferTerminal()
+        val ime = ImeEditCommandProcessor(field)
+        ime.process(listOf(SetComposingTextCommand("teh", 1)))
+        ime.process(listOf(CommitTextCommand("teh", 1)))
+        ime.process(listOf(SetComposingRegionCommand(0, 3)))
+        ime.process(listOf(CommitTextCommand("the.", 1)))
+        assertEquals("the.", field.text.toString())
+
+        ime.process(listOf(SetComposingTextCommand("the.b", 1)))
+        assertEquals("the.b", field.text.toString())
+    }
+
+    // Known gap: DeleteSurroundingText drops the processor's knowledge of the text it removed,
+    // so a region that replaces it has no tracked word to match and is still appended.
+    @Ignore("Known gap: a region over text dropped by DeleteSurroundingText is still appended")
+    @Test
+    fun composingRegionReplacementAfterDeleteReplacesTheRange() {
+        val field = TextBufferTerminal()
+        val ime = ImeEditCommandProcessor(field)
+        ime.process(listOf(SetComposingTextCommand("foo", 1)))
+        ime.process(listOf(FinishComposingTextCommand()))
+        ime.process(listOf(CommitTextCommand("foo.", 1)))
+        ime.process(listOf(DeleteSurroundingTextCommand(1, 0)))
+        ime.process(listOf(SetComposingRegionCommand(0, 3)))
+        ime.process(listOf(SetComposingTextCommand("food", 1)))
+
+        assertEquals("food", field.text.toString())
+    }
+
     private fun commit(text: String) {
         processor.process(listOf(SetComposingTextCommand(text, 1)))
         processor.process(listOf(CommitTextCommand(text, 1)))
         terminal.events.clear()
+    }
+}
+
+/** Applies terminal operations to a text buffer with a cursor, so tests can assert the final field text. */
+private class TextBufferTerminal : ImeEditCommandProcessor.TerminalInput {
+    val text = StringBuilder()
+    private var cursor = 0
+
+    override fun inputCodePoint(codePoint: Int) {
+        val chars = String(Character.toChars(codePoint))
+        text.insert(cursor, chars)
+        cursor += chars.length
+    }
+
+    override fun delete() {
+        if (cursor == 0) return
+        text.deleteCharAt(cursor - 1)
+        cursor--
+    }
+
+    override fun moveCursor(delta: Int) {
+        cursor = (cursor + delta).coerceIn(0, text.length)
     }
 }
 

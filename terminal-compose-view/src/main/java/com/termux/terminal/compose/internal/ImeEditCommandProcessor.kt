@@ -92,8 +92,9 @@ internal class ImeEditCommandProcessor(
     private var lastInsertedText = ""
     private var lastInsertedStartPosition = NO_POSITION
 
-    // Some IMEs announce the composing range before replacing it.
-    private var pendingComposingStart = NO_POSITION
+    // A range the IME selected before a commit or composition replaces it. It can cover
+    // text the terminal already holds, so the next text command consumes it.
+    private var pendingRegion: TextRange? = null
 
     // IME positions are UTF-16 offsets. Terminal movement is in Unicode code
     // points, so every cursor delta is converted before reaching the backend.
@@ -104,14 +105,14 @@ internal class ImeEditCommandProcessor(
         composingStartPosition = NO_POSITION
         clearTrackedCommit()
         clearLastInsertion()
-        pendingComposingStart = NO_POSITION
+        pendingRegion = null
         imeCursorPosition = 0
     }
 
     fun process(commands: List<EditCommand>) {
         for (cmd in commands) {
-            if (cmd !is SetComposingRegionCommand && cmd !is SetComposingTextCommand) {
-                pendingComposingStart = NO_POSITION
+            if (cmd !is SetComposingRegionCommand && cmd !is SetComposingTextCommand && cmd !is CommitTextCommand) {
+                pendingRegion = null
             }
             when (cmd) {
                 is CommitTextCommand -> handleCommitText(cmd.text, cmd.newCursorPosition)
@@ -176,6 +177,8 @@ internal class ImeEditCommandProcessor(
     }
 
     private fun handleCommitText(text: String, newCursorPosition: Int) {
+        val region = pendingRegion
+        pendingRegion = null
         val activeComposition = composingText
         val trackedCommit = lastComposedText
         val regionStart = when {
@@ -197,7 +200,8 @@ internal class ImeEditCommandProcessor(
                 trackedCommit,
                 text,
                 newCursorPosition,
-                regionStart
+                regionStart,
+                region
             )
             text.isNotEmpty() -> {
                 sendCodePoints(text)
@@ -267,7 +271,8 @@ internal class ImeEditCommandProcessor(
         trackedCommit: String,
         text: String,
         newCursorPosition: Int,
-        regionStart: Int
+        regionStart: Int,
+        region: TextRange?
     ) {
         when {
             text.startsWith(trackedCommit) -> {
@@ -294,6 +299,11 @@ internal class ImeEditCommandProcessor(
                 lastComposedText += text
                 placeCursorAfterInsertion(regionStart, lastComposedText, newCursorPosition)
             }
+            text.isNotEmpty() && region.coversTrackedWord() -> {
+                val start = lastComposedStartPosition
+                replaceTrackedWord(text)
+                finishCommit(start, text, newCursorPosition)
+            }
             text.isNotEmpty() -> {
                 sendCodePoints(text)
                 clearTrackedCommit()
@@ -309,6 +319,29 @@ internal class ImeEditCommandProcessor(
         lastComposedStartPosition =
             if (lastComposedText.isNotEmpty()) regionStart else NO_POSITION
         placeCursorAfterInsertion(regionStart, committedText, newCursorPosition)
+    }
+
+    /** Deletes the tracked word the terminal holds, then types [text] in its place. */
+    private fun replaceTrackedWord(text: String) {
+        val start = lastComposedStartPosition
+        val word = lastComposedText
+        moveTerminalCursorTo(
+            from = imeCursorPosition,
+            to = start + word.length,
+            regionStart = start,
+            regionText = word
+        )
+        repeat(word.codePointCount()) { terminal.delete() }
+        clearTrackedCommit()
+        sendCodePoints(text)
+    }
+
+    /** True when the IME's range is exactly the tracked word, which the terminal already holds. */
+    private fun TextRange?.coversTrackedWord(): Boolean {
+        val range = this ?: return false
+        return lastComposedText.isNotEmpty() &&
+            range.start == lastComposedStartPosition &&
+            range.end == lastComposedStartPosition + lastComposedText.length
     }
 
     private fun replaceComposition(oldText: String, newText: String, regionStart: Int) {
@@ -345,20 +378,24 @@ internal class ImeEditCommandProcessor(
     }
 
     private fun handleSetComposingRegion(start: Int, end: Int) {
-        pendingComposingStart = minOf(start, end).coerceAtLeast(0)
+        pendingRegion = TextRange(
+            start = minOf(start, end).coerceAtLeast(0),
+            end = maxOf(start, end).coerceAtLeast(0)
+        )
     }
 
     private fun handleSetComposingText(current: String, newCursorPosition: Int) {
+        val region = pendingRegion
+        pendingRegion = null
         val previousComposition = composingText
         val trackedCommit = lastComposedText
         val regionStart = when {
             previousComposition.isNotEmpty() -> composingStartPosition
             trackedCommit.isNotEmpty() && current.startsWith(trackedCommit) ->
                 lastComposedStartPosition
-            pendingComposingStart != NO_POSITION -> pendingComposingStart
+            region != null -> region.start
             else -> imeCursorPosition
         }.coerceAtLeast(0)
-        pendingComposingStart = NO_POSITION
 
         // Gboard uses an unchanged composing string while the spacebar gesture
         // moves the cursor. The SetSelection command already moved the
@@ -366,7 +403,7 @@ internal class ImeEditCommandProcessor(
         if (current == previousComposition) return
 
         if (previousComposition.isEmpty()) {
-            handleFreshComposition(current, trackedCommit, regionStart)
+            handleFreshComposition(current, trackedCommit, regionStart, region)
         } else if (handleExistingCompositionChange(previousComposition, current, regionStart)) {
             return
         }
@@ -381,7 +418,12 @@ internal class ImeEditCommandProcessor(
         }
     }
 
-    private fun handleFreshComposition(current: String, trackedCommit: String, regionStart: Int) {
+    private fun handleFreshComposition(
+        current: String,
+        trackedCommit: String,
+        regionStart: Int,
+        region: TextRange?
+    ) {
         if (trackedCommit.isNotEmpty() && current.startsWith(trackedCommit)) {
             moveTerminalCursorTo(
                 from = imeCursorPosition,
@@ -390,6 +432,8 @@ internal class ImeEditCommandProcessor(
                 regionText = trackedCommit
             )
             sendCodePoints(current.substring(trackedCommit.length))
+        } else if (region.coversTrackedWord()) {
+            replaceTrackedWord(current)
         } else {
             sendCodePoints(current)
         }
@@ -593,6 +637,8 @@ internal class ImeEditCommandProcessor(
     private fun sendCodePoints(text: String) {
         if (text.isNotEmpty()) terminal.inputText(text)
     }
+
+    private data class TextRange(val start: Int, val end: Int)
 
     private companion object {
         const val NO_POSITION = -1
