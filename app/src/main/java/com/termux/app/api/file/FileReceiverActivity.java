@@ -22,9 +22,9 @@ import com.termux.shared.termux.TermuxConstants;
 import com.termux.shared.termux.TermuxConstants.TERMUX_APP;
 import com.termux.shared.termux.TermuxConstants.TERMUX_APP.TERMUX_SERVICE;
 import com.termux.app.TermuxService;
+import com.termux.app.settings.TermuxSettings;
+import com.termux.app.settings.TermuxSettingsRepository;
 import com.termux.shared.logger.Logger;
-import com.termux.shared.termux.settings.properties.TermuxAppSharedProperties;
-import com.termux.shared.termux.settings.properties.TermuxPropertyConstants;
 
 import java.io.ByteArrayInputStream;
 import java.io.File;
@@ -251,20 +251,20 @@ public class FileReceiverActivity extends AppCompatActivity {
 
     /**
      * Update {@link TERMUX_APP#FILE_SHARE_RECEIVER_ACTIVITY_CLASS_NAME} component state depending on
-     * {@link TermuxPropertyConstants#KEY_DISABLE_FILE_SHARE_RECEIVER} value and
+     * `disable-file-share-receiver` value and
      * {@link TERMUX_APP#FILE_VIEW_RECEIVER_ACTIVITY_CLASS_NAME} component state depending on
-     * {@link TermuxPropertyConstants#KEY_DISABLE_FILE_VIEW_RECEIVER} value.
+     * `disable-file-view-receiver` value.
      */
     public static void updateFileReceiverActivityComponentsState(@NonNull Context context) {
         new Thread() {
             @Override
             public void run() {
-                TermuxAppSharedProperties properties = TermuxAppSharedProperties.getProperties();
+                TermuxSettings settings = TermuxSettingsRepository.get().current();
 
                 String errmsg;
                 boolean state;
 
-                state = !properties.isFileShareReceiverDisabled();
+                state = !settings.getDisableFileShareReceiver();
                 Logger.logVerbose(LOG_TAG, "Setting " + TERMUX_APP.FILE_SHARE_RECEIVER_ACTIVITY_CLASS_NAME + " component state to " + state);
                 errmsg = PackageUtils.setComponentState(context,TermuxConstants.TERMUX_PACKAGE_NAME,
                     TERMUX_APP.FILE_SHARE_RECEIVER_ACTIVITY_CLASS_NAME,
@@ -272,7 +272,7 @@ public class FileReceiverActivity extends AppCompatActivity {
                 if (errmsg != null)
                     Logger.logError(LOG_TAG, errmsg);
 
-                state = !properties.isFileViewReceiverDisabled();
+                state = !settings.getDisableFileViewReceiver();
                 Logger.logVerbose(LOG_TAG, "Setting " + TERMUX_APP.FILE_VIEW_RECEIVER_ACTIVITY_CLASS_NAME + " component state to " + state);
                 errmsg = PackageUtils.setComponentState(context,TermuxConstants.TERMUX_PACKAGE_NAME,
                     TERMUX_APP.FILE_VIEW_RECEIVER_ACTIVITY_CLASS_NAME,

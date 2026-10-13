@@ -35,16 +35,14 @@ public class TermuxSession {
     private final ExecutionCommand mExecutionCommand;
     private final TermuxSessionClient mTermuxSessionClient;
     private final boolean mSetStdoutOnExit;
-    private final int mBubbleSlotId;
 
     private static final String LOG_TAG = "TermuxSession";
 
     private TermuxSession(@NonNull final TerminalSession terminalSession, @NonNull final ExecutionCommand executionCommand,
-                          final TermuxSessionClient termuxSessionClient, final int bubbleSlotId, final boolean setStdoutOnExit) {
+                          final TermuxSessionClient termuxSessionClient, final boolean setStdoutOnExit) {
         this.mTerminalSession = terminalSession;
         this.mExecutionCommand = executionCommand;
         this.mTermuxSessionClient = termuxSessionClient;
-        this.mBubbleSlotId = bubbleSlotId;
         this.mSetStdoutOnExit = setStdoutOnExit;
     }
 
@@ -79,15 +77,6 @@ public class TermuxSession {
     public static TermuxSession execute(@NonNull final Context currentPackageContext, @NonNull ExecutionCommand executionCommand,
                                         @NonNull final TerminalSessionClient terminalSessionClient, final TermuxSessionClient termuxSessionClient,
                                         @NonNull final IShellEnvironment shellEnvironmentClient,
-                                        @Nullable HashMap<String, String> additionalEnvironment,
-                                        final boolean setStdoutOnExit) {
-        return execute(currentPackageContext, executionCommand, terminalSessionClient, termuxSessionClient,
-            shellEnvironmentClient, -1, additionalEnvironment, setStdoutOnExit);
-    }
-
-    public static TermuxSession execute(@NonNull final Context currentPackageContext, @NonNull ExecutionCommand executionCommand,
-                                        @NonNull final TerminalSessionClient terminalSessionClient, final TermuxSessionClient termuxSessionClient,
-                                        @NonNull final IShellEnvironment shellEnvironmentClient, final int bubbleSlotId,
                                         @Nullable HashMap<String, String> additionalEnvironment,
                                         final boolean setStdoutOnExit) {
         if (executionCommand.executable != null && executionCommand.executable.isEmpty())
@@ -172,7 +161,7 @@ public class TermuxSession {
             terminalSession.mSessionName = executionCommand.shellName;
         }
 
-        return new TermuxSession(terminalSession, executionCommand, termuxSessionClient, bubbleSlotId, setStdoutOnExit);
+        return new TermuxSession(terminalSession, executionCommand, termuxSessionClient, setStdoutOnExit);
     }
 
     /**
@@ -289,10 +278,6 @@ public class TermuxSession {
 
     public ExecutionCommand getExecutionCommand() {
         return mExecutionCommand;
-    }
-
-    public int getBubbleSlotId() {
-        return mBubbleSlotId;
     }
 
 

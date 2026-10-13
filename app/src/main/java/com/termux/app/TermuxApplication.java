@@ -4,14 +4,15 @@ import android.app.Application;
 import android.content.Context;
 
 import com.termux.BuildConfig;
+import com.termux.app.settings.TermuxSettingsRepository;
 import com.termux.shared.errors.Error;
 import com.termux.shared.logger.Logger;
 import com.termux.shared.termux.TermuxBootstrap;
 import com.termux.shared.termux.TermuxConstants;
 import com.termux.shared.termux.crash.TermuxCrashUtils;
 import com.termux.shared.termux.file.TermuxFileUtils;
+import com.termux.shared.termux.settings.TermuxSettingsProviderHolder;
 import com.termux.shared.termux.settings.preferences.TermuxAppSharedPreferences;
-import com.termux.shared.termux.settings.properties.TermuxAppSharedProperties;
 import com.termux.shared.termux.shell.command.environment.TermuxShellEnvironment;
 import com.termux.shared.termux.shell.am.TermuxAmSocketServer;
 import com.termux.shared.termux.shell.TermuxShellManager;
@@ -37,15 +38,18 @@ public class TermuxApplication extends Application {
         // Set TermuxBootstrap.TERMUX_APP_PACKAGE_MANAGER and TermuxBootstrap.TERMUX_APP_PACKAGE_VARIANT
         TermuxBootstrap.setTermuxPackageManagerAndVariant(BuildConfig.TERMUX_PACKAGE_VARIANT);
 
-        // Init app wide SharedProperties loaded from termux.properties
-        TermuxAppSharedProperties properties = TermuxAppSharedProperties.init(context);
+        // Init app wide settings from DataStore, overridden by termux.toml
+        TermuxSettingsRepository settingsRepository = TermuxSettingsRepository.init(context);
+        TermuxSettingsProviderHolder.set(settingsRepository);
 
         // Init app wide shell manager
         TermuxShellManager shellManager = TermuxShellManager.init(context);
 
         // Set NightMode.APP_NIGHT_MODE
         TermuxThemeUtils.setAppNightMode(
-            TermuxThemeUtils.getAppNightMode(properties.getNightMode(), properties.getMaterialYouTheme()));
+            TermuxThemeUtils.getAppNightMode(
+                settingsRepository.current().getNightMode().getValue(),
+                settingsRepository.current().getMaterialYouTheme().getValue()));
 
         // Check and create termux files directory. If failed to access it like in case of secondary
         // user or external sd card installation, then don't run files directory related code

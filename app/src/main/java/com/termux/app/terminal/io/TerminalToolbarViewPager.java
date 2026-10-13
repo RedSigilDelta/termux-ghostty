@@ -45,13 +45,13 @@ public class TerminalToolbarViewPager {
                 layout = inflater.inflate(R.layout.view_terminal_toolbar_extra_keys, collection, false);
                 ExtraKeysView extraKeysView = (ExtraKeysView) layout;
                 extraKeysView.setExtraKeysViewClient(mActivity.getTermuxTerminalExtraKeys());
-                extraKeysView.setButtonTextAllCaps(mActivity.getProperties().shouldExtraKeysTextBeAllCaps());
+                extraKeysView.setButtonTextAllCaps(mActivity.getSettings().getExtraKeysTextAllCaps());
                 mActivity.setExtraKeysView(extraKeysView);
                 extraKeysView.reload(mActivity.getTermuxTerminalExtraKeys().getExtraKeysInfo(),
                     mActivity.getTerminalToolbarDefaultHeight());
 
                 // apply extra keys fix if enabled in prefs
-                if (mActivity.getProperties().isUsingFullScreen() && mActivity.getProperties().isUsingFullScreenWorkAround()) {
+                if (mActivity.getSettings().getFullscreen() && mActivity.getSettings().getUseFullscreenWorkaround()) {
                     FullScreenWorkAround.apply(mActivity);
                 }
 

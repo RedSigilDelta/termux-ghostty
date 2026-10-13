@@ -9,8 +9,6 @@ import androidx.annotation.Nullable;
 
 import com.termux.shared.logger.Logger;
 import com.termux.shared.termux.TermuxConstants;
-import com.termux.shared.termux.settings.properties.TermuxPropertyConstants;
-import com.termux.shared.termux.settings.properties.TermuxSharedProperties;
 import com.termux.shared.termux.theme.MaterialYouTerminalColors;
 import com.termux.terminal.TerminalColors;
 import com.termux.terminal.TerminalSession;
@@ -63,14 +61,12 @@ public final class TermuxTerminalStyling {
      * @return true when the colour scheme and typeface were applied.
      */
     public static boolean applyTerminalStyling(@NonNull Context context,
-                                               @NonNull TermuxSharedProperties properties,
+                                               boolean isMaterialYou,
                                                @NonNull TerminalComposeView terminalView,
                                                @Nullable TerminalSession session) {
         try {
             File colorsFile = TermuxConstants.TERMUX_COLOR_PROPERTIES_FILE;
             File fontFile = TermuxConstants.TERMUX_FONT_FILE;
-            boolean isMaterialYou = !TermuxPropertyConstants.IVALUE_MATERIAL_YOU_THEME_DISABLED.equals(
-                properties.getMaterialYouTheme());
 
             Properties colorProperties = new Properties();
             if (isMaterialYou) {

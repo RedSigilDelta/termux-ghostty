@@ -3,8 +3,6 @@ package com.termux.app.terminal;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
-import com.termux.app.TermuxService;
-import com.termux.app.bubbles.BubbleTerminalSessionClient;
 import com.termux.shared.termux.terminal.TermuxTerminalSessionClientBase;
 import com.termux.terminal.TerminalSession;
 import com.termux.terminal.TerminalSessionClient;
@@ -14,13 +12,10 @@ import java.util.List;
 
 public final class TermuxTerminalSessionClientDispatcher extends TermuxTerminalSessionClientBase {
 
-    private final TermuxService mService;
     private final TermuxTerminalSessionServiceClient mServiceClient;
     private final List<TerminalSessionClient> mRegisteredClients = new ArrayList<>();
 
-    public TermuxTerminalSessionClientDispatcher(@NonNull TermuxService service,
-                                                 @NonNull TermuxTerminalSessionServiceClient serviceClient) {
-        mService = service;
+    public TermuxTerminalSessionClientDispatcher(@NonNull TermuxTerminalSessionServiceClient serviceClient) {
         mServiceClient = serviceClient;
     }
 
@@ -46,19 +41,9 @@ public final class TermuxTerminalSessionClientDispatcher extends TermuxTerminalS
                 && ((TermuxTerminalSessionActivityClient) client).isSessionFocused(session)) {
                 return true;
             }
-
-            if (client instanceof BubbleTerminalSessionClient
-                && ((BubbleTerminalSessionClient) client).isSessionFocused(session)) {
-                return true;
-            }
         }
 
         return false;
-    }
-
-    public boolean isSessionFocused(@Nullable TerminalSession session) {
-        if (session == null) return false;
-        return isSessionFocused(session, getRegisteredClientsSnapshot());
     }
 
     @Override
@@ -75,14 +60,12 @@ public final class TermuxTerminalSessionClientDispatcher extends TermuxTerminalS
 
     @Override
     public void onTitleChanged(@NonNull TerminalSession updatedSession) {
-        mService.onTerminalSessionTitleChanged(updatedSession);
         for (TerminalSessionClient client : getRegisteredClientsSnapshot())
             client.onTitleChanged(updatedSession);
     }
 
     @Override
     public void onSessionFinished(@NonNull TerminalSession finishedSession) {
-        mService.onTerminalSessionFinished(finishedSession);
         for (TerminalSessionClient client : getRegisteredClientsSnapshot())
             client.onSessionFinished(finishedSession);
     }

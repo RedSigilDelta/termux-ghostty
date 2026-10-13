@@ -22,7 +22,9 @@ import com.termux.shared.termux.terminal.TermuxTerminalSessionClientBase;
 import com.termux.shared.termux.terminal.TermuxTerminalStyling;
 import com.termux.shared.termux.TermuxConstants;
 import com.termux.app.TermuxService;
-import com.termux.shared.termux.settings.properties.TermuxPropertyConstants;
+import com.termux.app.settings.BellBehaviour;
+import com.termux.app.settings.TermuxSettings;
+import com.termux.shared.termux.theme.TermuxThemeUtils;
 import com.termux.shared.termux.terminal.io.BellHandler;
 import com.termux.shared.logger.Logger;
 import com.termux.terminal.TerminalSession;
@@ -200,18 +202,15 @@ public class TermuxTerminalSessionActivityClient extends TermuxTerminalSessionCl
     public void onBell(@NonNull TerminalSession session) {
         if (!mActivity.isVisible()) return;
 
-        switch (mActivity.getProperties().getBellBehaviour()) {
-            case TermuxPropertyConstants.IVALUE_BELL_BEHAVIOUR_VIBRATE:
-                BellHandler.getInstance(mActivity).doBell();
-                break;
-            case TermuxPropertyConstants.IVALUE_BELL_BEHAVIOUR_BEEP:
-                loadBellSoundPool();
-                if (mBellSoundPool != null)
-                    mBellSoundPool.play(mBellSoundId, 1.f, 1.f, 1, 0, 1.f);
-                break;
-            case TermuxPropertyConstants.IVALUE_BELL_BEHAVIOUR_IGNORE:
-                // Ignore the bell character.
-                break;
+        BellBehaviour bellBehaviour = mActivity.getSettings().getBellBehaviour();
+        if (bellBehaviour == BellBehaviour.VIBRATE) {
+            BellHandler.getInstance(mActivity).doBell();
+        } else if (bellBehaviour == BellBehaviour.BEEP) {
+            loadBellSoundPool();
+            if (mBellSoundPool != null)
+                mBellSoundPool.play(mBellSoundId, 1.f, 1.f, 1, 0, 1.f);
+        } else if (bellBehaviour == BellBehaviour.IGNORE) {
+            // Ignore the bell character.
         }
     }
 
@@ -258,7 +257,7 @@ public class TermuxTerminalSessionActivityClient extends TermuxTerminalSessionCl
 
     @Override
     public Integer getTerminalCursorStyle() {
-        return mActivity.getProperties().getTerminalCursorStyle();
+        return mActivity.getSettings().getTerminalCursorStyle().getTerminalValue();
     }
 
     public void finishActivityIfNotFinishing() {
@@ -322,15 +321,12 @@ public class TermuxTerminalSessionActivityClient extends TermuxTerminalSessionCl
 
         // Update tab strip selection (O(1), not full rebuild)
         mActivity.onCurrentSessionChanged();
-
-        if (isSessionFocused(session))
-            mActivity.markCurrentSessionBubbleConversationRead();
     }
 
     void notifyOfSessionChange() {
         if (!mActivity.isVisible()) return;
 
-        if (!mActivity.getProperties().areTerminalSessionChangeToastsDisabled()) {
+        if (!mActivity.getSettings().getDisableTerminalSessionChangeToast()) {
             TerminalSession session = mActivity.getCurrentSession();
             mActivity.showToast(toToastTitle(session), false);
         }
@@ -381,8 +377,6 @@ public class TermuxTerminalSessionActivityClient extends TermuxTerminalSessionCl
             TermuxSession termuxSession = service.getTermuxSessionForTerminalSession(sessionToRename);
             if (termuxSession != null)
                 termuxSession.getExecutionCommand().shellName = text;
-
-            service.onTerminalSessionRenamed(sessionToRename);
         }
     }
 
@@ -398,7 +392,7 @@ public class TermuxTerminalSessionActivityClient extends TermuxTerminalSessionCl
 
             String workingDirectory;
             if (currentSession == null) {
-                workingDirectory = mActivity.getProperties().getDefaultWorkingDirectory();
+                workingDirectory = mActivity.getSettings().resolveDefaultWorkingDirectory();
             } else {
                 workingDirectory = currentSession.getCwd();
             }
@@ -579,8 +573,10 @@ public class TermuxTerminalSessionActivityClient extends TermuxTerminalSessionCl
 
 
     public void checkForFontAndColors() {
+        TermuxSettings s = mActivity.getSettings();
         TermuxTerminalStyling.applyTerminalStyling(
-            mActivity, mActivity.getProperties(), mActivity.getTerminalView(), mActivity.getCurrentSession());
+            mActivity, TermuxThemeUtils.isMaterialYouThemeEnabled(s.getMaterialYouTheme().getValue()),
+            mActivity.getTerminalView(), mActivity.getCurrentSession());
     }
 
     public void updateBackgroundColor() {

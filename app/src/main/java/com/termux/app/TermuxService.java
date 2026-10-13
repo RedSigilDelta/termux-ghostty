@@ -19,8 +19,8 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
 import com.termux.R;
-import com.termux.app.bubbles.SessionBubbleController;
 import com.termux.app.event.SystemEventReceiver;
+import com.termux.app.settings.TermuxSettingsRepository;
 import com.termux.app.terminal.TermuxTerminalSessionActivityClient;
 import com.termux.app.terminal.TermuxTerminalSessionClientDispatcher;
 import com.termux.app.terminal.TermuxTerminalSessionServiceClient;
@@ -30,7 +30,6 @@ import com.termux.shared.net.uri.UriUtils;
 import com.termux.shared.errors.Errno;
 import com.termux.shared.shell.ShellUtils;
 import com.termux.shared.shell.command.runner.app.AppShell;
-import com.termux.shared.termux.settings.properties.TermuxAppSharedProperties;
 import com.termux.shared.termux.shell.command.environment.TermuxShellEnvironment;
 import com.termux.shared.termux.shell.TermuxShellUtils;
 import com.termux.shared.termux.TermuxConstants;
@@ -91,15 +90,7 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
 
     /** Dispatcher that fans out terminal session callbacks to all registered ui clients. */
     private final TermuxTerminalSessionClientDispatcher mTermuxTerminalSessionClientDispatcher =
-        new TermuxTerminalSessionClientDispatcher(this, mTermuxTerminalSessionServiceClient);
-
-    /** Service-owned controller for per-session terminal bubbles. */
-    private SessionBubbleController mSessionBubbleController;
-
-    /**
-     * Termux app shared properties manager, loaded from termux.properties
-     */
-    private TermuxAppSharedProperties mProperties;
+        new TermuxTerminalSessionClientDispatcher(mTermuxTerminalSessionServiceClient);
 
     /**
      * Termux app shell manager
@@ -119,13 +110,7 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
     public void onCreate() {
         Logger.logVerbose(LOG_TAG, "onCreate");
 
-        // Get Termux app SharedProperties without loading from disk since TermuxApplication handles
-        // load and TermuxActivity handles reloads
-        mProperties = TermuxAppSharedProperties.getProperties();
-
         mShellManager = TermuxShellManager.getShellManager();
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R)
-            mSessionBubbleController = new SessionBubbleController(this);
 
         runStartForeground();
 
@@ -164,10 +149,6 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
                     Logger.logDebug(LOG_TAG, "ACTION_SERVICE_EXECUTE intent received");
                     actionServiceExecute(intent);
                     break;
-                case TERMUX_SERVICE.ACTION_UNBUBBLE_SESSION:
-                    Logger.logDebug(LOG_TAG, "ACTION_UNBUBBLE_SESSION intent received");
-                    actionUnbubbleSession(intent);
-                    break;
                 default:
                     Logger.logError(LOG_TAG, "Invalid action: \"" + action + "\"");
                     break;
@@ -190,9 +171,6 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
             killAllTermuxExecutionCommands();
 
         TermuxShellManager.onAppExit(this);
-
-        if (mSessionBubbleController != null)
-            mSessionBubbleController.clearAll();
 
         SystemEventReceiver.unregisterPackageUpdateEvents(this);
 
@@ -374,15 +352,6 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
             updateNotification();
 
         Logger.logDebug(LOG_TAG, "WakeLocks released successfully");
-    }
-
-    private void actionUnbubbleSession(@Nullable Intent intent) {
-        if (intent == null) {
-            Logger.logError(LOG_TAG, "Ignoring null intent to actionUnbubbleSession");
-            return;
-        }
-
-        unbubbleSession(intent.getStringExtra(TERMUX_ACTIVITY.EXTRA_SESSION_HANDLE));
     }
 
     /** Process {@link TERMUX_SERVICE#ACTION_SERVICE_EXECUTE} intent to execute a shell command in
@@ -614,7 +583,7 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
         }
 
         executionCommand.setShellCommandShellEnvironment = true;
-        executionCommand.terminalTranscriptRows = mProperties.getTerminalTranscriptRows();
+        executionCommand.terminalTranscriptRows = TermuxSettingsRepository.get().current().getTerminalTranscriptRows();
 
         if (Logger.getLogLevel() >= Logger.LOG_LEVEL_VERBOSE)
             Logger.logVerboseExtended(LOG_TAG, executionCommand.toString());
@@ -622,11 +591,8 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
         // If the execution command was started for a plugin, only then will the stdout be set
         // Otherwise if command was manually started by the user like by adding a new terminal session,
         // then no need to set stdout
-        int bubbleSlotId = getAvailableBubbleSlotId();
-        if (bubbleSlotId < 1)
-            Logger.logWarn(LOG_TAG, "Failed to allocate a bubble slot for the new terminal session");
         TermuxSession newTermuxSession = TermuxSession.execute(this, executionCommand, getTermuxTerminalSessionClient(),
-            this, new TermuxShellEnvironment(), bubbleSlotId, null, executionCommand.isPluginExecutionCommand);
+            this, new TermuxShellEnvironment(), null, executionCommand.isPluginExecutionCommand);
         if (newTermuxSession == null) {
             Logger.logError(LOG_TAG, "Failed to execute new TermuxSession command for:\n" + executionCommand.getCommandIdAndLabelLogString());
             // If the execution command was started for a plugin, then process the error
@@ -652,29 +618,11 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
             mTermuxTerminalSessionActivityClient.termuxSessionListNotifyUpdated();
 
         updateNotification();
-        if (mSessionBubbleController != null)
-            mSessionBubbleController.refreshAllBubbles();
 
         // No need to recreate the activity since it likely just started and theme should already have applied
         TermuxActivity.updateTermuxActivityStyling(this, false);
 
         return newTermuxSession;
-    }
-
-    private synchronized int getAvailableBubbleSlotId() {
-        boolean[] usedBubbleSlots = new boolean[TermuxConstants.TERMUX_APP_MAX_TERMINAL_SESSIONS + 1];
-
-        for (TermuxSession termuxSession : mShellManager.mTermuxSessions) {
-            int bubbleSlotId = termuxSession.getBubbleSlotId();
-            if (bubbleSlotId < 1 || bubbleSlotId > TermuxConstants.TERMUX_APP_MAX_TERMINAL_SESSIONS) continue;
-            usedBubbleSlots[bubbleSlotId] = true;
-        }
-
-        for (int bubbleSlotId = 1; bubbleSlotId <= TermuxConstants.TERMUX_APP_MAX_TERMINAL_SESSIONS; bubbleSlotId++) {
-            if (!usedBubbleSlots[bubbleSlotId]) return bubbleSlotId;
-        }
-
-        return -1;
     }
 
     /**
@@ -699,8 +647,6 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
 
         mShellManager.mTermuxSessions.remove(index);
         sessionToRemove.close();
-        if (mSessionBubbleController != null)
-            mSessionBubbleController.removeSessionBubble(sessionToRemove.mHandle);
 
         Logger.logVerbose(LOG_TAG, "Removed session " + sessionToRemove.mHandle + " without result processing");
         if (mTermuxTerminalSessionActivityClient != null)
@@ -721,9 +667,6 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
             if (executionCommand != null && executionCommand.isPluginExecutionCommand)
                 TermuxPluginUtils.processPluginExecutionCommandResult(this, LOG_TAG, executionCommand);
 
-            if (mSessionBubbleController != null)
-                mSessionBubbleController.removeSessionBubble(termuxSession.getTerminalSession().mHandle);
-
             mShellManager.mTermuxSessions.remove(termuxSession);
             termuxSession.getTerminalSession().close();
 
@@ -734,8 +677,6 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
         }
 
         updateNotification();
-        if (mSessionBubbleController != null)
-            mSessionBubbleController.refreshAllBubbles();
     }
 
 
@@ -1012,97 +953,6 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
                 return terminalSession;
         }
         return null;
-    }
-
-    public synchronized int getBubbleSlotId(@Nullable TerminalSession terminalSession) {
-        if (terminalSession == null) return -1;
-
-        TermuxSession termuxSession = getTermuxSessionForTerminalSession(terminalSession);
-        if (termuxSession == null) return -1;
-
-        return termuxSession.getBubbleSlotId();
-    }
-
-    public void onTerminalSessionRenamed(@Nullable TerminalSession session) {
-        if (session == null) return;
-        if (mSessionBubbleController == null) return;
-        mSessionBubbleController.updateSessionBubble(session);
-    }
-
-    public void onTerminalSessionTitleChanged(@Nullable TerminalSession session) {
-        if (session == null) return;
-        if (mSessionBubbleController == null) return;
-        mSessionBubbleController.onSessionTitleChanged(session);
-    }
-
-    public void onTerminalSessionProtocolNotification(@Nullable TerminalSession session,
-                                                      @Nullable String title,
-                                                      @Nullable String body) {
-        if (session == null) return;
-        if (mSessionBubbleController == null) return;
-        mSessionBubbleController.onTerminalProtocolNotification(session, title, body);
-    }
-
-    public void markSessionBubbleConversationRead(@Nullable String sessionHandle) {
-        if (mSessionBubbleController == null) return;
-        mSessionBubbleController.markSessionConversationRead(sessionHandle);
-    }
-
-    public boolean isTerminalSessionFocused(@Nullable TerminalSession session) {
-        return mTermuxTerminalSessionClientDispatcher.isSessionFocused(session);
-    }
-
-    public void onTerminalSessionFinished(@Nullable TerminalSession session) {
-        if (session == null) return;
-        if (mSessionBubbleController == null) return;
-        mSessionBubbleController.onSessionFinished(session);
-    }
-
-    public boolean canBubbleSessions() {
-        return mSessionBubbleController != null && mSessionBubbleController.isSupported();
-    }
-
-    public void bubbleSession(@Nullable TerminalSession session, boolean autoExpand) {
-        if (session == null) return;
-        if (!session.isRunning()) return;
-
-        if (!canBubbleSessions()) {
-            Logger.showToast(this, getString(R.string.error_termux_bubbles_not_supported), true);
-            return;
-        }
-
-        mSessionBubbleController.bubbleSession(session, autoExpand);
-    }
-
-    public void bubbleSession(@Nullable String sessionHandle, boolean autoExpand) {
-        if (sessionHandle == null) return;
-        bubbleSession(getTerminalSessionForHandle(sessionHandle), autoExpand);
-    }
-
-    public void unbubbleSession(@Nullable TerminalSession session) {
-        if (session == null) return;
-        unbubbleSession(session.mHandle);
-    }
-
-    public void unbubbleSession(@Nullable String sessionHandle) {
-        if (mSessionBubbleController == null) return;
-        mSessionBubbleController.unbubbleSession(sessionHandle);
-    }
-
-    public boolean isSessionBubbled(@Nullable String sessionHandle) {
-        return mSessionBubbleController != null && mSessionBubbleController.isSessionBubbled(sessionHandle);
-    }
-
-    public boolean hasSessionBubbleConversation(@Nullable String sessionHandle) {
-        return mSessionBubbleController != null && mSessionBubbleController.hasBubbleConversation(sessionHandle);
-    }
-
-    @NonNull
-    public String getSessionBubbleLabel(@NonNull TerminalSession session) {
-        if (mSessionBubbleController == null)
-            return getString(R.string.label_terminal_session_shell);
-
-        return mSessionBubbleController.getSessionLabel(session);
     }
 
     public synchronized AppShell getTermuxTaskForShellName(String name) {

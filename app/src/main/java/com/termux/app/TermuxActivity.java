@@ -33,6 +33,10 @@ import android.widget.Toast;
 import com.google.android.material.color.DynamicColors;
 import com.termux.R;
 import com.termux.app.api.file.FileReceiverActivity;
+import com.termux.app.settings.TabBarAlign;
+import com.termux.app.settings.TabBarPosition;
+import com.termux.app.settings.TermuxSettings;
+import com.termux.app.settings.TermuxSettingsRepository;
 import com.termux.app.terminal.TermuxActivityRootView;
 import com.termux.app.terminal.TermuxTerminalSessionActivityClient;
 import com.termux.app.terminal.io.TermuxTerminalExtraKeys;
@@ -56,8 +60,6 @@ import com.termux.shared.termux.extrakeys.ExtraKeysView;
 import com.termux.shared.termux.interact.TextInputDialogUtils;
 import com.termux.shared.logger.Logger;
 import com.termux.shared.termux.TermuxUtils;
-import com.termux.shared.termux.settings.properties.TermuxAppSharedProperties;
-import com.termux.shared.termux.settings.properties.TermuxPropertyConstants;
 import com.termux.shared.termux.theme.TermuxThemeUtils;
 import com.termux.shared.view.ViewUtils;
 import com.termux.terminal.TerminalSession;
@@ -117,11 +119,6 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
     private TermuxAppSharedPreferences mPreferences;
 
     /**
-     * Termux app SharedProperties loaded from termux.properties
-     */
-    private TermuxAppSharedProperties mProperties;
-
-    /**
      * The root view of the {@link TermuxActivity}.
      */
     TermuxActivityRootView mTermuxActivityRootView;
@@ -152,7 +149,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
     SessionTabStripController mSessionTabStripController;
 
     /**
-     * Whether session tabs mode is enabled via termux.properties.
+     * Whether session tabs mode is enabled via termux.toml.
      */
     boolean mUseSessionTabs;
 
@@ -202,8 +199,6 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
     private static final int CONTEXT_MENU_AUTOFILL_PASSWORD = 2;
     private static final int CONTEXT_MENU_RESET_TERMINAL_ID = 3;
     private static final int CONTEXT_MENU_KILL_PROCESS_ID = 4;
-    private static final int CONTEXT_MENU_BUBBLE_SESSION_ID = 12;
-    private static final int CONTEXT_MENU_UNBUBBLE_SESSION_ID = 13;
     private static final int CONTEXT_MENU_STYLING_ID = 5;
     private static final int CONTEXT_MENU_TOGGLE_KEEP_SCREEN_ON = 6;
     private static final int CONTEXT_MENU_HELP_ID = 7;
@@ -226,8 +221,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         // Delete ReportInfo serialized object files from cache older than 14 days
         ReportActivity.deleteReportInfoFilesOlderThanXDays(this, 14, false);
 
-        // Load Termux app SharedProperties from disk
-        mProperties = TermuxAppSharedProperties.getProperties();
+        // Load app settings from DataStore and termux.toml
         reloadProperties();
         mLastMaterialYouWallpaperId = getMaterialYouWallpaperId();
 
@@ -260,7 +254,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
             return insets;
         });
 
-        if (mProperties.isUsingFullScreen()) {
+        if (getSettings().getFullscreen()) {
             getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
         }
 
@@ -338,7 +332,6 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         if (mTermuxTerminalViewClient != null)
             mTermuxTerminalViewClient.onResume();
 
-        markCurrentSessionBubbleConversationRead();
         reloadMaterialYouThemeIfNeeded();
 
         // Check if a crash happened on last run of the app or if a plugin crashed and show a
@@ -346,16 +339,6 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         TermuxCrashUtils.notifyAppCrashFromCrashLogFile(this, LOG_TAG);
 
         mIsOnResumeAfterOnCreate = false;
-    }
-
-    @Override
-    public void onWindowFocusChanged(boolean hasFocus) {
-        super.onWindowFocusChanged(hasFocus);
-
-        if (!hasFocus) return;
-        if (mIsInvalidState) return;
-
-        markCurrentSessionBubbleConversationRead();
     }
 
     @Override
@@ -515,7 +498,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
 
     private void reloadProperties() {
-        mProperties.loadTermuxPropertiesFromDisk();
+        TermuxSettingsRepository.get().reload();
 
         if (mTermuxTerminalViewClient != null)
             mTermuxTerminalViewClient.onReloadProperties();
@@ -524,18 +507,19 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
 
     private void setActivityTheme() {
-        String appNightMode = TermuxThemeUtils.getAppNightMode(mProperties.getNightMode(), mProperties.getMaterialYouTheme());
+        String appNightMode = TermuxThemeUtils.getAppNightMode(
+            getSettings().getNightMode().getValue(), getSettings().getMaterialYouTheme().getValue());
         TermuxThemeUtils.setAppNightMode(appNightMode);
         AppCompatActivityUtils.setNightMode(this, appNightMode, true);
     }
 
     private void applyMaterialYouThemeOverlay() {
-        String materialYouTheme = mProperties.getMaterialYouTheme();
+        String materialYouTheme = getSettings().getMaterialYouTheme().getValue();
         if (!TermuxThemeUtils.isMaterialYouThemeEnabled(materialYouTheme)) return;
 
-        if (TermuxPropertyConstants.IVALUE_MATERIAL_YOU_THEME_LIGHT.equals(materialYouTheme)) {
+        if (TermuxThemeUtils.MATERIAL_YOU_THEME_LIGHT.equals(materialYouTheme)) {
             setTheme(R.style.Theme_TermuxActivity_M3_Light_NoActionBar);
-        } else if (TermuxPropertyConstants.IVALUE_MATERIAL_YOU_THEME_BLACK.equals(materialYouTheme)) {
+        } else if (TermuxThemeUtils.MATERIAL_YOU_THEME_BLACK.equals(materialYouTheme)) {
             setTheme(R.style.Theme_TermuxActivity_M3_Black_NoActionBar);
         } else {
             setTheme(R.style.Theme_TermuxActivity_M3_DayNight_NoActionBar);
@@ -543,15 +527,15 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
         DynamicColors.applyToActivityIfAvailable(this);
 
-        if (TermuxPropertyConstants.IVALUE_MATERIAL_YOU_THEME_BLACK.equals(materialYouTheme)) {
+        if (TermuxThemeUtils.MATERIAL_YOU_THEME_BLACK.equals(materialYouTheme)) {
             getTheme().applyStyle(R.style.ThemeOverlay_TermuxActivity_M3_Black, true);
         }
     }
 
     private void setMargins() {
         RelativeLayout relativeLayout = findViewById(R.id.activity_termux_root_relative_layout);
-        int marginHorizontal = mProperties.getTerminalMarginHorizontal();
-        int marginVertical = mProperties.getTerminalMarginVertical();
+        int marginHorizontal = getSettings().getTerminalMarginHorizontal();
+        int marginVertical = getSettings().getTerminalMarginVertical();
         ViewUtils.setLayoutMarginsInDp(relativeLayout, marginHorizontal, marginVertical, marginHorizontal, marginVertical);
     }
 
@@ -676,7 +660,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
             }
         });
         mTerminalView.setUnconditionalKeyboardOnTap(
-            mProperties.isUnconditionalSoftKeyboardOnTapEnabled());
+            getSettings().getUnconditionalSoftKeyboardOnTap());
         mTerminalCursorBlinker = new TerminalCursorBlinker(mTerminalView::onFrameAvailable);
         mTerminalView.setFontSizeBounds(mPreferences.getMinFontSize(), mPreferences.getMaxFontSize());
         mTerminalView.setFontSize(mPreferences.getFontSize());
@@ -697,7 +681,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
     }
 
     private void setSessionTabStripView() {
-        mUseSessionTabs = mProperties.shouldUseSessionTabs();
+        mUseSessionTabs = getSettings().getUseSessionTabs();
 
         HorizontalScrollView tabScrollView = findViewById(R.id.session_tab_strip_scroll);
         LinearLayout tabStrip = findViewById(R.id.session_tab_strip);
@@ -705,9 +689,8 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         if (mUseSessionTabs) {
             LinearLayout contentLayout = findViewById(R.id.activity_termux_content_layout);
             if (contentLayout != null && tabScrollView != null) {
-                String tabPosition = mProperties.getSessionTabBarPosition();
                 contentLayout.removeView(tabScrollView);
-                if (TermuxPropertyConstants.IVALUE_SESSION_TAB_BAR_POSITION_TOP.equals(tabPosition)) {
+                if (getSettings().getSessionTabBarPosition() == TabBarPosition.TOP) {
                     contentLayout.addView(tabScrollView, 0);
                 } else {
                     // default is bottom
@@ -716,11 +699,10 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
             }
 
             if (tabScrollView != null && tabStrip != null) {
-                String tabAlign = mProperties.getSessionTabBarAlign();
-                if (TermuxPropertyConstants.IVALUE_SESSION_TAB_BAR_ALIGN_RIGHT.equals(tabAlign)) {
+                if (getSettings().getSessionTabBarAlign() == TabBarAlign.RIGHT) {
                     tabScrollView.setFillViewport(true);
                     tabStrip.setGravity(Gravity.RIGHT | Gravity.CENTER_VERTICAL);
-                } else if (TermuxPropertyConstants.IVALUE_SESSION_TAB_BAR_ALIGN_CENTER.equals(tabAlign)) {
+                } else if (getSettings().getSessionTabBarAlign() == TabBarAlign.CENTER) {
                     tabScrollView.setFillViewport(true);
                     tabStrip.setGravity(Gravity.CENTER);
                 } else {
@@ -769,7 +751,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         ViewGroup.LayoutParams layoutParams = terminalToolbarViewPager.getLayoutParams();
         layoutParams.height = Math.round(mTerminalToolbarDefaultHeight *
             (mTermuxTerminalExtraKeys.getExtraKeysInfo() == null ? 0 : mTermuxTerminalExtraKeys.getExtraKeysInfo().getMatrix().length) *
-            mProperties.getTerminalToolbarHeightScaleFactor());
+            getSettings().getTerminalToolbarHeight());
         terminalToolbarViewPager.setLayoutParams(layoutParams);
     }
 
@@ -878,12 +860,6 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
             menu.add(Menu.NONE, CONTEXT_MENU_AUTOFILL_PASSWORD, Menu.NONE, R.string.action_autofill_password);
         menu.add(Menu.NONE, CONTEXT_MENU_RESET_TERMINAL_ID, Menu.NONE, R.string.action_reset_terminal);
         menu.add(Menu.NONE, CONTEXT_MENU_KILL_PROCESS_ID, Menu.NONE, getResources().getString(R.string.action_kill_process, getCurrentSession().getPid())).setEnabled(currentSession.isRunning());
-        if (mTermuxService != null && mTermuxService.canBubbleSessions()) {
-            if (mTermuxService.isSessionBubbled(currentSession.mHandle))
-                menu.add(Menu.NONE, CONTEXT_MENU_UNBUBBLE_SESSION_ID, Menu.NONE, R.string.action_unbubble_session);
-            else
-                menu.add(Menu.NONE, CONTEXT_MENU_BUBBLE_SESSION_ID, Menu.NONE, R.string.action_bubble_session).setEnabled(currentSession.isRunning());
-        }
         menu.add(Menu.NONE, CONTEXT_MENU_STYLING_ID, Menu.NONE, R.string.action_style_terminal);
         menu.add(Menu.NONE, CONTEXT_MENU_TOGGLE_KEEP_SCREEN_ON, Menu.NONE, R.string.action_toggle_keep_screen_on).setCheckable(true).setChecked(mPreferences.shouldKeepScreenOn());
         menu.add(Menu.NONE, CONTEXT_MENU_HELP_ID, Menu.NONE, R.string.action_open_help);
@@ -923,14 +899,6 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
                 return true;
             case CONTEXT_MENU_KILL_PROCESS_ID:
                 showKillSessionDialog(session);
-                return true;
-            case CONTEXT_MENU_BUBBLE_SESSION_ID:
-                if (mTermuxService != null)
-                    mTermuxService.bubbleSession(session, true);
-                return true;
-            case CONTEXT_MENU_UNBUBBLE_SESSION_ID:
-                if (mTermuxService != null)
-                    mTermuxService.unbubbleSession(session);
                 return true;
             case CONTEXT_MENU_STYLING_ID:
                 showStylingDialog();
@@ -1149,7 +1117,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
     public void setTerminalCursorBlinkerState(boolean start, boolean startOnlyIfCursorEnabled) {
         if (mTerminalCursorBlinker == null) return;
-        if (start && !mTerminalCursorBlinker.setRate(mProperties.getTerminalCursorBlinkRate())) {
+        if (start && !mTerminalCursorBlinker.setRate(getSettings().getTerminalCursorBlinkRate())) {
             Logger.logError(LOG_TAG, "Failed to set terminal cursor blink rate");
             return;
         }
@@ -1173,21 +1141,12 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         return mCurrentSession;
     }
 
-    public void markCurrentSessionBubbleConversationRead() {
-        if (mTermuxService == null) return;
-
-        TerminalSession currentSession = getCurrentSession();
-        if (currentSession == null) return;
-
-        mTermuxService.markSessionBubbleConversationRead(currentSession.mHandle);
-    }
-
     public TermuxAppSharedPreferences getPreferences() {
         return mPreferences;
     }
 
-    public TermuxAppSharedProperties getProperties() {
-        return mProperties;
+    public TermuxSettings getSettings() {
+        return TermuxSettingsRepository.get().current();
     }
 
 
@@ -1256,19 +1215,17 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
     }
 
     private void reloadActivityStyling(boolean recreateActivity) {
-        if (mProperties != null) {
-            reloadProperties();
-            mLastMaterialYouWallpaperId = getMaterialYouWallpaperId();
+        reloadProperties();
+        mLastMaterialYouWallpaperId = getMaterialYouWallpaperId();
 
-            if (mExtraKeysView != null) {
-                mExtraKeysView.setButtonTextAllCaps(mProperties.shouldExtraKeysTextBeAllCaps());
-                mExtraKeysView.reload(mTermuxTerminalExtraKeys.getExtraKeysInfo(), mTerminalToolbarDefaultHeight);
-            }
-
-            // Update NightMode.APP_NIGHT_MODE
-            TermuxThemeUtils.setAppNightMode(
-                TermuxThemeUtils.getAppNightMode(mProperties.getNightMode(), mProperties.getMaterialYouTheme()));
+        if (mExtraKeysView != null) {
+            mExtraKeysView.setButtonTextAllCaps(getSettings().getExtraKeysTextAllCaps());
+            mExtraKeysView.reload(mTermuxTerminalExtraKeys.getExtraKeysInfo(), mTerminalToolbarDefaultHeight);
         }
+
+        // Update NightMode.APP_NIGHT_MODE
+        TermuxThemeUtils.setAppNightMode(TermuxThemeUtils.getAppNightMode(
+            getSettings().getNightMode().getValue(), getSettings().getMaterialYouTheme().getValue()));
 
         setMargins();
         setTerminalToolbarHeight();
@@ -1310,9 +1267,8 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
     }
 
     private boolean shouldReloadMaterialYouThemeForWallpaperChanges() {
-        if (mProperties == null) return false;
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return false;
-        return TermuxThemeUtils.isMaterialYouThemeEnabled(mProperties.getMaterialYouTheme());
+        return TermuxThemeUtils.isMaterialYouThemeEnabled(getSettings().getMaterialYouTheme().getValue());
     }
 
     private int getMaterialYouWallpaperId() {

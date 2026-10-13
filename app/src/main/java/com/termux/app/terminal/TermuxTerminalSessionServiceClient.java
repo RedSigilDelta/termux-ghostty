@@ -3,11 +3,8 @@ package com.termux.app.terminal;
 import android.app.Notification;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
-import android.app.Person;
 import android.app.Service;
 import android.content.Intent;
-import android.content.LocusId;
-import android.os.Build;
 import android.text.TextUtils;
 
 import androidx.annotation.NonNull;
@@ -38,9 +35,6 @@ public class TermuxTerminalSessionServiceClient extends TermuxTerminalSessionCli
 
     @Override
     public void onTerminalProtocolNotification(@NonNull TerminalSession session, @Nullable String title, @Nullable String body) {
-        mService.onTerminalSessionProtocolNotification(session, title, body);
-        if (mService.isSessionBubbled(session.mHandle)) return;
-
         NotificationManager notificationManager = NotificationUtils.getNotificationManager(mService);
         if (notificationManager == null) return;
 
@@ -74,8 +68,6 @@ public class TermuxTerminalSessionServiceClient extends TermuxTerminalSessionCli
         if (!TextUtils.isEmpty(sessionLabel))
             builder.setSubText(sessionLabel);
 
-        decorateBubbleConversationNotification(builder, session, sessionLabel, normalizedTitle, normalizedBody);
-
         try {
             notificationManager.notify(notificationId, builder.build());
         } catch (Exception e) {
@@ -90,31 +82,6 @@ public class TermuxTerminalSessionServiceClient extends TermuxTerminalSessionCli
             termuxSession.getExecutionCommand().mPid = pid;
     }
 
-    private void decorateBubbleConversationNotification(@NonNull Notification.Builder builder,
-                                                        @NonNull TerminalSession session,
-                                                        @NonNull String sessionLabel,
-                                                        @Nullable String normalizedTitle,
-                                                        @Nullable String normalizedBody) {
-        String shortcutId = getBubbleConversationShortcutId(session);
-        if (shortcutId == null) return;
-
-        Person sessionPerson = new Person.Builder()
-            .setName(sessionLabel)
-            .setKey(shortcutId)
-            .setImportant(true)
-            .build();
-
-        builder.setShortcutId(shortcutId);
-        builder.addPerson(sessionPerson);
-        builder.setStyle(new Notification.MessagingStyle(sessionPerson)
-            .setConversationTitle(sessionLabel)
-            .addMessage(buildProtocolMessageText(normalizedTitle, normalizedBody, sessionLabel),
-                System.currentTimeMillis(), sessionPerson));
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
-            builder.setLocusId(new LocusId(shortcutId));
-    }
-
     @NonNull
     private PendingIntent getTerminalProtocolNotificationContentIntent(@NonNull TerminalSession session,
                                                                        int notificationId) {
@@ -123,41 +90,12 @@ public class TermuxTerminalSessionServiceClient extends TermuxTerminalSessionCli
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }
 
-    @Nullable
-    private String getBubbleConversationShortcutId(@NonNull TerminalSession session) {
-        if (!mService.hasSessionBubbleConversation(session.mHandle)) return null;
-
-        int bubbleSlotId = mService.getBubbleSlotId(session);
-        if (bubbleSlotId < 1) return null;
-
-        return TermuxConstants.TERMUX_APP_SESSION_BUBBLE_SHORTCUT_ID_PREFIX + bubbleSlotId;
-    }
-
-    @NonNull
-    private CharSequence buildProtocolMessageText(@Nullable String normalizedTitle,
-                                                  @Nullable String normalizedBody,
-                                                  @NonNull String sessionLabel) {
-        if (normalizedTitle == null && normalizedBody == null)
-            return sessionLabel;
-        if (normalizedTitle == null)
-            return normalizedBody;
-        if (normalizedBody == null)
-            return normalizedTitle;
-        if (TextUtils.equals(normalizedTitle, normalizedBody))
-            return normalizedTitle;
-
-        return normalizedTitle + "\n" + normalizedBody;
-    }
-
     private synchronized int getNextTerminalProtocolNotificationId() {
         return mNextTerminalProtocolNotificationId++;
     }
 
     @NonNull
     private String getSessionLabel(@NonNull TerminalSession session) {
-        if (mService.canBubbleSessions())
-            return mService.getSessionBubbleLabel(session);
-
         int sessionIndex = mService.getIndexOfSession(session);
 
         String sessionName = normalizeNotificationText(session.mSessionName);

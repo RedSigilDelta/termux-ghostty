@@ -7,7 +7,6 @@ import android.view.LayoutInflater;
 import android.view.View;
 
 import com.termux.R;
-import com.termux.shared.termux.settings.properties.TermuxPropertyConstants;
 import com.termux.shared.termux.theme.TermuxThemeUtils;
 import com.termux.shared.theme.ThemeUtils;
 
@@ -23,20 +22,20 @@ public class MaterialYouThemeValidationTest {
     @Test
     public void getAppNightMode_respectsDisabledAndMaterialYouVariants() {
         Assert.assertEquals("true", TermuxThemeUtils.getAppNightMode("true",
-            TermuxPropertyConstants.IVALUE_MATERIAL_YOU_THEME_DISABLED));
+            TermuxThemeUtils.MATERIAL_YOU_THEME_DISABLED));
         Assert.assertEquals("false", TermuxThemeUtils.getAppNightMode("false",
-            TermuxPropertyConstants.IVALUE_MATERIAL_YOU_THEME_DISABLED));
+            TermuxThemeUtils.MATERIAL_YOU_THEME_DISABLED));
         Assert.assertEquals("system", TermuxThemeUtils.getAppNightMode("system",
-            TermuxPropertyConstants.IVALUE_MATERIAL_YOU_THEME_DISABLED));
+            TermuxThemeUtils.MATERIAL_YOU_THEME_DISABLED));
 
         Assert.assertEquals("false", TermuxThemeUtils.getAppNightMode("true",
-            TermuxPropertyConstants.IVALUE_MATERIAL_YOU_THEME_LIGHT));
+            TermuxThemeUtils.MATERIAL_YOU_THEME_LIGHT));
         Assert.assertEquals("true", TermuxThemeUtils.getAppNightMode("false",
-            TermuxPropertyConstants.IVALUE_MATERIAL_YOU_THEME_DARK));
+            TermuxThemeUtils.MATERIAL_YOU_THEME_DARK));
         Assert.assertEquals("true", TermuxThemeUtils.getAppNightMode("false",
-            TermuxPropertyConstants.IVALUE_MATERIAL_YOU_THEME_BLACK));
+            TermuxThemeUtils.MATERIAL_YOU_THEME_BLACK));
         Assert.assertEquals("system", TermuxThemeUtils.getAppNightMode("false",
-            TermuxPropertyConstants.IVALUE_MATERIAL_YOU_THEME_SYSTEM));
+            TermuxThemeUtils.MATERIAL_YOU_THEME_SYSTEM));
     }
 
     @Test
@@ -77,11 +76,6 @@ public class MaterialYouThemeValidationTest {
         View toolbarExtraKeys = inflater.inflate(R.layout.view_terminal_toolbar_extra_keys, null, false);
         Assert.assertTrue(toolbarExtraKeys.getBackground() instanceof ColorDrawable);
         Assert.assertEquals(0xFF000000, ((ColorDrawable) toolbarExtraKeys.getBackground()).getColor());
-
-        View bubbleRoot = inflater.inflate(R.layout.activity_bubble_session, null, false);
-        View bubbleExtraKeys = bubbleRoot.findViewById(R.id.bubble_extra_keys_view);
-        Assert.assertTrue(bubbleExtraKeys.getBackground() instanceof ColorDrawable);
-        Assert.assertEquals(0xFF000000, ((ColorDrawable) bubbleExtraKeys.getBackground()).getColor());
     }
 
     private void assertButtonBarButtonStyle(int themeRes, int expectedStyleRes) {

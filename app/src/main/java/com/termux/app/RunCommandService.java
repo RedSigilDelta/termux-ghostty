@@ -141,7 +141,7 @@ public class RunCommandService extends Service {
         // Termux home or prefix, or external storage (if Termux has been granted permission) using
         // `ResultConfig.resultFileErrorFormat` as `ResultSender.sendCommandResultDataToDirectory()`
         // uses client controlled format passed to `String.format()` that is used to set the error
-        // file content, which can even be used to overwrite `termux.properties` file to set
+        // file content, which can even be used to overwrite `termux.toml` file to set
         // `allow-external-app=true` in it or any other shell rc file. The client would still need
         // to have the `RUN_COMMAND` permission before it could do this.
         // Note that clients waiting for file based result will hang if "allow-external-app" property

@@ -722,23 +722,10 @@ public final class TermuxConstants {
 
 
 
-    /** Termux app properties primary file path */
-    public static final String TERMUX_PROPERTIES_PRIMARY_FILE_PATH = TERMUX_DATA_HOME_DIR_PATH + "/termux.properties"; // Default: "/data/data/com.termux/files/home/.termux/termux.properties"
-    /** Termux app properties primary file */
-    public static final File TERMUX_PROPERTIES_PRIMARY_FILE = new File(TERMUX_PROPERTIES_PRIMARY_FILE_PATH);
-
-    /** Termux app properties secondary file path */
-    public static final String TERMUX_PROPERTIES_SECONDARY_FILE_PATH = TERMUX_CONFIG_HOME_DIR_PATH + "/termux.properties"; // Default: "/data/data/com.termux/files/home/.config/termux/termux.properties"
-    /** Termux app properties secondary file */
-    public static final File TERMUX_PROPERTIES_SECONDARY_FILE = new File(TERMUX_PROPERTIES_SECONDARY_FILE_PATH);
-
-    /** Termux app properties file paths list. **DO NOT** allow these files to be modified by
-     * {@link android.content.ContentProvider} exposed to external apps, since they may silently
-     * modify the values for security properties like {@link #PROP_ALLOW_EXTERNAL_APPS} set by users
-     * without their explicit consent. */
-    public static final List<String> TERMUX_PROPERTIES_FILE_PATHS_LIST = Arrays.asList(
-        TERMUX_PROPERTIES_PRIMARY_FILE_PATH,
-        TERMUX_PROPERTIES_SECONDARY_FILE_PATH);
+    /** Termux app settings file path. **DO NOT** allow this file to be modified by {@link android.content.ContentProvider} exposed to external apps, since they may silently modify security settings like {@link #PROP_ALLOW_EXTERNAL_APPS} set by users without their explicit consent. */
+    public static final String TERMUX_SETTINGS_FILE_PATH = TERMUX_DATA_HOME_DIR_PATH + "/termux.toml"; // Default: "/data/data/com.termux/files/home/.termux/termux.toml"
+    /** Termux app settings file */
+    public static final File TERMUX_SETTINGS_FILE = new File(TERMUX_SETTINGS_FILE_PATH);
 
 
 
@@ -867,15 +854,6 @@ public final class TermuxConstants {
     /** Termux app notification channel name used for crash reports */
     public static final String TERMUX_CRASH_REPORTS_NOTIFICATION_CHANNEL_NAME = TermuxConstants.TERMUX_APP_NAME + " Crash Reports";
 
-    /** Termux app notification channel id used for terminal session bubbles. */
-    public static final String TERMUX_APP_SESSION_BUBBLE_NOTIFICATION_CHANNEL_ID = "termux_session_bubble_notification_channel";
-    /** Termux app notification channel name used for terminal session bubbles. */
-    public static final String TERMUX_APP_SESSION_BUBBLE_NOTIFICATION_CHANNEL_NAME = TermuxConstants.TERMUX_APP_NAME + " Session Bubbles";
-    /** Base notification id used for terminal session bubble notifications. */
-    public static final int TERMUX_APP_SESSION_BUBBLE_NOTIFICATION_ID_BASE = 2000;
-    /** Prefix used for stable terminal session bubble shortcut ids. */
-    public static final String TERMUX_APP_SESSION_BUBBLE_SHORTCUT_ID_PREFIX = "termux_session_bubble_slot_";
-
     /** Termux app notification channel id used for terminal protocol notifications. */
     public static final String TERMUX_TERMINAL_PROTOCOL_NOTIFICATIONS_NOTIFICATION_CHANNEL_ID = "termux_terminal_protocol_notifications_channel";
     /** Termux app notification channel name used for terminal protocol notifications. */
@@ -903,7 +881,7 @@ public final class TermuxConstants {
      * 3rd party apps to run various commands in Termux app context */
     public static final String PERMISSION_RUN_COMMAND = TERMUX_PACKAGE_NAME + ".permission.RUN_COMMAND"; // Default: "com.termux.permission.RUN_COMMAND"
 
-    /** Termux property defined in termux.properties file as a secondary check to PERMISSION_RUN_COMMAND
+    /** Termux property defined in termux.toml file as a secondary check to PERMISSION_RUN_COMMAND
      * to allow 3rd party apps to run various commands in Termux app context */
     public static final String PROP_ALLOW_EXTERNAL_APPS = "allow-external-apps"; // Default: "allow-external-apps"
     /** Default value for {@link #PROP_ALLOW_EXTERNAL_APPS} */
@@ -966,9 +944,6 @@ public final class TermuxConstants {
             /** Intent extra for the exact terminal session handle that should be opened. */
             public static final String EXTRA_SESSION_HANDLE = TermuxConstants.TERMUX_PACKAGE_NAME + ".app.session_handle"; // Default: "com.termux.app.session_handle"
 
-            /** Intent extra set on bubble-launch intents so the main activity can be closed once the bubble opens. */
-            public static final String EXTRA_LAUNCHED_FROM_BUBBLE = TermuxConstants.TERMUX_PACKAGE_NAME + ".app.launched_from_bubble"; // Default: "com.termux.app.launched_from_bubble"
-
 
             /** Intent action to make termux app notify user that a crash happened. */
             public static final String ACTION_NOTIFY_APP_CRASH = TermuxConstants.TERMUX_PACKAGE_NAME + ".app.notify_app_crash"; // Default: "com.termux.app.notify_app_crash"
@@ -1021,9 +996,6 @@ public final class TermuxConstants {
 
             /** Intent action to execute command with TERMUX_SERVICE */
             public static final String ACTION_SERVICE_EXECUTE = TERMUX_PACKAGE_NAME + ".service_execute"; // Default: "com.termux.service_execute"
-
-            /** Intent action to clear bubble state for a session when its bubble is dismissed. */
-            public static final String ACTION_UNBUBBLE_SESSION = TERMUX_PACKAGE_NAME + ".service_unbubble_session"; // Default: "com.termux.service_unbubble_session"
 
             /** Uri scheme for paths sent via intent to TERMUX_SERVICE */
             public static final String URI_SCHEME_SERVICE_EXECUTE = TERMUX_PACKAGE_NAME + ".file"; // Default: "com.termux.file"

@@ -11,14 +11,14 @@ import org.junit.Test;
 /**
  * Backend activation is lazy, so the readiness signal is how a host learns that a
  * session can blink a cursor. The dispatcher is the only path a session uses to
- * reach the activity and bubble hosts.
+ * reach the activity host.
  */
 public class TermuxTerminalSessionClientDispatcherTest {
 
     @Test
     public void terminalReadyIsForwardedToRegisteredClients() {
         TermuxTerminalSessionClientDispatcher dispatcher = new TermuxTerminalSessionClientDispatcher(
-            null, new TermuxTerminalSessionServiceClient(null));
+            new TermuxTerminalSessionServiceClient(null));
         RecordingClient client = new RecordingClient();
         dispatcher.registerClient(client);
 
@@ -31,7 +31,7 @@ public class TermuxTerminalSessionClientDispatcherTest {
     @Test
     public void terminalReadyIsNotForwardedAfterUnregister() {
         TermuxTerminalSessionClientDispatcher dispatcher = new TermuxTerminalSessionClientDispatcher(
-            null, new TermuxTerminalSessionServiceClient(null));
+            new TermuxTerminalSessionServiceClient(null));
         RecordingClient client = new RecordingClient();
         dispatcher.registerClient(client);
         dispatcher.unregisterClient(client);

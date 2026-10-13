@@ -8,7 +8,8 @@ import com.termux.shared.file.filesystem.FileTypes;
 import com.termux.shared.termux.TermuxConstants;
 import com.termux.shared.file.FileUtils;
 import com.termux.shared.logger.Logger;
-import com.termux.shared.termux.settings.properties.TermuxAppSharedProperties;
+import com.termux.shared.termux.settings.TermuxSettingsProvider;
+import com.termux.shared.termux.settings.TermuxSettingsProviderHolder;
 
 import org.apache.commons.io.filefilter.TrueFileFilter;
 
@@ -94,8 +95,12 @@ public class TermuxShellUtils {
 
         Error error;
 
-        TermuxAppSharedProperties properties = TermuxAppSharedProperties.getProperties();
-        int days = properties.getDeleteTMPDIRFilesOlderThanXDaysOnExit();
+        TermuxSettingsProvider provider = TermuxSettingsProviderHolder.get();
+        if (provider == null) {
+            Logger.logWarn(LOG_TAG, "No settings provider, not clearing termux $TMPDIR");
+            return;
+        }
+        int days = provider.getDeleteTMPDIRFilesOlderThanXDaysOnExit();
 
         // Disable currently until FileUtils.deleteFilesOlderThanXDays() is fixed.
         if (days > 0)

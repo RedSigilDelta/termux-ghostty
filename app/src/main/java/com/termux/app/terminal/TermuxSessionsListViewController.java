@@ -115,16 +115,6 @@ public class TermuxSessionsListViewController extends ArrayAdapter<TermuxSession
         actionLabels.add(mActivity.getString(R.string.action_rename_session));
         actionHandlers.add(() -> mActivity.getTermuxTerminalSessionClient().renameSession(terminalSession));
 
-        if (mActivity.getTermuxService() != null && mActivity.getTermuxService().canBubbleSessions()) {
-            if (mActivity.getTermuxService().isSessionBubbled(terminalSession.mHandle)) {
-                actionLabels.add(mActivity.getString(R.string.action_unbubble_session));
-                actionHandlers.add(() -> mActivity.getTermuxService().unbubbleSession(terminalSession));
-            } else if (terminalSession.isRunning()) {
-                actionLabels.add(mActivity.getString(R.string.action_bubble_session));
-                actionHandlers.add(() -> mActivity.getTermuxService().bubbleSession(terminalSession, true));
-            }
-        }
-
         new AlertDialog.Builder(mActivity)
             .setItems(actionLabels.toArray(new CharSequence[0]), (dialog, which) -> actionHandlers.get(which).run())
             .show();

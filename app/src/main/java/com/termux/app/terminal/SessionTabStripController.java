@@ -18,7 +18,7 @@ import com.google.android.material.color.MaterialColors;
 import com.termux.R;
 import com.termux.app.TermuxActivity;
 import com.termux.app.TermuxService;
-import com.termux.shared.termux.settings.properties.TermuxPropertyConstants;
+import com.termux.app.settings.TabBarAlign;
 import com.termux.shared.termux.shell.command.runner.terminal.TermuxSession;
 import com.termux.shared.termux.terminal.TermuxTerminalStyling;
 import com.termux.terminal.TerminalSession;
@@ -28,7 +28,7 @@ import java.util.List;
 
 /**
  * Controls the horizontal session tab strip shown above the terminal view
- * when use-session-tabs is enabled in termux.properties.
+ * when use-session-tabs is enabled in termux.toml.
  *
  * Single source of truth: mSelectedIndex drives the highlighted tab.
  * Structural changes (add/remove sessions) rebuild tabs via {@link #notifyDataSetChanged()}.
@@ -298,16 +298,6 @@ public class SessionTabStripController {
         actionLabels.add(mActivity.getString(R.string.action_rename_session));
         actionHandlers.add(() -> mActivity.getTermuxTerminalSessionClient().renameSession(session));
 
-        if (mActivity.getTermuxService() != null && mActivity.getTermuxService().canBubbleSessions()) {
-            if (mActivity.getTermuxService().isSessionBubbled(session.mHandle)) {
-                actionLabels.add(mActivity.getString(R.string.action_unbubble_session));
-                actionHandlers.add(() -> mActivity.getTermuxService().unbubbleSession(session));
-            } else if (session.isRunning()) {
-                actionLabels.add(mActivity.getString(R.string.action_bubble_session));
-                actionHandlers.add(() -> mActivity.getTermuxService().bubbleSession(session, true));
-            }
-        }
-
         new AlertDialog.Builder(mActivity)
             .setItems(actionLabels.toArray(new CharSequence[0]), (dialog, which) -> actionHandlers.get(which).run())
             .show();
@@ -318,8 +308,7 @@ public class SessionTabStripController {
     }
 
     private boolean isRightAligned() {
-        return TermuxPropertyConstants.IVALUE_SESSION_TAB_BAR_ALIGN_RIGHT.equals(
-            mActivity.getProperties().getSessionTabBarAlign());
+        return mActivity.getSettings().getSessionTabBarAlign() == TabBarAlign.RIGHT;
     }
 
     private void scrollToTab(int sessionIndex) {

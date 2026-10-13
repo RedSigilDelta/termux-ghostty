@@ -4,19 +4,34 @@ An experimental Android terminal app using libghostty-vt as the terminal backend
 
 > ⚠️ **NOTICE**: This is an **unofficial** fork and is **not affiliated with ghostty-org or termux**. It combines features from both projects under their respective licenses (GPLv3 and MIT).
 
-> 🤖 **AI Assistance**: This project is developed with the assistance of AI coding tools. All code is reviewed and curated by a human maintainer.
+> 🤖 **AI Assistance**: This project is developed with the assistance of AI coding tools.
 
 ## Features
 
 - **Ghostty integration** — Uses Ghostty-backed VT parsing and terminal state management inside the app.
-- **Android session bubbles** — Open terminal sessions as native Android 11+ bubbles without killing the underlying session when the bubble UI is dismissed.
-- **Bubble unread dots for OSC notifications** — Bubbled sessions use conversation-style unread state instead of separate system notifications, and opening the session clears the unread indicator.
-- **Session tabs** — Optional `termux.properties` support via `use-session-tabs=true` to show horizontal session tabs instead of the navigation drawer.
-- **Tab bar position** — Vertical position of the session tab bar via `session-tab-bar-position=top|bottom` (defaults to `bottom`).
-- **Tab bar alignment** — Alignment of the session tab bar via `session-tab-bar-align=left|center|right` (defaults to `left`).
-- **Clickable terminal links** — Optional `termux.properties` support for tap-to-open links in Ghostty sessions via `terminal-onclick-url-open=true`, with `terminal-onclick-url-open-when-mouse-tracking-active=true` to prefer link taps over terminal mouse tracking.
-- **Remember soft keyboard state** — Optional `termux.properties` support via `remember-soft-keyboard-state=true` to restore the last soft keyboard visibility state when reopening the app.
-- **Material You theming** — Optional `termux.properties` support via `material-you-theme=disabled|light|dark|black|system` to theme the entire app (chrome + terminal ANSI palette) with wallpaper-derived Material 3 colors on Android 12+. `black` uses dynamic accent colors with pure black backgrounds. When enabled, `colors.properties` is ignored. Recreates automatically on wallpaper changes.
+- **Session tabs** — `use-session-tabs = true` shows horizontal session tabs instead of the navigation drawer.
+- **Tab bar position** — `session-tab-bar-position = "top" | "bottom"` (default `"bottom"`).
+- **Tab bar alignment** — `session-tab-bar-align = "left" | "center" | "right"` (default `"left"`).
+- **Clickable terminal links** — `terminal-onclick-url-open = true` enables tap-to-open links; `terminal-onclick-url-open-when-mouse-tracking-active = true` prefers link taps over terminal mouse tracking.
+- **Remember soft keyboard state** — `remember-soft-keyboard-state = true` restores the last soft keyboard visibility when reopening the app.
+- **Material You theming** — `material-you-theme = "disabled" | "light" | "dark" | "black" | "system"` themes the app chrome and terminal ANSI palette with wallpaper-derived Material 3 colors on Android 12+. `black` uses dynamic accents on pure black. When enabled, `colors.properties` is ignored. Recreates automatically on wallpaper changes.
+
+### Settings
+
+Settings are edited in the app and stored with Jetpack DataStore. Any key in `~/.termux/termux.toml` overrides the in-app value; run `termux-reload-settings` after editing it. `allow-external-apps` can only be set in this file.
+
+```toml
+use-session-tabs = true
+session-tab-bar-position = "top"
+material-you-theme = "system"
+allow-external-apps = true
+extra-keys = [
+  ["ESC", "/", { key = "-", popup = "|" }, "HOME", "UP", "END", "PGUP"],
+  ["TAB", "CTRL", "ALT", "LEFT", "DOWN", "RIGHT", "PGDN"],
+]
+```
+
+`~/.termux/termux.properties` is no longer read. `colors.properties` and `font.ttf` work as before.
 
 ## Ecto (`compose-app`)
 

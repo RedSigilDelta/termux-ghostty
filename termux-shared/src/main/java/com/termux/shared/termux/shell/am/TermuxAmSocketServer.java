@@ -18,8 +18,8 @@ import com.termux.shared.shell.am.AmSocketServer;
 import com.termux.shared.termux.TermuxConstants;
 import com.termux.shared.termux.crash.TermuxCrashUtils;
 import com.termux.shared.termux.plugins.TermuxPluginUtils;
-import com.termux.shared.termux.settings.properties.TermuxAppSharedProperties;
-import com.termux.shared.termux.settings.properties.TermuxPropertyConstants;
+import com.termux.shared.termux.settings.TermuxSettingsProvider;
+import com.termux.shared.termux.settings.TermuxSettingsProviderHolder;
 import com.termux.shared.termux.shell.command.environment.TermuxAppShellEnvironment;
 
 /**
@@ -45,7 +45,7 @@ import com.termux.shared.termux.shell.command.environment.TermuxAppShellEnvironm
  * every command as done by "am" via termux/TermuxAm.
  *
  * The server is started by termux-app Application class but is not started if
- * {@link TermuxPropertyConstants#KEY_RUN_TERMUX_AM_SOCKET_SERVER} is `false` which can be done by
+ * `run-termux-am-socket-server` is `false` which can be done by
  * adding the prop with value "false" to the "~/.termux/termux.properties" file. Changes
  * require termux-app to be force stopped and restarted.
  *
@@ -69,6 +69,12 @@ public class TermuxAmSocketServer {
     @Keep
     protected static Boolean TERMUX_APP_AM_SOCKET_SERVER_ENABLED;
 
+    /** Whether the host settings enable the {@link AmSocketServer}. */
+    private static boolean isEnabledInSettings() {
+        TermuxSettingsProvider provider = TermuxSettingsProviderHolder.get();
+        return provider != null && provider.shouldRunTermuxAmSocketServer();
+    }
+
     /**
      * Setup the {@link AmSocketServer} {@link LocalServerSocket} and start listening for
      * new {@link LocalClientSocket} if enabled.
@@ -78,7 +84,7 @@ public class TermuxAmSocketServer {
     public static void setupTermuxAmSocketServer(@NonNull Context context) {
         // Start termux-am-socket server if enabled by user
         boolean enabled = false;
-        if (TermuxAppSharedProperties.getProperties().shouldRunTermuxAmSocketServer()) {
+        if (isEnabledInSettings()) {
             Logger.logDebug(LOG_TAG, "Starting " + TITLE + " socket server since its enabled");
             start(context);
             if (termuxAmSocketServer != null && termuxAmSocketServer.isRunning()) {
@@ -123,11 +129,10 @@ public class TermuxAmSocketServer {
     
     /**
      * Update the state of the {@link AmSocketServer} {@link LocalServerSocket} depending on current
-     * value of {@link TermuxPropertyConstants#KEY_RUN_TERMUX_AM_SOCKET_SERVER}.
+     * value of `run-termux-am-socket-server`.
      */
     public static synchronized void updateState(@NonNull Context context) {
-        TermuxAppSharedProperties properties = TermuxAppSharedProperties.getProperties();
-        if (properties.shouldRunTermuxAmSocketServer()) {
+        if (isEnabledInSettings()) {
             if (termuxAmSocketServer == null) {
                 Logger.logDebug(LOG_TAG, "updateState: Starting " + TITLE + " socket server");
                 start(context);

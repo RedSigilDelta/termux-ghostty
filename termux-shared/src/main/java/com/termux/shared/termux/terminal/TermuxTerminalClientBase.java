@@ -8,7 +8,6 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
 import com.termux.shared.logger.Logger;
-import com.termux.shared.termux.settings.properties.TermuxSharedProperties;
 import com.termux.terminal.TerminalSession;
 import com.termux.terminal.compose.TerminalComposeView;
 
@@ -49,16 +48,16 @@ public class TermuxTerminalClientBase {
         MotionEvent e,
         @Nullable TerminalSession session,
         TerminalComposeView terminalView,
-        TermuxSharedProperties properties
+        boolean openUrlOnClick,
+        boolean openUrlOnClickWhenMouseTracking
     ) {
         if (session == null || !session.hasActiveTerminalBackend()) return null;
-        if (!properties.shouldOpenTerminalTranscriptURLOnClick()) return null;
+        if (!openUrlOnClick) return null;
         if (terminalView.isSelectingText()) return null;
 
         boolean touchTapWhileMouseTracking = session.isMouseTrackingActive()
             && !e.isFromSource(InputDevice.SOURCE_MOUSE);
-        if (touchTapWhileMouseTracking
-            && !properties.shouldOpenTerminalTranscriptURLOnClickWhenMouseTrackingActive()) {
+        if (touchTapWhileMouseTracking && !openUrlOnClickWhenMouseTracking) {
             return null;
         }
 

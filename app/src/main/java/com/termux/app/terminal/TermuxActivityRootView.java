@@ -281,7 +281,7 @@ public class TermuxActivityRootView extends LinearLayout {
         }
 
         if (!mRealImeInsetsReceived
-                && mActivity.getProperties().shouldRememberSoftKeyboardState()
+                && mActivity.getSettings().getRememberSoftKeyboardState()
                 && com.termux.shared.termux.settings.preferences.TermuxPreferenceConstants.TERMUX_APP.VALUE_LAST_SOFT_KEYBOARD_STATE_VISIBLE.equals(mActivity.getPreferences().getLastSoftKeyboardState())) {
 
             int lastKeyboardHeight = 0;

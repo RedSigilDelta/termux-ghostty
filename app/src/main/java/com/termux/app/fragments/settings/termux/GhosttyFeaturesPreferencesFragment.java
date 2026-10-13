@@ -11,8 +11,10 @@ import androidx.preference.PreferenceFragmentCompat;
 import androidx.preference.PreferenceManager;
 
 import com.termux.R;
-import com.termux.shared.termux.settings.properties.TermuxAppSharedProperties;
-import com.termux.shared.termux.settings.properties.TermuxPropertyConstants;
+import com.termux.app.settings.TermuxSettings;
+import com.termux.app.settings.TermuxSettingsRepository;
+
+import java.util.Locale;
 
 @Keep
 public class GhosttyFeaturesPreferencesFragment extends PreferenceFragmentCompat {
@@ -23,7 +25,7 @@ public class GhosttyFeaturesPreferencesFragment extends PreferenceFragmentCompat
         if (context == null) return;
 
         PreferenceManager preferenceManager = getPreferenceManager();
-        preferenceManager.setPreferenceDataStore(GhosttyFeaturesPreferencesDataStore.getInstance(context));
+        preferenceManager.setPreferenceDataStore(GhosttyFeaturesPreferencesDataStore.getInstance());
 
         setPreferencesFromResource(R.xml.termux_ghostty_features_preferences, rootKey);
 
@@ -92,45 +94,38 @@ public class GhosttyFeaturesPreferencesFragment extends PreferenceFragmentCompat
 
 class GhosttyFeaturesPreferencesDataStore extends PreferenceDataStore {
 
-    private final Context mContext;
-    private final TermuxAppSharedProperties mProperties;
-
     private static GhosttyFeaturesPreferencesDataStore mInstance;
 
-    private GhosttyFeaturesPreferencesDataStore(Context context) {
-        mContext = context.getApplicationContext();
-        mProperties = TermuxAppSharedProperties.getProperties();
-    }
-
-    public static synchronized GhosttyFeaturesPreferencesDataStore getInstance(Context context) {
+    public static synchronized GhosttyFeaturesPreferencesDataStore getInstance() {
         if (mInstance == null) {
-            mInstance = new GhosttyFeaturesPreferencesDataStore(context);
+            mInstance = new GhosttyFeaturesPreferencesDataStore();
         }
         return mInstance;
     }
 
     @Override
     public void putBoolean(String key, boolean value) {
-        if (mProperties == null || key == null) return;
+        if (key == null) return;
 
-        mProperties.setPropertyValueAndSave(mContext, key, value ? "true" : "false");
+        TermuxSettingsRepository.get().set(key, value);
     }
 
     @Override
     public boolean getBoolean(String key, boolean defValue) {
-        if (mProperties == null || key == null) return defValue;
+        if (key == null) return defValue;
 
+        TermuxSettings s = TermuxSettingsRepository.get().current();
         switch (key) {
-            case TermuxPropertyConstants.KEY_USE_SESSION_TABS:
-                return mProperties.shouldUseSessionTabs();
-            case TermuxPropertyConstants.KEY_REMEMBER_SOFT_KEYBOARD_STATE:
-                return mProperties.shouldRememberSoftKeyboardState();
-            case TermuxPropertyConstants.KEY_TERMINAL_ONCLICK_URL_OPEN:
-                return mProperties.shouldOpenTerminalTranscriptURLOnClick();
-            case TermuxPropertyConstants.KEY_TERMINAL_ONCLICK_URL_OPEN_WHEN_MOUSE_TRACKING_ACTIVE:
-                return mProperties.shouldOpenTerminalTranscriptURLOnClickWhenMouseTrackingActive();
-            case TermuxPropertyConstants.KEY_UNCONDITIONAL_SOFT_KEYBOARD_ON_TAP:
-                return mProperties.isUnconditionalSoftKeyboardOnTapEnabled();
+            case "use-session-tabs":
+                return s.getUseSessionTabs();
+            case "remember-soft-keyboard-state":
+                return s.getRememberSoftKeyboardState();
+            case "terminal-onclick-url-open":
+                return s.getTerminalOnclickUrlOpen();
+            case "terminal-onclick-url-open-when-mouse-tracking-active":
+                return s.getTerminalOnclickUrlOpenWhenMouseTrackingActive();
+            case "unconditional-soft-keyboard-on-tap":
+                return s.getUnconditionalSoftKeyboardOnTap();
             default:
                 return defValue;
         }
@@ -138,22 +133,23 @@ class GhosttyFeaturesPreferencesDataStore extends PreferenceDataStore {
 
     @Override
     public void putString(String key, String value) {
-        if (mProperties == null || key == null) return;
+        if (key == null) return;
 
-        mProperties.setPropertyValueAndSave(mContext, key, value != null ? value : "");
+        TermuxSettingsRepository.get().set(key, value != null ? value : "");
     }
 
     @Override
     public String getString(String key, String defValue) {
-        if (mProperties == null || key == null) return defValue;
+        if (key == null) return defValue;
 
+        TermuxSettings s = TermuxSettingsRepository.get().current();
         switch (key) {
-            case TermuxPropertyConstants.KEY_SESSION_TAB_BAR_POSITION:
-                return mProperties.getSessionTabBarPosition();
-            case TermuxPropertyConstants.KEY_SESSION_TAB_BAR_ALIGN:
-                return mProperties.getSessionTabBarAlign();
-            case TermuxPropertyConstants.KEY_MATERIAL_YOU_THEME:
-                return mProperties.getMaterialYouTheme();
+            case "session-tab-bar-position":
+                return s.getSessionTabBarPosition().name().toLowerCase(Locale.ROOT);
+            case "session-tab-bar-align":
+                return s.getSessionTabBarAlign().name().toLowerCase(Locale.ROOT);
+            case "material-you-theme":
+                return s.getMaterialYouTheme().getValue();
             default:
                 return defValue;
         }

@@ -34,8 +34,11 @@ import com.termux.shared.termux.TermuxConstants;
 import com.termux.shared.activities.ReportActivity;
 import com.termux.shared.models.ReportInfo;
 import com.termux.app.models.UserAction;
+import com.termux.app.settings.BackKeyBehaviour;
+import com.termux.app.settings.SoftKeyboardToggleBehaviour;
+import com.termux.app.settings.TermuxSettings;
+import com.termux.app.settings.VolumeKeysBehaviour;
 import com.termux.app.terminal.io.KeyboardShortcut;
-import com.termux.shared.termux.settings.properties.TermuxPropertyConstants;
 import com.termux.shared.termux.settings.preferences.TermuxPreferenceConstants.TERMUX_APP;
 import com.termux.shared.data.DataUtils;
 import com.termux.shared.logger.Logger;
@@ -52,7 +55,6 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 
 import androidx.annotation.Nullable;
 import androidx.drawerlayout.widget.DrawerLayout;
@@ -76,6 +78,11 @@ public class TermuxTerminalViewClient extends TermuxTerminalClientBase {
     private List<KeyboardShortcut> mSessionShortcuts;
 
     private static final String LOG_TAG = "TermuxTerminalViewClient";
+
+    private static final int SHORTCUT_CREATE_SESSION = 1;
+    private static final int SHORTCUT_NEXT_SESSION = 2;
+    private static final int SHORTCUT_PREVIOUS_SESSION = 3;
+    private static final int SHORTCUT_RENAME_SESSION = 4;
 
     public TermuxTerminalViewClient(TermuxActivity activity, TermuxTerminalSessionActivityClient termuxTerminalSessionActivityClient) {
         this.mActivity = activity;
@@ -211,7 +218,7 @@ public class TermuxTerminalViewClient extends TermuxTerminalClientBase {
 
         if (session.isMouseTrackingActive() && !e.isFromSource(InputDevice.SOURCE_MOUSE)) return false;
 
-        boolean isUnconditionalKeyboard = mActivity.getProperties().isUnconditionalSoftKeyboardOnTapEnabled();
+        boolean isUnconditionalKeyboard = mActivity.getSettings().getUnconditionalSoftKeyboardOnTap();
         if ((isUnconditionalKeyboard || !session.isMouseTrackingActive()) && !e.isFromSource(InputDevice.SOURCE_MOUSE)) {
             if (!KeyboardUtils.areDisableSoftKeyboardFlagsSet(mActivity))
                 showSoftKeyboardAndRemember();
@@ -238,22 +245,22 @@ public class TermuxTerminalViewClient extends TermuxTerminalClientBase {
 
     @Override
     public boolean shouldBackButtonBeMappedToEscape() {
-        return mActivity.getProperties().isBackKeyTheEscapeKey();
+        return mActivity.getSettings().getBackKey() == BackKeyBehaviour.ESCAPE;
     }
 
     @Override
     public boolean shouldEnforceCharBasedInput() {
-        return mActivity.getProperties().isEnforcingCharBasedInput();
+        return mActivity.getSettings().getEnforceCharBasedInput();
     }
 
     @Override
     public boolean shouldUseCtrlSpaceWorkaround() {
-        return mActivity.getProperties().isUsingCtrlSpaceWorkaround();
+        return mActivity.getSettings().getCtrlSpaceWorkaround();
     }
 
     @Override
     public boolean shouldOpenTerminalTranscriptURLOnClick() {
-        return mActivity.getProperties().shouldOpenTerminalTranscriptURLOnClick();
+        return mActivity.getSettings().getTerminalOnclickUrlOpen();
     }
 
     @Nullable
@@ -263,7 +270,8 @@ public class TermuxTerminalViewClient extends TermuxTerminalClientBase {
             e,
             mActivity.getCurrentSession(),
             mActivity.getTerminalView(),
-            mActivity.getProperties()
+            mActivity.getSettings().getTerminalOnclickUrlOpen(),
+            mActivity.getSettings().getTerminalOnclickUrlOpenWhenMouseTrackingActive()
         );
     }
 
@@ -290,7 +298,7 @@ public class TermuxTerminalViewClient extends TermuxTerminalClientBase {
         if (keyCode == KeyEvent.KEYCODE_ENTER && !currentSession.isRunning()) {
             mTermuxTerminalSessionActivityClient.removeFinishedSession(currentSession);
             return true;
-        } else if (!mActivity.getProperties().areHardwareKeyboardShortcutsDisabled() &&
+        } else if (!mActivity.getSettings().getDisableHardwareKeyboardShortcuts() &&
             e.isCtrlPressed() && e.isAltPressed()) {
             // Get the unmodified code point:
             int unicodeChar = e.getUnicodeChar(0);
@@ -350,7 +358,7 @@ public class TermuxTerminalViewClient extends TermuxTerminalClientBase {
     /** Handle dedicated volume buttons as virtual keys if applicable. */
     private boolean handleVirtualKeys(int keyCode, KeyEvent event, boolean down) {
         InputDevice inputDevice = event.getDevice();
-        if (mActivity.getProperties().areVirtualVolumeKeysDisabled()) {
+        if (mActivity.getSettings().getVolumeKeys() == VolumeKeysBehaviour.VOLUME) {
             return false;
         } else if (inputDevice != null && inputDevice.getKeyboardType() == InputDevice.KEYBOARD_TYPE_ALPHABETIC) {
             // Do not steal dedicated buttons from a full external keyboard.
@@ -518,16 +526,16 @@ public class TermuxTerminalViewClient extends TermuxTerminalClientBase {
                     KeyboardShortcut shortcut = shortcuts.get(i);
                     if (codePointLowerCase == shortcut.codePoint) {
                         switch (shortcut.shortcutAction) {
-                            case TermuxPropertyConstants.ACTION_SHORTCUT_CREATE_SESSION:
+                            case SHORTCUT_CREATE_SESSION:
                                 mTermuxTerminalSessionActivityClient.addNewSession(false, null);
                                 return true;
-                            case TermuxPropertyConstants.ACTION_SHORTCUT_NEXT_SESSION:
+                            case SHORTCUT_NEXT_SESSION:
                                 mTermuxTerminalSessionActivityClient.switchToSession(true);
                                 return true;
-                            case TermuxPropertyConstants.ACTION_SHORTCUT_PREVIOUS_SESSION:
+                            case SHORTCUT_PREVIOUS_SESSION:
                                 mTermuxTerminalSessionActivityClient.switchToSession(false);
                                 return true;
-                            case TermuxPropertyConstants.ACTION_SHORTCUT_RENAME_SESSION:
+                            case SHORTCUT_RENAME_SESSION:
                                 mTermuxTerminalSessionActivityClient.renameSession(mActivity.getCurrentSession());
                                 return true;
                         }
@@ -543,19 +551,18 @@ public class TermuxTerminalViewClient extends TermuxTerminalClientBase {
      * Set the terminal sessions shortcuts.
      */
     private void setSessionShortcuts() {
+        TermuxSettings s = mActivity.getSettings();
         mSessionShortcuts = new ArrayList<>();
+        addShortcut(s.getShortcutCreateSession(), SHORTCUT_CREATE_SESSION);
+        addShortcut(s.getShortcutNextSession(), SHORTCUT_NEXT_SESSION);
+        addShortcut(s.getShortcutPreviousSession(), SHORTCUT_PREVIOUS_SESSION);
+        addShortcut(s.getShortcutRenameSession(), SHORTCUT_RENAME_SESSION);
+    }
 
-        // The {@link TermuxPropertyConstants#MAP_SESSION_SHORTCUTS} stores the session shortcut key and action pair
-        for (Map.Entry<String, Integer> entry : TermuxPropertyConstants.MAP_SESSION_SHORTCUTS.entrySet()) {
-            // The mMap stores the code points for the session shortcuts while loading properties
-            Integer codePoint = (Integer) mActivity.getProperties().getInternalPropertyValue(entry.getKey(), true);
-            // If codePoint is null, then session shortcut did not exist in properties or was invalid
-            // as parsed by {@link #getCodePointForSessionShortcuts(String,String)}
-            // If codePoint is not null, then get the action for the MAP_SESSION_SHORTCUTS key and
-            // add the code point to sessionShortcuts
-            if (codePoint != null)
-                mSessionShortcuts.add(new KeyboardShortcut(codePoint, entry.getValue()));
-        }
+    private void addShortcut(String shortcut, int action) {
+        Integer codePoint = TermuxSettings.shortcutCodePoint(shortcut);
+        if (codePoint != null)
+            mSessionShortcuts.add(new KeyboardShortcut(codePoint, action));
     }
 
 
@@ -575,7 +582,7 @@ public class TermuxTerminalViewClient extends TermuxTerminalClientBase {
      */
     public void onToggleSoftKeyboardRequest() {
         // If soft keyboard toggle behaviour is enable/disabled
-        if (mActivity.getProperties().shouldEnableDisableSoftKeyboardOnToggle()) {
+        if (mActivity.getSettings().getSoftKeyboardToggleBehaviour() == SoftKeyboardToggleBehaviour.ENABLE_DISABLE) {
             // If soft keyboard is visible
             if (!KeyboardUtils.areDisableSoftKeyboardFlagsSet(mActivity)) {
                 Logger.logVerbose(LOG_TAG, "Disabling soft keyboard on toggle");
@@ -659,7 +666,7 @@ public class TermuxTerminalViewClient extends TermuxTerminalClientBase {
                 noShowKeyboard = true;
             }
             // If soft keyboard is to be hidden on startup
-            else if (isStartup && mActivity.getProperties().shouldSoftKeyboardBeHiddenOnStartup()) {
+            else if (isStartup && mActivity.getSettings().getHideSoftKeyboardOnStartup()) {
                 Logger.logVerbose(LOG_TAG, "Hiding soft keyboard on startup");
                 // Required to keep keyboard hidden when Termux app is switched back from another app
                 KeyboardUtils.setSoftKeyboardAlwaysHiddenFlags(mActivity);
@@ -742,7 +749,7 @@ public class TermuxTerminalViewClient extends TermuxTerminalClientBase {
     }
 
     private boolean restoreRememberedSoftKeyboardState() {
-        if (!mActivity.getProperties().shouldRememberSoftKeyboardState()) return false;
+        if (!mActivity.getSettings().getRememberSoftKeyboardState()) return false;
 
         String lastSoftKeyboardState = mActivity.getPreferences().getLastSoftKeyboardState();
         if (TERMUX_APP.VALUE_LAST_SOFT_KEYBOARD_STATE_UNKNOWN.equals(lastSoftKeyboardState)) return false;
@@ -763,7 +770,7 @@ public class TermuxTerminalViewClient extends TermuxTerminalClientBase {
     }
 
     private void rememberSoftKeyboardState(String state) {
-        if (!mActivity.getProperties().shouldRememberSoftKeyboardState()) return;
+        if (!mActivity.getSettings().getRememberSoftKeyboardState()) return;
         mActivity.getPreferences().setLastSoftKeyboardState(state);
     }
 
