@@ -668,7 +668,7 @@ class TermuxActivity : AppCompatActivity(), ServiceConnection {
         }
 
         override fun onExtraKey(key: String, ctrl: Boolean, alt: Boolean, shift: Boolean, fn: Boolean) {
-            mTermuxTerminalExtraKeys.onTerminalExtraKeyButtonClick(null, key, ctrl, alt, shift, fn)
+            mTermuxTerminalExtraKeys.onTerminalExtraKeyButtonClick(key, ctrl, alt, shift, fn)
         }
 
         override fun sendText(text: String) {

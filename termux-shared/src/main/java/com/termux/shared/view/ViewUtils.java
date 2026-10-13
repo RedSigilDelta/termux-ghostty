@@ -229,12 +229,6 @@ public class ViewUtils {
     }
 
 
-    public static void setLayoutMarginsInDp(@NonNull View view, int left, int top, int right, int bottom) {
-        Context context = view.getContext();
-        setLayoutMarginsInPixels(view, (int) dpToPx(context, left), (int) dpToPx(context, top),
-            (int) dpToPx(context, right), (int) dpToPx(context, bottom));
-    }
-
     public static void setLayoutMarginsInPixels(@NonNull View view, int left, int top, int right, int bottom) {
         if (view.getLayoutParams() instanceof ViewGroup.MarginLayoutParams) {
             ViewGroup.MarginLayoutParams params = (ViewGroup.MarginLayoutParams) view.getLayoutParams();

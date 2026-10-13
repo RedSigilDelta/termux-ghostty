@@ -1,7 +1,6 @@
 package com.termux.app.terminal.io;
 
 import android.content.Context;
-import android.view.View;
 
 import androidx.annotation.NonNull;
 
@@ -82,7 +81,7 @@ public class TermuxTerminalExtraKeys extends TerminalExtraKeys {
     }
 
     @Override
-    public void onTerminalExtraKeyButtonClick(View view, String key, boolean ctrlDown, boolean altDown, boolean shiftDown, boolean fnDown) {
+    public void onTerminalExtraKeyButtonClick(String key, boolean ctrlDown, boolean altDown, boolean shiftDown, boolean fnDown) {
         if ("KEYBOARD".equals(key)) {
             if(mTermuxTerminalViewClient != null)
                 mTermuxTerminalViewClient.onToggleSoftKeyboardRequest();
@@ -94,7 +93,7 @@ public class TermuxTerminalExtraKeys extends TerminalExtraKeys {
         }  else if ("SCROLL".equals(key)) {
             mActivity.getTerminalView().toggleAutoScrollDisabled();
         } else {
-            super.onTerminalExtraKeyButtonClick(view, key, ctrlDown, altDown, shiftDown, fnDown);
+            super.onTerminalExtraKeyButtonClick(key, ctrlDown, altDown, shiftDown, fnDown);
         }
     }
 

@@ -53,8 +53,6 @@
     <string name="action_create_named_session_confirm">Create</string>
 
     <string name="action_toggle_soft_keyboard">Keyboard</string>
-    <string name="action_open_in_full_termux">Open in Termux</string>
-    <string name="action_close_session">Close</string>
     <string name="label_terminal_session_shell">shell</string>
 
     <string name="msg_enabling_terminal_toolbar">Enabling Terminal Toolbar</string>
@@ -111,7 +109,6 @@
     <string name="error_display_over_other_apps_permission_not_granted_to_start_terminal">&TERMUX_APP_NAME; requires
         \"Display over other apps\" permission to start terminal sessions from background on Android >= 10.
         Grants it from Settings -> Apps -> &TERMUX_APP_NAME; -> Advanced</string>
-    <string name="error_termux_session_not_found">The requested terminal session is no longer available.</string>
     <string name="error_termux_service_invalid_execution_command_runner">Invalid execution command runner to TermuxService: `%1$s`</string>
     <string name="error_termux_service_unsupported_execution_command_runner">Unsupported execution command runner to TermuxService: `%1$s`</string>
     <string name="error_termux_service_unsupported_execution_command_shell_create_mode">Unsupported execution command shell create mode to TermuxService: `%1$s`</string>

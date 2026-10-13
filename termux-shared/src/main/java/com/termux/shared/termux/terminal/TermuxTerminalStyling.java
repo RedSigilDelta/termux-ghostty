@@ -2,7 +2,6 @@ package com.termux.shared.termux.terminal;
 
 import android.content.Context;
 import android.graphics.Typeface;
-import android.view.View;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -23,9 +22,7 @@ import java.util.Properties;
 /**
  * Terminal appearance shared by every host that renders a {@link TerminalComposeView}.
  *
- * <p>Hosts differ in which extra views they paint (toolbar pager, tab strip, ...), so
- * the background colour is applied to the views a host passes in rather than being
- * reimplemented per host with a different set of surfaces.
+ * <p>Hosts resolve the session background colour here and paint their own surfaces with it.
  */
 public final class TermuxTerminalStyling {
 
@@ -43,14 +40,6 @@ public final class TermuxTerminalStyling {
     public static int resolveBackgroundColor(@Nullable TerminalSession session) {
         if (session != null && session.hasActiveTerminalBackend()) return session.getBackgroundColor();
         return TerminalColors.COLOR_SCHEME.mDefaultColors[TextStyle.COLOR_INDEX_BACKGROUND];
-    }
-
-    /** Paints every non-null target with the background colour of the displayed session. */
-    public static void applyBackgroundColor(@Nullable TerminalSession session, View... targets) {
-        int backgroundColor = resolveBackgroundColor(session);
-        for (View target : targets) {
-            if (target != null) target.setBackgroundColor(backgroundColor);
-        }
     }
 
     /**

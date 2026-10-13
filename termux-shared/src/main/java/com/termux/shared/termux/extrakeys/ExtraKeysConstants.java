@@ -9,7 +9,7 @@ import java.util.Map;
 
 public class ExtraKeysConstants {
 
-    /** Defines the repetitive keys that can be passed to {@link ExtraKeysView#setRepetitiveKeys(List)}. */
+    /** Defines the repetitive keys that auto repeat while their extra keys button is long pressed. */
     public static List<String> PRIMARY_REPETITIVE_KEYS = Arrays.asList(
         "UP", "DOWN", "LEFT", "RIGHT",
         "BKSP", "DEL",

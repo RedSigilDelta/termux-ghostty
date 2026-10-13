@@ -1,11 +1,9 @@
 package com.termux.shared.termux.extrakeys;
 
-import android.view.View;
 import android.widget.Button;
 
 import androidx.annotation.NonNull;
 
-import com.google.android.material.button.MaterialButton;
 import com.termux.shared.termux.extrakeys.ExtraKeysConstants.EXTRA_KEY_DISPLAY_MAPS;
 import com.termux.shared.termux.terminal.io.TerminalExtraKeys;
 
@@ -14,8 +12,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 /**
- * A {@link Class} that defines the info needed by {@link ExtraKeysView} to display the extra key
- * views.
+ * A {@link Class} that defines the info needed to display the extra keys toolbar.
  *
  * The {@code propertiesInfo} passed to the constructors of this class must be json array of arrays.
  * Each array element of the json array will be considered a separate row of keys.
@@ -67,11 +64,10 @@ import org.json.JSONObject;
  * Aliases are also allowed for the keys that you can pass as {@code extraKeyAliasMap}. Check
  * {@link ExtraKeysConstants#CONTROL_CHARS_ALIASES}.
  *
- * Its up to the {@link ExtraKeysView.IExtraKeysView} client on how to handle individual key values
- * of an {@link ExtraKeyButton}. They are sent as is via
- * {@link ExtraKeysView.IExtraKeysView#onExtraKeyButtonClick(View, ExtraKeyButton, MaterialButton)}. The
- * {@link TerminalExtraKeys} which is an implementation of the interface,
- * checks if the key is one of {@link ExtraKeysConstants#PRIMARY_KEY_CODES_FOR_STRINGS} and generates
+ * Its up to the extra keys client on how to handle individual key values of an
+ * {@link ExtraKeyButton}. They are sent as is to the client's button click handler. The
+ * {@link TerminalExtraKeys} client checks if the key is one of
+ * {@link ExtraKeysConstants#PRIMARY_KEY_CODES_FOR_STRINGS} and generates
  * a {@link android.view.KeyEvent} for it, and if its not, then converts the key to code points by
  * calling {@link CharSequence#codePoints()} and passes them to the terminal as literal strings.
  *
@@ -89,7 +85,7 @@ import org.json.JSONObject;
 public class ExtraKeysInfo {
 
     /**
-     * Matrix of buttons to be displayed in {@link ExtraKeysView}.
+     * Matrix of buttons to be displayed in the extra keys toolbar.
      */
     private final ExtraKeyButton[][] mButtons;
 
