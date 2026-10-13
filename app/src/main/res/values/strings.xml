@@ -268,5 +268,8 @@
     <string name="termux_ghostty_terminal_onclick_url_open_when_mouse_tracking_active_title">Url Tap Overrides Mouse Tracking</string>
     <string name="termux_ghostty_terminal_onclick_url_open_when_mouse_tracking_active_summary">Prefer link clicks over mouse tracking when both are active</string>
 
+    <string name="config_errors_title">Problems in termux.toml</string>
+    <string name="config_errors_message">Some settings in %1$s were ignored and use their in-app values instead:</string>
+
 </resources>
 

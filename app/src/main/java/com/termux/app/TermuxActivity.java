@@ -33,6 +33,7 @@ import android.widget.Toast;
 import com.google.android.material.color.DynamicColors;
 import com.termux.R;
 import com.termux.app.api.file.FileReceiverActivity;
+import com.termux.app.settings.ConfigErrorsDialogKt;
 import com.termux.app.settings.TabBarAlign;
 import com.termux.app.settings.TabBarPosition;
 import com.termux.app.settings.TermuxSettings;
@@ -231,6 +232,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         super.onCreate(savedInstanceState);
 
         setContentView(R.layout.activity_termux);
+        ConfigErrorsDialogKt.attachConfigErrorsDialog(this);
 
         // Load termux shared preferences
         // This will also fail if TermuxConstants.TERMUX_PACKAGE_NAME does not equal applicationId

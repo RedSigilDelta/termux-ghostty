@@ -11,33 +11,40 @@ import org.tomlj.Toml
 import org.tomlj.TomlArray
 import org.tomlj.TomlTable
 
+data class ConfigFile(val values: JsonObject, val errors: List<String>)
+
 /** Reads the user-edited `~/.termux/termux.toml` as a JSON object of its top-level keys. */
 object TermuxConfigFile {
 
     private const val TAG = "TermuxConfigFile"
 
     /** Returns an empty object if the file is missing or cannot be parsed. */
-    fun read(file: File = TermuxConstants.TERMUX_SETTINGS_FILE): JsonObject {
-        if (!file.isFile) return JsonObject(emptyMap())
+    fun read(file: File = TermuxConstants.TERMUX_SETTINGS_FILE): ConfigFile {
+        if (!file.isFile) return ConfigFile(JsonObject(emptyMap()), emptyList())
         return try {
             val result = Toml.parse(file.readText())
             if (result.hasErrors()) {
-                result.errors().forEach { Logger.logError(TAG, it.toString()) }
-                return JsonObject(emptyMap())
+                val errors = result.errors().map {
+                    Logger.logError(TAG, it.toString())
+                    "Line ${it.position().line()}, column ${it.position().column()}: ${it.message}"
+                }
+                return ConfigFile(JsonObject(emptyMap()), errors)
             }
             val entries = mutableMapOf<String, JsonElement>()
+            val errors = mutableListOf<String>()
             for (key in result.keySet()) {
                 val value = toJson(result.get(listOf(key)))
                 if (value == null) {
                     Logger.logError(TAG, "Ignoring unsupported value for \"$key\"")
+                    errors += "Unsupported value for \"$key\""
                 } else {
                     entries[key] = value
                 }
             }
-            JsonObject(entries)
+            ConfigFile(JsonObject(entries), errors)
         } catch (e: Exception) {
             Logger.logStackTraceWithMessage(TAG, "Failed to read ${file.path}", e)
-            JsonObject(emptyMap())
+            ConfigFile(JsonObject(emptyMap()), listOf("Could not read the file: ${e.message}"))
         }
     }
 

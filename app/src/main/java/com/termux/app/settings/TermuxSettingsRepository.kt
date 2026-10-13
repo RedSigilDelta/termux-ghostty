@@ -24,7 +24,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 
 /** The settings the app runs with, and the keys that `termux.toml` set. */
-data class EffectiveSettings(val settings: TermuxSettings, val fileKeys: Set<String>)
+data class EffectiveSettings(val settings: TermuxSettings, val fileKeys: Set<String>, val errors: List<String>)
 
 /**
  * App-wide settings: defaults, overridden by the DataStore (edited by the UI), overridden by `termux.toml`.
@@ -90,9 +90,11 @@ class TermuxSettingsRepository private constructor(context: Context) : TermuxSet
     private fun merge(): EffectiveSettings {
         var merged = encode(stored.copy(allowExternalApps = false))
         val fileKeys = mutableSetOf<String>()
-        for ((key, value) in configFile) {
+        val errors = configFile.errors.toMutableList()
+        for ((key, value) in configFile.values) {
             if (key !in knownKeys) {
                 Logger.logError(TAG, "Ignoring unknown key \"$key\" in termux.toml")
+                errors += "Unknown key \"$key\""
                 continue
             }
             val candidate = JsonObject(merged + (key to value))
@@ -100,12 +102,13 @@ class TermuxSettingsRepository private constructor(context: Context) : TermuxSet
                 json.decodeFromJsonElement<TermuxSettings>(candidate)
             } catch (e: IllegalArgumentException) {
                 Logger.logError(TAG, "Ignoring invalid value for \"$key\" in termux.toml: ${e.message}")
+                errors += "Invalid value for \"$key\""
                 continue
             }
             merged = candidate
             fileKeys += key
         }
-        return EffectiveSettings(json.decodeFromJsonElement(merged), fileKeys)
+        return EffectiveSettings(json.decodeFromJsonElement(merged), fileKeys, errors)
     }
 
     companion object {
