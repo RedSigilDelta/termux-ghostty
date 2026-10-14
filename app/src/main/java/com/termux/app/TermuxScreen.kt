@@ -15,6 +15,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalDensity
@@ -40,6 +41,7 @@ import com.termux.app.workspace.ui.TabsGridActions
 import com.termux.app.workspace.ui.ViewerTab
 import com.termux.shared.termux.TermuxConstants
 import com.termux.terminal.TerminalSession
+import com.termux.terminal.compose.TerminalBlurRegion
 import com.termux.terminal.compose.TerminalComposeView
 import com.termux.terminal.compose.TerminalThumbnail
 import com.termux.terminal.compose.session.TerminalSessionBackend
@@ -99,8 +101,11 @@ fun TermuxScreen(
     val keyBarGapPx = with(density) { KeyBarGap.toPx() }
     val marginVerticalPx = with(density) { screen.marginVertical.dp.toPx() }
     val topInsetPx = WindowInsets.safeDrawing.getTop(density) + marginVerticalPx.roundToInt()
-    var terminalBottom by remember { mutableFloatStateOf(0f) }
+    var terminalBounds by remember { mutableStateOf(Rect.Zero) }
     var keyBarTop by remember { mutableFloatStateOf(0f) }
+    var keyBarPill by remember { mutableStateOf(Rect.Zero) }
+    val showsTerminal = tabs.activeTab.let { it !is Tab.Files && it !is Tab.Viewer }
+    val terminalBottom = terminalBounds.bottom
     SessionProcessPoller(tabs)
 
     // Rows start below the status bar and stop above the key bar; the view itself runs from the top
@@ -112,6 +117,16 @@ fun TermuxScreen(
         }
     }
 
+    // Blur regions are in the terminal view's coordinates.
+    LaunchedEffect(showsTerminal, keyBarPill, terminalBounds) {
+        val regions = if (showsTerminal && !keyBarPill.isEmpty) {
+            listOf(TerminalBlurRegion(keyBarPill.translate(-terminalBounds.topLeft), keyBarPill.height / 2))
+        } else {
+            emptyList()
+        }
+        terminalView.setBlurRegions(regions)
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         AndroidView(
             factory = { terminalView },
@@ -120,7 +135,7 @@ fun TermuxScreen(
                 .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
                 .windowInsetsPadding(WindowInsets.ime)
                 .padding(horizontal = screen.marginHorizontal.dp)
-                .onGloballyPositioned { terminalBottom = it.boundsInRoot().bottom },
+                .onGloballyPositioned { terminalBounds = it.boundsInRoot() },
         )
         Box(modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
             val current = tabs.tabs.firstOrNull { it.current }
@@ -164,6 +179,7 @@ fun TermuxScreen(
                         .align(Alignment.BottomCenter)
                         .padding(bottom = KeyBarGap)
                         .onGloballyPositioned { keyBarTop = it.boundsInRoot().top },
+                    pillModifier = Modifier.onGloballyPositioned { keyBarPill = it.boundsInRoot() },
                 )
             }
         }

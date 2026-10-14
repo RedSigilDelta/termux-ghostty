@@ -47,6 +47,8 @@ android {
         implementation "androidx.compose.material:material-icons-extended"
         implementation "com.mikepenz:multiplatform-markdown-renderer-m3:0.45.0"
         implementation "com.mikepenz:multiplatform-markdown-renderer-code:0.45.0"
+        implementation "dev.chrisbanes.haze:haze:2.0.1"
+        implementation "dev.chrisbanes.haze:haze-blur:2.0.1"
         implementation "androidx.navigation3:navigation3-runtime:1.1.4"
         implementation "androidx.navigation3:navigation3-ui:1.1.4"
 

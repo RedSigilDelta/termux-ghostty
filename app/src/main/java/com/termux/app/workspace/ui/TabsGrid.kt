@@ -15,10 +15,10 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyGridItemScope
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
@@ -27,6 +27,8 @@ import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Terminal
+import androidx.compose.material.icons.rounded.UnfoldMore
+import androidx.compose.material.icons.rounded.Workspaces
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -49,11 +51,18 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.mrndtvndv.processicons.commandIconResource
 import com.termux.R
+import com.termux.app.ui.FloatingPill
+import com.termux.app.ui.PillActions
+import com.termux.app.ui.PillDivider
+import com.termux.app.ui.PillIconButton
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
 
 enum class TabKind { TERMINAL, FILES, VIEWER }
 
@@ -98,9 +107,11 @@ fun TabsGrid(
 ) {
     BackHandler(enabled = visible) { actions.onDismiss() }
     val active = workspaces.firstOrNull { it.active }
-    var workspaceMenuOpen by remember(visible) { mutableStateOf(false) }
+    val hazeState = rememberHazeState()
+    val gridState = rememberLazyGridState()
     var workspaceDialog by remember(visible) { mutableStateOf<WorkspaceDialog?>(null) }
     var renamingTab by remember(visible) { mutableStateOf<TabCard?>(null) }
+    LaunchedEffect(visible) { if (visible && tabs.isNotEmpty()) gridState.scrollToItem(tabs.lastIndex) }
 
     AnimatedVisibility(
         visible = visible,
@@ -109,100 +120,19 @@ fun TabsGrid(
         exit = fadeOut() + slideOutVertically { it / 4 },
     ) {
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surfaceContainer) {
-            Column(modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Box(modifier = Modifier.weight(1f)) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .clickable { workspaceMenuOpen = true }
-                                .padding(horizontal = 12.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = active?.name.orEmpty(),
-                                    style = MaterialTheme.typography.titleLarge,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                                Text(
-                                    text = active?.root.orEmpty(),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
-                            Icon(Icons.Rounded.ArrowDropDown, contentDescription = null)
-                        }
-                        DropdownMenu(expanded = workspaceMenuOpen, onDismissRequest = { workspaceMenuOpen = false }) {
-                            workspaces.forEach { workspace ->
-                                DropdownMenuItem(
-                                    text = {
-                                        Column {
-                                            Text(workspace.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                            Text(
-                                                text = workspace.root,
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                            )
-                                        }
-                                    },
-                                    trailingIcon = {
-                                        if (workspace.active) Icon(Icons.Rounded.Check, contentDescription = null)
-                                    },
-                                    onClick = {
-                                        workspaceMenuOpen = false
-                                        actions.onSelectWorkspace(workspace.id)
-                                    },
-                                )
-                            }
-                            HorizontalDivider()
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.workspace_new)) },
-                                leadingIcon = { Icon(Icons.Rounded.Add, contentDescription = null) },
-                                onClick = {
-                                    workspaceMenuOpen = false
-                                    workspaceDialog = WorkspaceDialog.NEW
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.workspace_rename)) },
-                                leadingIcon = { Icon(Icons.Rounded.Edit, contentDescription = null) },
-                                onClick = {
-                                    workspaceMenuOpen = false
-                                    workspaceDialog = WorkspaceDialog.RENAME
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.workspace_delete)) },
-                                leadingIcon = { Icon(Icons.Rounded.Delete, contentDescription = null) },
-                                enabled = workspaces.size > 1,
-                                onClick = {
-                                    workspaceMenuOpen = false
-                                    workspaceDialog = WorkspaceDialog.DELETE
-                                },
-                            )
-                        }
-                    }
-                    IconButton(onClick = actions::onOpenSettings) {
-                        Icon(Icons.Rounded.Settings, contentDescription = stringResource(R.string.action_open_settings))
-                    }
-                }
-                HorizontalDivider()
+            Box(modifier = Modifier.fillMaxSize()) {
                 LazyVerticalGrid(
                     columns = GridCells.Adaptive(minSize = 150.dp),
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(12.dp),
+                    modifier = Modifier.fillMaxSize().hazeSource(hazeState),
+                    state = gridState,
+                    contentPadding = PaddingValues(
+                        start = 12.dp,
+                        top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 12.dp,
+                        end = 12.dp,
+                        bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 56.dp + 16.dp + 12.dp,
+                    ),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.Bottom),
                 ) {
                     items(tabs, key = { it.id }) { tab ->
                         SwipeableTabCard(
@@ -213,7 +143,31 @@ fun TabsGrid(
                             preview = preview,
                         )
                     }
-                    item { NewTerminalCard(onNewTerminal = actions::onNewTerminal, onNewFiles = actions::onNewFiles) }
+                }
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .navigationBarsPadding()
+                        .padding(bottom = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    FloatingPill(state = Unit, hazeState = hazeState) {
+                        PillActions {
+                            WorkspaceChip(
+                                workspaces = workspaces,
+                                onSelectWorkspace = actions::onSelectWorkspace,
+                                onWorkspaceDialog = { workspaceDialog = it },
+                            )
+                            PillDivider()
+                            PillIconButton(
+                                icon = Icons.Rounded.Settings,
+                                contentDescription = stringResource(R.string.action_open_settings),
+                                onClick = actions::onOpenSettings,
+                            )
+                        }
+                    }
+                    NewTabButton(onNewTerminal = actions::onNewTerminal, onNewFiles = actions::onNewFiles)
                 }
             }
 
@@ -269,6 +223,97 @@ fun TabsGrid(
                     onDismiss = { renamingTab = null },
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun WorkspaceChip(
+    workspaces: List<WorkspaceItem>,
+    onSelectWorkspace: (String) -> Unit,
+    onWorkspaceDialog: (WorkspaceDialog) -> Unit,
+) {
+    val active = workspaces.firstOrNull { it.active }
+    var menuOpen by remember { mutableStateOf(false) }
+    Box {
+        Row(
+            modifier = Modifier
+                .height(44.dp)
+                .clip(RoundedCornerShape(22.dp))
+                .clickable { menuOpen = true }
+                .padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.Workspaces,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(18.dp),
+            )
+            Text(
+                text = active?.name.orEmpty(),
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.widthIn(max = 160.dp),
+            )
+            Icon(
+                imageVector = Icons.Rounded.UnfoldMore,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+            )
+        }
+        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+            workspaces.forEach { workspace ->
+                DropdownMenuItem(
+                    text = {
+                        Column {
+                            Text(workspace.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(
+                                text = workspace.root,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    },
+                    trailingIcon = {
+                        if (workspace.active) Icon(Icons.Rounded.Check, contentDescription = null)
+                    },
+                    onClick = {
+                        menuOpen = false
+                        onSelectWorkspace(workspace.id)
+                    },
+                )
+            }
+            HorizontalDivider()
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.workspace_new)) },
+                leadingIcon = { Icon(Icons.Rounded.Add, contentDescription = null) },
+                onClick = {
+                    menuOpen = false
+                    onWorkspaceDialog(WorkspaceDialog.NEW)
+                },
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.workspace_rename)) },
+                leadingIcon = { Icon(Icons.Rounded.Edit, contentDescription = null) },
+                onClick = {
+                    menuOpen = false
+                    onWorkspaceDialog(WorkspaceDialog.RENAME)
+                },
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.workspace_delete)) },
+                leadingIcon = { Icon(Icons.Rounded.Delete, contentDescription = null) },
+                enabled = workspaces.size > 1,
+                onClick = {
+                    menuOpen = false
+                    onWorkspaceDialog(WorkspaceDialog.DELETE)
+                },
+            )
         }
     }
 }
@@ -400,24 +445,20 @@ internal fun TabIcon(kind: TabKind, processName: String?, title: String?, tint: 
 }
 
 @Composable
-private fun NewTerminalCard(onNewTerminal: () -> Unit, onNewFiles: () -> Unit) {
+private fun NewTabButton(onNewTerminal: () -> Unit, onNewFiles: () -> Unit) {
     var menuOpen by remember { mutableStateOf(false) }
-    Box(modifier = Modifier.fillMaxWidth().height(180.dp)) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .clip(RoundedCornerShape(16.dp))
-                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp))
-                .clickable { menuOpen = true },
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
+    Box {
+        Surface(
+            onClick = { menuOpen = true },
+            modifier = Modifier.size(56.dp),
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.tertiaryContainer,
+            contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+            shadowElevation = 3.dp,
         ) {
-            Icon(Icons.Rounded.Add, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(
-                text = stringResource(R.string.tabs_grid_new_terminal),
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Box(contentAlignment = Alignment.Center) {
+                Icon(Icons.Rounded.Add, contentDescription = stringResource(R.string.tabs_grid_new_tab))
+            }
         }
         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
             DropdownMenuItem(

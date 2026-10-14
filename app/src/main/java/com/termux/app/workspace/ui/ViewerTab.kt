@@ -53,6 +53,9 @@ import com.mikepenz.markdown.model.MarkdownTypography
 import com.mikepenz.markdown.model.markdownPadding
 import com.termux.R
 import com.termux.app.terminal.io.FloatingBar
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
 import dev.snipme.highlights.Highlights
 import dev.snipme.highlights.model.SyntaxThemes
 import java.io.File
@@ -104,6 +107,7 @@ fun ViewerTab(
     val file = remember(path) { File(path) }
     val kind = remember(path) { viewerKindFor(file.name) ?: ViewerKind.TEXT }
     var reloadKey by remember { mutableIntStateOf(0) }
+    val hazeState = rememberHazeState()
     val state by produceState<ViewerState>(initialValue = ViewerState.Loading, key1 = path, key2 = reloadKey) {
         value = ViewerState.Loading
         value = withContext(Dispatchers.IO) { readViewerFile(file, kind) }
@@ -125,14 +129,15 @@ fun ViewerTab(
                 }
                 ViewerState.Unreadable -> Message(stringResource(R.string.viewer_unreadable))
                 is ViewerState.Ready -> when (kind) {
-                    ViewerKind.MARKDOWN -> MarkdownDocument(current.text, file, onOpenFile)
+                    ViewerKind.MARKDOWN -> MarkdownDocument(current.text, file, onOpenFile, hazeState)
                     ViewerKind.HTML -> key(path, reloadKey) { HtmlDocument(file, onOpenFile) }
-                    ViewerKind.TEXT -> TextDocument(current.text)
+                    ViewerKind.TEXT -> TextDocument(current.text, hazeState)
                 }
             }
             FloatingBar(
                 tabsButton = tabsButton,
                 modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp),
+                hazeState = hazeState,
             ) {
                 IconButton(onClick = { reloadKey++ }) {
                     Icon(Icons.Rounded.Refresh, contentDescription = stringResource(R.string.viewer_reload))
@@ -183,7 +188,7 @@ private fun Message(text: String, action: @Composable () -> Unit = {}) {
 }
 
 @Composable
-private fun MarkdownDocument(markdown: String, file: File, onOpenFile: (path: String) -> Unit) {
+private fun MarkdownDocument(markdown: String, file: File, onOpenFile: (path: String) -> Unit, hazeState: HazeState) {
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val systemUriHandler = LocalUriHandler.current
     val linkHandler = remember(systemUriHandler, file, onOpenFile) {
@@ -227,6 +232,7 @@ private fun MarkdownDocument(markdown: String, file: File, onOpenFile: (path: St
                 ),
                 modifier = Modifier
                     .fillMaxSize()
+                    .hazeSource(hazeState)
                     .verticalScroll(rememberScrollState())
                     .padding(ContentPadding),
             )
@@ -293,7 +299,7 @@ private fun HtmlDocument(file: File, onOpenFile: (path: String) -> Unit) {
 }
 
 @Composable
-private fun TextDocument(text: String) {
+private fun TextDocument(text: String, hazeState: HazeState) {
     SelectionContainer {
         Text(
             text = text,
@@ -301,6 +307,7 @@ private fun TextDocument(text: String) {
             softWrap = false,
             modifier = Modifier
                 .fillMaxSize()
+                .hazeSource(hazeState)
                 .verticalScroll(rememberScrollState())
                 .horizontalScroll(rememberScrollState())
                 .padding(ContentPadding),

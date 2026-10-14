@@ -49,6 +49,8 @@ import androidx.compose.ui.unit.dp
 import com.termux.R
 import com.termux.app.terminal.io.FloatingBar
 import com.termux.shared.termux.TermuxConstants
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
 import java.io.File
 import java.text.DateFormat
 import java.util.Date
@@ -101,6 +103,7 @@ fun FilesTab(
     var renaming by remember { mutableStateOf<File?>(null) }
     var deleting by remember { mutableStateOf<File?>(null) }
     var creatingFolder by remember { mutableStateOf(false) }
+    val hazeState = rememberHazeState()
     val listing by produceState<Listing>(Listing.Loading, dir, refreshKey) {
         value = withContext(Dispatchers.IO) { listDirectory(dir) }
     }
@@ -118,7 +121,7 @@ fun FilesTab(
 
     Surface(modifier = modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
         Box(modifier = Modifier.fillMaxSize()) {
-            Column(modifier = Modifier.fillMaxSize()) {
+            Column(modifier = Modifier.fillMaxSize().hazeSource(hazeState)) {
                 FilesBreadcrumbs(dir = dir, home = home, onNavigate = onNavigate)
                 HorizontalDivider()
                 when (val current = listing) {
@@ -155,6 +158,7 @@ fun FilesTab(
             FloatingBar(
                 tabsButton = tabsButton,
                 modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp),
+                hazeState = hazeState,
             ) {
                 IconButton(onClick = { parent?.let(onNavigate) }, enabled = parent != null) {
                     Icon(Icons.Rounded.ArrowUpward, contentDescription = stringResource(R.string.files_up))

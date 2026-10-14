@@ -42,7 +42,10 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.termux.R
+import com.termux.app.ui.glassPill
+import com.termux.app.ui.tintedGlassPill
 import com.termux.terminal.compose.session.ProgramState
+import dev.chrisbanes.haze.HazeState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -205,22 +208,35 @@ fun ArrowJoystick(onArrow: (ArrowDirection) -> Unit, modifier: Modifier = Modifi
 
 private val BarHeight = 48.dp
 
-/** Floating bar shared by every tab type: the tab supplies its actions, the screen supplies [tabsButton]. */
+/**
+ * Floating bar shared by every tab type: the tab supplies its actions, the screen supplies [tabsButton].
+ * A non-null [hazeState] makes the bar frosted glass over that source; null keeps the solid bar.
+ */
 @Composable
 fun FloatingBar(
     tabsButton: @Composable () -> Unit,
     modifier: Modifier = Modifier,
+    hazeState: HazeState? = null,
+    backdropBlurred: Boolean = false,
+    pillModifier: Modifier = Modifier,
     content: @Composable RowScope.() -> Unit,
 ) {
+    val glass = when {
+        hazeState != null -> Modifier.glassPill(hazeState, CircleShape)
+        backdropBlurred -> Modifier.tintedGlassPill(CircleShape)
+        else -> null
+    }
     Row(
         modifier = modifier,
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Surface(
+            modifier = pillModifier.then(glass ?: Modifier),
             shape = CircleShape,
-            color = MaterialTheme.colorScheme.surfaceContainer,
-            shadowElevation = 3.dp,
+            color = if (glass != null) Color.Transparent else MaterialTheme.colorScheme.surfaceContainer,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            shadowElevation = if (glass != null) 0.dp else 3.dp,
         ) {
             Row(
                 modifier = Modifier.height(BarHeight).padding(horizontal = 6.dp),
@@ -262,8 +278,10 @@ fun KeyBar(
     tabsButton: @Composable () -> Unit,
     agents: AgentsButtonState?,
     modifier: Modifier = Modifier,
+    pillModifier: Modifier = Modifier,
 ) {
-    FloatingBar(tabsButton = tabsButton, modifier = modifier) {
+    // The terminal renderer blurs the area under the pill (see TerminalComposeView.setBlurRegions).
+    FloatingBar(tabsButton = tabsButton, modifier = modifier, backdropBlurred = true, pillModifier = pillModifier) {
         KeyButton(label = "Esc", onClick = { onKey(KeyEvent.KEYCODE_ESCAPE) })
         ModifierKeyButton(label = "Ctrl", state = modifiers.ctrl, onClick = modifiers::tapCtrl)
         ModifierKeyButton(label = "Alt", state = modifiers.alt, onClick = modifiers::tapAlt)
