@@ -3,6 +3,7 @@ package com.termux.app.settings.ui.categories
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.ui.res.stringResource
 import com.termux.R
+import com.termux.app.settings.ArrowJoystickMode
 import com.termux.app.settings.SoftKeyboardToggleBehaviour
 import com.termux.app.settings.ui.ChoiceRow
 import com.termux.app.settings.ui.SettingsGroup
@@ -54,6 +55,19 @@ fun LazyListScope.keyboardSettings(state: SettingsState) {
                         onSelect = { value -> state.save { it.copy(softKeyboardToggleBehaviour = SoftKeyboardToggleBehaviour.valueOf(value)) } },
                         shapes = shapes,
                         locked = state.isLocked("soft-keyboard-toggle-behaviour"),
+                    )
+                },
+                { shapes ->
+                    ChoiceRow(
+                        title = stringResource(R.string.settings_arrow_joystick),
+                        options = listOf(
+                            ArrowJoystickMode.SWIPE.name to stringResource(R.string.settings_arrow_joystick_swipe),
+                            ArrowJoystickMode.HOLD.name to stringResource(R.string.settings_arrow_joystick_hold),
+                        ),
+                        selected = state.settings.arrowJoystick.name,
+                        onSelect = { value -> state.save { it.copy(arrowJoystick = ArrowJoystickMode.valueOf(value)) } },
+                        shapes = shapes,
+                        locked = state.isLocked("arrow-joystick"),
                     )
                 },
                 { shapes ->

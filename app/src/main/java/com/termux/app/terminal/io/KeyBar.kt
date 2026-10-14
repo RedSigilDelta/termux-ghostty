@@ -42,6 +42,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.termux.R
+import com.termux.app.settings.ArrowJoystickMode
 import com.termux.app.ui.glassPill
 import com.termux.app.ui.tintedGlassPill
 import com.termux.terminal.compose.session.ProgramState
@@ -121,6 +122,9 @@ enum class ArrowDirection(val keyCode: Int) {
 
 private val JoystickTrackSize = 40.dp
 private val JoystickKnobSize = 18.dp
+private val JoystickStepX = 24.dp
+private val JoystickStepY = 36.dp
+private const val SwipeHoldDelayMillis = 400L
 private const val JoystickDeadZoneFraction = 0.35f
 private const val FirstRepeatDelayMillis = 350L
 private const val RepeatDelayMillis = 120.0
@@ -144,27 +148,94 @@ internal fun repeatDelayMillis(repeatIndex: Int): Long {
         .toLong()
 }
 
+internal data class ArrowSteps(val direction: ArrowDirection, val count: Int)
+
+/**
+ * Turns a drag into arrow steps like HeliBoard's spacebar swipe: every step of travel is one
+ * arrow, the remainder carries over, and the first step locks the axis until the finger lifts.
+ * Vertical steps are longer ([stepY]) because vertical arrows jump whole lines.
+ */
+internal class ArrowDragTracker(private val stepX: Float, private val stepY: Float = stepX) {
+    private var startX = 0f
+    private var startY = 0f
+    private var originX = 0f
+    private var originY = 0f
+    private var horizontal: Boolean? = null
+
+    /** The axis locked by the first step, or null while no step has been emitted. */
+    val lockedHorizontal: Boolean? get() = horizontal
+
+    fun start(x: Float, y: Float) {
+        startX = x
+        startY = y
+        originX = x
+        originY = y
+        horizontal = null
+    }
+
+    fun move(x: Float, y: Float): ArrowSteps? {
+        val dx = x - originX
+        val dy = y - originY
+        val onX = horizontal ?: (abs(dx) >= abs(dy))
+        val step = if (onX) stepX else stepY
+        val steps = ((if (onX) dx else dy) / step).toInt()
+        if (steps == 0) return null
+        horizontal = onX
+        if (onX) originX += steps * step else originY += steps * step
+        val direction = when {
+            onX -> if (steps < 0) ArrowDirection.LEFT else ArrowDirection.RIGHT
+            else -> if (steps < 0) ArrowDirection.UP else ArrowDirection.DOWN
+        }
+        return ArrowSteps(direction, abs(steps))
+    }
+
+    /** True while the finger is still at least half a step from where it went down towards [direction]. */
+    fun isPulled(direction: ArrowDirection, x: Float, y: Float): Boolean = when (direction) {
+        ArrowDirection.LEFT -> startX - x >= stepX / 2
+        ArrowDirection.RIGHT -> x - startX >= stepX / 2
+        ArrowDirection.UP -> startY - y >= stepY / 2
+        ArrowDirection.DOWN -> y - startY >= stepY / 2
+    }
+}
+
+/** Identity-compared so each emitted step restarts the hold delay. */
+private class SwipeHold(val direction: ArrowDirection)
+
 private fun Offset.limitedTo(maxLength: Float): Offset {
     val length = getDistance()
     return if (length > maxLength) this * (maxLength / length) else this
 }
 
 @Composable
-fun ArrowJoystick(onArrow: (ArrowDirection) -> Unit, modifier: Modifier = Modifier) {
+fun ArrowJoystick(mode: ArrowJoystickMode, onArrow: (ArrowDirection) -> Unit, modifier: Modifier = Modifier) {
     val density = LocalDensity.current
     val haptics = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
     val currentOnArrow by rememberUpdatedState(onArrow)
     val knob = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
-    var direction by remember { mutableStateOf<ArrowDirection?>(null) }
+    var held by remember { mutableStateOf<ArrowDirection?>(null) }
+    var swipeHold by remember { mutableStateOf<SwipeHold?>(null) }
 
+    val stepXPx = with(density) { JoystickStepX.toPx() }
+    val stepYPx = with(density) { JoystickStepY.toPx() }
     val radius = with(density) { JoystickTrackSize.toPx() / 2f }
     val knobTravel = with(density) { (JoystickTrackSize - JoystickKnobSize).toPx() / 2f }
     val deadZone = radius * JoystickDeadZoneFraction
 
-    LaunchedEffect(direction) {
-        val arrow = direction ?: return@LaunchedEffect
+    LaunchedEffect(held) {
+        val arrow = held ?: return@LaunchedEffect
         var repeatIndex = 0
+        while (true) {
+            currentOnArrow(arrow)
+            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            delay(repeatDelayMillis(repeatIndex++))
+        }
+    }
+
+    LaunchedEffect(swipeHold) {
+        val arrow = swipeHold?.direction ?: return@LaunchedEffect
+        delay(SwipeHoldDelayMillis)
+        var repeatIndex = 1
         while (true) {
             currentOnArrow(arrow)
             haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -176,20 +247,42 @@ fun ArrowJoystick(onArrow: (ArrowDirection) -> Unit, modifier: Modifier = Modifi
         modifier
             .size(JoystickTrackSize)
             .background(MaterialTheme.colorScheme.surfaceContainerHighest, CircleShape)
-            .pointerInput(radius) {
+            .pointerInput(mode, stepXPx, stepYPx) {
+                val tracker = ArrowDragTracker(stepXPx, stepYPx)
                 val centre = Offset(radius, radius)
                 awaitEachGesture {
                     val down = awaitFirstDown()
+                    tracker.start(down.position.x, down.position.y)
                     var pointer = down
                     while (pointer.pressed) {
                         pointer.consume()
-                        val delta = pointer.position - centre
-                        val target = delta.limitedTo(knobTravel)
-                        scope.launch { knob.snapTo(target) }
-                        direction = joystickDirection(delta.x, delta.y, deadZone)
+                        val position = pointer.position
+                        val knobTarget = when (mode) {
+                            ArrowJoystickMode.SWIPE -> {
+                                tracker.move(position.x, position.y)?.let { steps ->
+                                    repeat(steps.count) { currentOnArrow(steps.direction) }
+                                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    swipeHold = SwipeHold(steps.direction)
+                                }
+                                swipeHold?.let { if (!tracker.isPulled(it.direction, position.x, position.y)) swipeHold = null }
+                                val drag = position - down.position
+                                when (tracker.lockedHorizontal) {
+                                    true -> Offset(drag.x, 0f)
+                                    false -> Offset(0f, drag.y)
+                                    null -> drag
+                                }
+                            }
+                            ArrowJoystickMode.HOLD -> {
+                                val delta = position - centre
+                                held = joystickDirection(delta.x, delta.y, deadZone)
+                                delta
+                            }
+                        }
+                        scope.launch { knob.snapTo(knobTarget.limitedTo(knobTravel)) }
                         pointer = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
                     }
-                    direction = null
+                    held = null
+                    swipeHold = null
                     scope.launch {
                         knob.animateTo(Offset.Zero, spring(dampingRatio = Spring.DampingRatioMediumBouncy))
                     }
@@ -275,6 +368,7 @@ data class AgentsButtonState(val state: ProgramState?, val onClick: () -> Unit)
 fun KeyBar(
     modifiers: ModifierKeys,
     onKey: (keyCode: Int) -> Unit,
+    joystickMode: ArrowJoystickMode,
     tabsButton: @Composable () -> Unit,
     agents: AgentsButtonState?,
     modifier: Modifier = Modifier,
@@ -285,7 +379,7 @@ fun KeyBar(
         KeyButton(label = "Esc", onClick = { onKey(KeyEvent.KEYCODE_ESCAPE) })
         ModifierKeyButton(label = "Ctrl", state = modifiers.ctrl, onClick = modifiers::tapCtrl)
         ModifierKeyButton(label = "Alt", state = modifiers.alt, onClick = modifiers::tapAlt)
-        ArrowJoystick(onArrow = { onKey(it.keyCode) })
+        ArrowJoystick(mode = joystickMode, onArrow = { onKey(it.keyCode) })
         KeyButton(label = "Tab", onClick = { onKey(KeyEvent.KEYCODE_TAB) })
         agents?.let { AgentsButton(state = it.state, onClick = it.onClick) }
     }

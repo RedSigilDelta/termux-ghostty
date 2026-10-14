@@ -293,6 +293,9 @@
 
     <string name="settings_hide_keyboard_on_startup">Hide soft keyboard on startup</string>
     <string name="settings_soft_keyboard_toggle">Soft keyboard toggle behaviour</string>
+    <string name="settings_arrow_joystick">Arrow joystick</string>
+    <string name="settings_arrow_joystick_swipe">Swipe (step per drag)</string>
+    <string name="settings_arrow_joystick_hold">Hold (repeat while held)</string>
     <string name="settings_toggle_show_hide">Show/hide</string>
     <string name="settings_toggle_enable_disable">Enable/disable</string>
     <string name="settings_enforce_char_input">Enforce character-based input</string>

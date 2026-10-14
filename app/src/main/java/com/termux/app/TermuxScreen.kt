@@ -21,6 +21,7 @@ import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.termux.app.settings.ArrowJoystickMode
 import com.termux.app.settings.ConfigErrorsDialogHost
 import com.termux.app.terminal.AgentsSheet
 import com.termux.app.terminal.AgentsUiState
@@ -52,10 +53,12 @@ private val KeyBarGap = 6.dp
 class TermuxScreenState(
     marginHorizontal: Int,
     marginVertical: Int,
+    joystickMode: ArrowJoystickMode,
 ) {
     var tabsGridVisible by mutableStateOf(false)
     var marginHorizontal by mutableIntStateOf(marginHorizontal)
     var marginVertical by mutableIntStateOf(marginVertical)
+    var joystickMode by mutableStateOf(joystickMode)
     var imeVisible by mutableStateOf(false)
     var fontStamp by mutableLongStateOf(0L)
 }
@@ -173,6 +176,7 @@ fun TermuxScreen(
                 else -> KeyBar(
                     modifiers = modifierKeys,
                     onKey = actions::onKey,
+                    joystickMode = screen.joystickMode,
                     tabsButton = tabsButton,
                     agents = if (agents.entries.isEmpty()) null else AgentsButtonState(agents.mostUrgent?.item?.state, actions::openAgents),
                     modifier = Modifier

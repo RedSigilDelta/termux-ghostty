@@ -34,6 +34,7 @@ The Customization settings cover the wallpaper, cursor trail, effect frame rate,
 | `wallpaper-background-opacity` | `0.7` | `0` to `1` |
 | `wallpaper-scaling` | `"center-crop"` | `"center-crop"`, `"fit-center"`, `"fit-xy"`, `"center"` |
 | `cursor-trail` | `"warp"` | `"none"`, `"warp"`, `"sweep"`, `"tail"` |
+| `arrow-joystick` | `"swipe"` | `"swipe"`, `"hold"` |
 | `visual-effect-frame-rate` | `"vsync"` | `"vsync"`, `"30"`, `"60"`, `"90"`, `"120"` |
 | `animations` | `true` | `true`, `false` |
 | `custom-font-for-ui` | `false` | `true`, `false` |

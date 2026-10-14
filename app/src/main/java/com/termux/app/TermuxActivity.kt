@@ -233,7 +233,7 @@ class TermuxActivity : AppCompatActivity(), ServiceConnection {
         mAgentsUiState = AgentsUiState()
 
         val settings = getSettings()
-        mScreenState = TermuxScreenState(settings.terminalMarginHorizontal, settings.terminalMarginVertical)
+        mScreenState = TermuxScreenState(settings.terminalMarginHorizontal, settings.terminalMarginVertical, settings.arrowJoystick)
         mScreenState.fontStamp = TermuxFiles.fontFile.lastModified()
 
         val root = ComposeView(this)
@@ -514,6 +514,7 @@ class TermuxActivity : AppCompatActivity(), ServiceConnection {
     private fun setMargins() {
         mScreenState.marginHorizontal = getSettings().terminalMarginHorizontal
         mScreenState.marginVertical = getSettings().terminalMarginVertical
+        mScreenState.joystickMode = getSettings().arrowJoystick
     }
 
     private fun setTermuxTerminalViewAndClients() {

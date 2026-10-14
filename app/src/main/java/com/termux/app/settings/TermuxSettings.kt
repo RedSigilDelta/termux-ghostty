@@ -122,6 +122,17 @@ enum class CursorTrail(val effect: CursorEffect?) {
 }
 
 @Serializable
+enum class ArrowJoystickMode {
+    /** A swipe is one arrow per drag step (24dp across, 36dp down); holding it out keeps repeating. */
+    @SerialName("swipe")
+    SWIPE,
+
+    /** Holding the knob off-centre repeats the arrow, faster over time. */
+    @SerialName("hold")
+    HOLD,
+}
+
+@Serializable
 enum class EffectFrameRate(val framesPerSecond: Float?) {
     @SerialName("vsync")
     VSYNC(null),
@@ -172,6 +183,7 @@ data class TermuxSettings(
     @SerialName("shortcut-next-session") val shortcutNextSession: String? = null,
     @SerialName("shortcut-previous-session") val shortcutPreviousSession: String? = null,
     @SerialName("shortcut-rename-session") val shortcutRenameSession: String? = null,
+    @SerialName("arrow-joystick") val arrowJoystick: ArrowJoystickMode = ArrowJoystickMode.SWIPE,
     @SerialName("back-key") val backKey: BackKeyBehaviour = BackKeyBehaviour.BACK,
     @SerialName("default-working-directory") val defaultWorkingDirectory: String = TermuxConstants.TERMUX_HOME_DIR_PATH,
     @SerialName("night-mode") val nightMode: NightModeSetting = NightModeSetting.SYSTEM,
