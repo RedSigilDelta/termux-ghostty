@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -32,6 +33,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.preferredFrameRate
@@ -218,6 +220,7 @@ private fun TerminalCanvasLayout(
 ) {
     var magnifierEndpoint by remember { mutableStateOf<SelectionHandleEndpoint?>(null) }
     val selection = state.selectionState.selection
+    val density = LocalDensity.current
 
     Box(
         modifier = modifier
@@ -269,6 +272,7 @@ private fun TerminalCanvasLayout(
             config = state.config.scrollbar,
             modifier = Modifier
                 .align(Alignment.CenterEnd)
+                .padding(bottom = with(density) { state.config.contentBottomInsetPx.toDp() })
                 .zIndex(ScrollbarLayerZIndex)
         )
         Box(
@@ -476,14 +480,18 @@ private fun rememberCanvasMetrics(
     fontSizeState: MutableIntState,
     config: TerminalCanvasConfig,
     viewportSizePx: IntSize
-): TerminalMetrics = remember(fontSizeState.intValue, config.typeface, viewportSizePx) {
+): TerminalMetrics = remember(fontSizeState.intValue, config.typeface, viewportSizePx, config.contentBottomInsetPx) {
     TerminalMetrics.from(
         fontSizePx = fontSizeState.intValue.toFloat(),
         typeface = config.typeface,
         viewportWidthPx = viewportSizePx.width,
-        viewportHeightPx = viewportSizePx.height
+        viewportHeightPx = contentViewportHeight(viewportSizePx.height, config.contentBottomInsetPx)
     )
 }
+
+/** Grid height in pixels once the bottom content inset is reserved for host overlays. */
+internal fun contentViewportHeight(viewportHeightPx: Int, bottomInsetPx: Int): Int =
+    (viewportHeightPx - bottomInsetPx.coerceAtLeast(0)).coerceAtLeast(0)
 
 /** Reports selection geometry changes to the consumer. */
 @Composable

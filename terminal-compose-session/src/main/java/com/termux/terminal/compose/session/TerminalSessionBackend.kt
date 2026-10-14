@@ -104,6 +104,21 @@ class TerminalSessionBackend @JvmOverloads constructor(
         pendingResize = null
     }
 
+    /**
+     * Keeps [currentFrame] fresh without a canvas, e.g. for thumbnails, and calls [onFrame] after each
+     * applied publication. Independent of [attach]. Close the result to stop observing.
+     */
+    fun observeFrames(onFrame: () -> Unit): AutoCloseable {
+        if (released) return AutoCloseable {}
+        val callback = TerminalSession.FrameCallback {
+            refresh()
+            if (!released) onFrame()
+        }
+        session.addFrameCallback(callback)
+        refresh()
+        return AutoCloseable { session.removeFrameCallback(callback) }
+    }
+
     override fun refresh() {
         if (released || !session.hasActiveTerminalBackend()) return
         val frameDelta = session.ghosttyPublishedFrameDelta
@@ -247,12 +262,12 @@ class TerminalSessionBackend @JvmOverloads constructor(
     private fun reportError(code: Int, message: String) {
         listener?.onBackendError(TerminalBackendError(code, message))
     }
-
-    private fun <T> failedFuture(message: String): CompletableFuture<T> =
-        CompletableFuture<T>().also {
-            it.completeExceptionally(IllegalStateException(message))
-        }
 }
+
+private fun <T> failedFuture(message: String): CompletableFuture<T> =
+    CompletableFuture<T>().also {
+        it.completeExceptionally(IllegalStateException(message))
+    }
 
 /**
  * Resolves the viewport top row for an applied frame.

@@ -90,6 +90,7 @@ class TerminalComposeView @JvmOverloads constructor(
     private var cursorEffectState by mutableStateOf<CursorEffect?>(null)
     private var preferredFrameRateState by mutableStateOf<Float?>(null)
     private var wallpaperState by mutableStateOf(TerminalWallpaperConfig())
+    private var contentBottomInsetPxState by mutableIntStateOf(0)
     private var accessibilityEnabledState by mutableStateOf(false)
     private var unconditionalKeyboardOnTapState by mutableStateOf(true)
     private var autoShowKeyboardOnTapState by mutableStateOf(true)
@@ -165,6 +166,7 @@ class TerminalComposeView @JvmOverloads constructor(
                     typeface = typefaceState,
                     cursorEffect = cursorEffectState,
                     wallpaper = wallpaperState,
+                    contentBottomInsetPx = contentBottomInsetPxState,
                     preferredFrameRate = preferredFrameRateState,
                     unconditionalKeyboardOnTap = unconditionalKeyboardOnTapState,
                     autoShowKeyboardOnTap = autoShowKeyboardOnTapState,
@@ -267,6 +269,10 @@ class TerminalComposeView @JvmOverloads constructor(
 
     fun setWallpaperBackgroundOpacity(opacity: Float) {
         wallpaperState = wallpaperState.copy(backgroundOpacity = opacity)
+    }
+
+    fun setContentBottomInset(px: Int) {
+        contentBottomInsetPxState = px
     }
 
     fun setAccessibilityEnabled(enabled: Boolean) {
