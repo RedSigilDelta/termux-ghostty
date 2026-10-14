@@ -12,6 +12,7 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -21,6 +22,9 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.Typeface as ComposeTypeface
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
@@ -33,12 +37,12 @@ import com.mrndtvndv.term.clipboard.UploadController
 import com.mrndtvndv.term.navigation.AppNavDisplay
 import com.mrndtvndv.term.navigation.AppRoute
 import com.mrndtvndv.term.navigation.LocalAnimationsEnabled
+import com.mrndtvndv.term.server.TerminalEntry
 import com.mrndtvndv.term.ui.addserver.AddServerScreen
 import com.mrndtvndv.term.ui.notification.InAppNotificationBanner
 import com.mrndtvndv.term.ui.serverlist.ServerListScreen
 import com.mrndtvndv.term.ui.settings.SettingsRoute
 import com.mrndtvndv.term.ui.settings.SettingsViewModel
-import com.mrndtvndv.term.ui.sftp.SftpFileViewerScreen
 import com.mrndtvndv.term.ui.theme.TerminalThemeSync
 import com.mrndtvndv.term.ui.theme.TermuxGhosttyTheme
 import com.mrndtvndv.term.ui.theme.resolveAppTheme
@@ -48,11 +52,11 @@ import com.mrndtvndv.term.ui.workspace.TerminalAppearance
 import com.mrndtvndv.term.ui.workspace.TerminalHostCallbacks
 import com.mrndtvndv.term.ui.workspace.WallpaperController
 import com.mrndtvndv.term.ui.workspace.WorkspaceRoute
-import com.mrndtvndv.term.ui.workspace.WorkspaceTab
 import com.mrndtvndv.term.ui.workspace.rememberTerminalWallpaperConfig
 import com.mrndtvndv.term.ui.workspace.retainedPredecodedWallpaper
+import com.mrndtvndv.term.workspace.Tab
 import com.termux.terminal.TerminalSession
-import java.io.File
+import kotlinx.coroutines.flow.flowOf
 
 @Suppress("LongParameterList", "LongMethod", "CyclomaticComplexMethod")
 @Composable
@@ -73,6 +77,16 @@ fun TermApp(
         focusManager.clearFocus()
         keyboardController?.hide()
         navigator.goBack()
+        if (navigator.currentWorkspaceId == null) appViewModel.leaveWorkspace()
+    }
+    val workspaceState by appViewModel.workspaces.collectAsStateWithLifecycle()
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) appViewModel.syncTerminalCwds()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
     val notification by appViewModel.notificationState.notification.collectAsStateWithLifecycle()
     val uploadInProgress by uploads.inProgress.collectAsStateWithLifecycle()
@@ -111,13 +125,21 @@ fun TermApp(
                     predecoded = wallpaperController.predecoded,
                 )
 
-                val workspaceId = navigator.currentWorkspaceId
-                val currentSession = workspaceId?.let { appViewModel.getServer(it) }?.terminalSession
-                val focusedSession = currentSession?.takeIf {
-                    navigator.workspace(workspaceId)?.currentTab == WorkspaceTab.Terminal
+                val currentWorkspace = navigator.currentWorkspaceId?.let { id ->
+                    workspaceState.workspaces.firstOrNull { it.id == id }
                 }
-                LaunchedEffect(focusedSession) {
-                    onActiveTerminalSessionChanged(focusedSession)
+                val activeTab = currentWorkspace?.let { workspace ->
+                    workspace.tabs.firstOrNull { it.id == workspace.activeTabId }
+                }
+                val currentServer = currentWorkspace?.let { appViewModel.getServer(it.serverId) }
+                val terminals by (currentServer?.terminals ?: flowOf(emptyMap<String, TerminalEntry>()))
+                    .collectAsStateWithLifecycle(initialValue = emptyMap())
+                val currentSession = (activeTab as? Tab.Terminal)
+                    ?.let { terminals[it.id] }
+                    ?.takeIf { it.running }
+                    ?.session
+                LaunchedEffect(currentSession) {
+                    onActiveTerminalSessionChanged(currentSession)
                 }
                 TerminalThemeSync(termSession = currentSession, appTheme = appTheme)
 
@@ -184,18 +206,11 @@ fun TermApp(
                                 )
                             }
 
-                            entry<AppRoute.FileViewer> { viewer ->
-                                SftpFileViewerScreen(
-                                    file = File(viewer.path),
-                                    onClose = onBack,
-                                )
-                            }
-
                             entry<AppRoute.Workspace>(
                                 metadata = if (settings.animationsEnabled) SurfaceSafeTransitions else emptyMap(),
                             ) { route ->
                                 WorkspaceRoute(
-                                    serverId = route.serverId,
+                                    workspaceId = route.workspaceId,
                                     appViewModel = appViewModel,
                                     container = container,
                                     settings = settings,
@@ -225,7 +240,7 @@ fun TermApp(
                         onDismiss = { appViewModel.notificationState.dismiss() },
                         onClick = {
                             notification?.let {
-                                appViewModel.focusTerminalNotification(it.serverId, it.body, it.title)
+                                appViewModel.focusTerminalNotification(it.serverId, it.tabId)
                             }
                             appViewModel.notificationState.dismiss()
                         },

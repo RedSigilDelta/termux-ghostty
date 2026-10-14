@@ -2,7 +2,9 @@
 
 package com.mrndtvndv.term.ui.workspace
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -12,10 +14,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountTree
-import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material.icons.rounded.SmartToy
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
@@ -23,20 +27,19 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SheetValue
-import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.mrndtvndv.processicons.programIconResource
@@ -47,55 +50,63 @@ import com.termux.terminal.compose.session.ProgramStatusState
 import kotlinx.coroutines.launch
 
 /**
- * Agent button for terminals without a Herdr binding. It sits in the Herdr button's slot and
- * shows OSC 7501 records. The button is tinted by the most urgent state.
+ * Agents button for the key bar: the most urgent record's state as a tinted icon, with a ring while
+ * working and a dot when blocked or done. Only shown while the terminal has records.
  */
 @Composable
-fun ProgramStatusButton(
-    state: ProgramStatusState,
-    fabOpacity: Float,
-    onOpened: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    var showAgents by remember { mutableStateOf(false) }
+fun AgentsButton(state: ProgramStatusState, onClick: () -> Unit) {
+    val urgent = state.mostUrgent()?.state
+    val colors = MaterialTheme.colorScheme
+    val alarm = urgent == ProgramState.Blocked || urgent == ProgramState.Error
+    val iconTint = if (alarm) colors.error else colors.onSurface
+    val dotColor = when (urgent) {
+        ProgramState.Blocked -> colors.error
+        ProgramState.Done -> colors.primary
+        else -> null
+    }
+    Box(
+        Modifier
+            .focusProperties { canFocus = false }
+            .size(36.dp)
+            .semantics { contentDescription = "Show agent status" }
+            .clip(CircleShape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (urgent == ProgramState.Working) {
+            CircularProgressIndicator(modifier = Modifier.size(30.dp), strokeWidth = 2.dp)
+        }
+        Icon(imageVector = Icons.Rounded.SmartToy, contentDescription = null, tint = iconTint)
+        dotColor?.let { color ->
+            Box(Modifier.align(Alignment.TopEnd).size(8.dp).background(color, CircleShape))
+        }
+    }
+}
+
+/** Bottom sheet listing every agent record for the terminal. Animates closed before calling [onDismiss]. */
+@Composable
+fun ProgramStatusSheet(state: ProgramStatusState, visible: Boolean, onDismiss: () -> Unit) {
     val sheetState = rememberBottomSheetState(
         initialValue = SheetValue.Hidden,
         enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
     )
     val coroutineScope = rememberCoroutineScope()
-    val urgent = state.mostUrgent()
+    if (!visible) return
 
-    fun dismissAgents() {
+    fun dismiss() {
         coroutineScope.launch {
             sheetState.hide()
-            showAgents = false
+            onDismiss()
         }
     }
 
-    SmallFloatingActionButton(
-        onClick = {
-            showAgents = true
-            onOpened()
-        },
-        modifier = modifier.alpha(fabOpacity.coerceIn(0f, 1f)),
-        containerColor = MaterialTheme.colorScheme.primaryContainer,
-        contentColor = urgent?.let { statusColor(it) } ?: MaterialTheme.colorScheme.onPrimaryContainer,
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
-        Icon(
-            imageVector = Icons.Default.SmartToy,
-            contentDescription = "Show agent status",
-        )
-    }
-
-    if (showAgents) {
-        ModalBottomSheet(
-            onDismissRequest = { showAgents = false },
-            sheetState = sheetState,
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-        ) {
-            KeepSheetAboveIme()
-            ProgramStatusList(state = state, onItemClick = { dismissAgents() })
-        }
+        KeepSheetAboveIme()
+        ProgramStatusList(state = state, onItemClick = { dismiss() })
     }
 }
 
@@ -166,7 +177,7 @@ private fun ProgramStatusRowView(row: ProgramStatusRow, onClick: () -> Unit) {
     }
 }
 
-/** Brand mark for the record's app, from the same set the Herdr rows use. */
+/** Brand mark for the record's app. */
 @Composable
 private fun ProgramAgentIcon(app: String?, tint: Color, modifier: Modifier) {
     val iconResource = programIconResource(app)

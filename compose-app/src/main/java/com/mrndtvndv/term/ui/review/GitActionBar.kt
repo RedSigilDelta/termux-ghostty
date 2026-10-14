@@ -65,7 +65,8 @@ internal fun GitActionBar(
     onSelectAll: () -> Unit,
     onClearSelection: () -> Unit,
     hazeState: HazeState,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    trailing: (@Composable () -> Unit)? = null
 ) {
     val mode = when {
         isSelecting -> GitBarMode.Selection
@@ -73,7 +74,13 @@ internal fun GitActionBar(
         else -> GitBarMode.Sync
     }
 
-    FloatingPill(state = mode, hazeState = hazeState, modifier = modifier, label = "GitActionBar") { target ->
+    FloatingPill(
+        state = mode,
+        hazeState = hazeState,
+        modifier = modifier,
+        label = "GitActionBar",
+        trailing = trailing
+    ) { target ->
         PillActions {
             if (target == GitBarMode.Selection) {
                 if (selectedUnstagedCount > 0) {

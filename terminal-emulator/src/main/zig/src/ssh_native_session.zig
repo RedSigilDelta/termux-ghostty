@@ -76,20 +76,167 @@ pub const SshNativeSession = struct {
     // callback + Handler message per libssh2 read chunk (16 KiB).
     const output_flush_threshold_bytes: usize = 64 * 1024;
 
+    /// One interactive PTY channel on the session. The JVM owns its lifetime:
+    /// the struct stays valid until `closeShell` or session `deinit`, even after
+    /// the remote shell exits, so a stale handle never dangles.
+    pub const ShellChannel = struct {
+        owner: *SshNativeSession,
+        // Only touched on the loop thread; null once the remote side closed.
+        channel: ?*c.LIBSSH2_CHANNEL,
+        open: std.atomic.Value(bool),
+        output_lock: Mutex = .{},
+        output_queue: std.ArrayList(u8) = .empty,
+        callback_lock: Mutex = .{},
+        java_vm: ?*c.JavaVM = null,
+        output_callback: ?c.jobject = null,
+        output_callback_method: ?c.jmethodID = null,
+        output_closed_method: ?c.jmethodID = null,
+
+        pub fn isRunning(self: *ShellChannel) bool {
+            return self.open.load(.acquire) and self.owner.running.load(.acquire);
+        }
+
+        pub fn writeKeystrokes(self: *ShellChannel, data: []const u8) void {
+            const owner = self.owner;
+            const copy = owner.allocator.dupe(u8, data) catch return;
+            const command = owner.allocator.create(Command) catch {
+                owner.allocator.free(copy);
+                return;
+            };
+            command.* = .{ .kind = .write, .shell = self, .data = copy, .owned = true };
+            if (!owner.enqueue(command)) {
+                owner.allocator.free(copy);
+                owner.allocator.destroy(command);
+            }
+        }
+
+        pub fn resize(self: *ShellChannel, cols: c_int, rows: c_int) void {
+            const owner = self.owner;
+            const command = owner.allocator.create(Command) catch return;
+            command.* = .{ .kind = .resize, .shell = self, .cols = cols, .rows = rows, .owned = true };
+            if (!owner.enqueue(command)) owner.allocator.destroy(command);
+        }
+
+        pub fn setOutputCallback(self: *ShellChannel, env: *c.JNIEnv, callback: c.jobject) void {
+            self.callback_lock.lock();
+            defer self.callback_lock.unlock();
+            self.clearOutputCallbackLocked(env);
+            if (callback == null) return;
+
+            var java_vm: ?*c.JavaVM = null;
+            if (env.*.*.GetJavaVM.?(env, &java_vm) != 0) return;
+            const global_callback = env.*.*.NewGlobalRef.?(env, callback) orelse return;
+            const callback_class = env.*.*.GetObjectClass.?(env, callback) orelse {
+                env.*.*.DeleteGlobalRef.?(env, global_callback);
+                return;
+            };
+            const callback_method = env.*.*.GetMethodID.?(env, callback_class, "onNativeSshOutput", "([B)V") orelse {
+                env.*.*.DeleteLocalRef.?(env, callback_class);
+                env.*.*.DeleteGlobalRef.?(env, global_callback);
+                return;
+            };
+            const closed_method = env.*.*.GetMethodID.?(env, callback_class, "onNativeSshClosed", "()V") orelse {
+                env.*.*.DeleteLocalRef.?(env, callback_class);
+                env.*.*.DeleteGlobalRef.?(env, global_callback);
+                return;
+            };
+            env.*.*.DeleteLocalRef.?(env, callback_class);
+            self.java_vm = java_vm;
+            self.output_callback = global_callback;
+            self.output_callback_method = callback_method;
+            self.output_closed_method = closed_method;
+            self.deliverOutputLocked(env);
+        }
+
+        fn hasCallback(self: *ShellChannel) bool {
+            self.callback_lock.lock();
+            defer self.callback_lock.unlock();
+            return self.output_callback != null;
+        }
+
+        fn deliverOutput(self: *ShellChannel, env: ?*c.JNIEnv) void {
+            self.callback_lock.lock();
+            defer self.callback_lock.unlock();
+            self.deliverOutputLocked(env);
+        }
+
+        fn deliverOutputLocked(self: *ShellChannel, current_env: ?*c.JNIEnv) void {
+            const callback = self.output_callback orelse return;
+            const method = self.output_callback_method orelse return;
+            var attachment = JniAttachment.acquire(self.java_vm, current_env) orelse return;
+            defer attachment.release();
+            const env = attachment.env;
+
+            self.output_lock.lock();
+            defer self.output_lock.unlock();
+            if (self.output_queue.items.len == 0) return;
+            const bytes = env.*.*.NewByteArray.?(env, @intCast(self.output_queue.items.len)) orelse return;
+            defer env.*.*.DeleteLocalRef.?(env, bytes);
+            env.*.*.SetByteArrayRegion.?(env, bytes, 0, @intCast(self.output_queue.items.len), @ptrCast(self.output_queue.items.ptr));
+            env.*.*.CallVoidMethod.?(env, callback, method, bytes);
+            self.output_queue.clearRetainingCapacity();
+        }
+
+        fn deliverClosed(self: *ShellChannel, current_env: ?*c.JNIEnv) void {
+            self.callback_lock.lock();
+            defer self.callback_lock.unlock();
+            const callback = self.output_callback orelse return;
+            const method = self.output_closed_method orelse return;
+            var attachment = JniAttachment.acquire(self.java_vm, current_env) orelse return;
+            defer attachment.release();
+            attachment.env.*.*.CallVoidMethod.?(attachment.env, callback, method);
+        }
+
+        fn clearOutputCallbackLocked(self: *ShellChannel, env: ?*c.JNIEnv) void {
+            if (self.output_callback) |callback| {
+                if (env) |jni| jni.*.*.DeleteGlobalRef.?(jni, callback);
+            }
+            self.java_vm = null;
+            self.output_callback = null;
+            self.output_callback_method = null;
+            self.output_closed_method = null;
+        }
+
+        fn destroy(self: *ShellChannel, env: ?*c.JNIEnv) void {
+            self.callback_lock.lock();
+            self.clearOutputCallbackLocked(env);
+            self.callback_lock.unlock();
+            self.output_queue.deinit(queue_allocator);
+            self.owner.allocator.destroy(self);
+        }
+    };
+
+    const JniAttachment = struct {
+        java_vm: *c.JavaVM,
+        env: *c.JNIEnv,
+        attached: bool,
+
+        fn acquire(java_vm_opt: ?*c.JavaVM, current_env: ?*c.JNIEnv) ?JniAttachment {
+            const java_vm = java_vm_opt orelse return null;
+            if (current_env) |env| return .{ .java_vm = java_vm, .env = env, .attached = false };
+            var env: ?*c.JNIEnv = null;
+            if (java_vm.*.*.AttachCurrentThreadAsDaemon.?(java_vm, @ptrCast(&env), null) != 0) return null;
+            return .{ .java_vm = java_vm, .env = env orelse return null, .attached = true };
+        }
+
+        fn release(self: *JniAttachment) void {
+            if (self.attached) _ = self.java_vm.*.*.DetachCurrentThread.?(self.java_vm);
+        }
+    };
+
     allocator: std.mem.Allocator,
     session: *c.LIBSSH2_SESSION,
-    channel: *c.LIBSSH2_CHANNEL,
     socket_fd: c_int,
     wake_pipe: [2]c_int,
-    output_lock: Mutex,
-    output_queue: std.ArrayList(u8),
     command_lock: Mutex,
     command_queue: std.ArrayList(*Command),
-    callback_lock: Mutex,
+    // Guards `shells`. The loop thread iterates it; open/close/deinit mutate it.
+    shells_lock: Mutex = .{},
+    shells: std.ArrayList(*ShellChannel) = .empty,
+    // Loop-thread only: channels whose close is still waiting on the socket.
+    closing_channels: std.ArrayList(*c.LIBSSH2_CHANNEL) = .empty,
+    // Set once at init; the loop thread attaches with it.
     java_vm: ?*c.JavaVM,
-    output_callback: ?c.jobject,
-    output_callback_method: ?c.jmethodID,
-    output_closed_method: ?c.jmethodID,
     thread: ?std.Thread,
     running: std.atomic.Value(bool),
     // SFTP read-ahead: one 256 KiB staging buffer holds the chunk fetched
@@ -111,6 +258,7 @@ pub const SshNativeSession = struct {
 
     const Command = struct {
         kind: CommandKind,
+        shell: ?*ShellChannel = null,
         data: ?[]u8 = null,
         cols: c_int = 0,
         rows: c_int = 0,
@@ -126,6 +274,19 @@ pub const SshNativeSession = struct {
         error_output: *std.ArrayList(u8),
         exit_status: c_int = -1,
         success: bool = false,
+    };
+
+    const OpenShellContext = struct {
+        term_type: []const u8,
+        cols: c_int,
+        rows: c_int,
+        command: ?[]const u8,
+        result: ?*ShellChannel = null,
+    };
+
+    const CloseShellContext = struct {
+        shell: *ShellChannel,
+        done: bool = false,
     };
 
     const SftpInitContext = struct {
@@ -235,10 +396,6 @@ pub const SshNativeSession = struct {
         username: []const u8,
         password_or_key: []const u8,
         is_password: bool,
-        term_type: []const u8,
-        cols: c_int,
-        rows: c_int,
-        herdr_integration: bool,
         java_vm: ?*c.JavaVM,
     ) !*SshNativeSession {
         _ = c.libssh2_init(0);
@@ -303,61 +460,6 @@ pub const SshNativeSession = struct {
             }
         }
 
-        const channel = while (true) {
-            const ch = c.libssh2_channel_open_ex(
-                session,
-                "session",
-                @intCast("session".len),
-                c.LIBSSH2_CHANNEL_WINDOW_DEFAULT,
-                c.LIBSSH2_CHANNEL_PACKET_DEFAULT,
-                null,
-                0,
-            );
-            if (ch) |value| break value;
-            const rc = c.libssh2_session_last_error(session, null, null, 0);
-            if (rc == c.LIBSSH2_ERROR_EAGAIN) {
-                try waitSocket(socket_fd, session);
-                continue;
-            }
-            return error.ChannelOpenFailed;
-        };
-        errdefer _ = c.libssh2_channel_free(channel);
-
-        const term_c = try allocator.dupeZ(u8, term_type);
-        defer allocator.free(term_c);
-        while (true) {
-            const rc = c.libssh2_channel_request_pty_ex(channel, term_c.ptr, @intCast(term_type.len), null, 0, cols, rows, 0, 0);
-            if (rc == 0) break;
-            if (rc == c.LIBSSH2_ERROR_EAGAIN) {
-                try waitSocket(socket_fd, session);
-                continue;
-            }
-            return error.PtyRequestFailed;
-        }
-
-        for ([_][]const u8{ "LC_ALL", "LANG", "LC_CTYPE" }) |env_name| {
-            var attempt: i32 = 0;
-            while (attempt < 50) : (attempt += 1) {
-                const rc = c.libssh2_channel_setenv_ex(channel, env_name.ptr, @intCast(env_name.len), "en_US.UTF-8", @intCast("en_US.UTF-8".len));
-                if (rc == 0) break;
-                if (rc != c.LIBSSH2_ERROR_EAGAIN) break;
-                try waitSocket(socket_fd, session);
-            }
-        }
-
-        while (true) {
-            const rc = if (herdr_integration) blk: {
-                const cmd = "sh -c \"if command -v herdr >/dev/null 2>&1; then exec herdr; else exec \\${SHELL:-/bin/sh} -l; fi\"";
-                break :blk c.libssh2_channel_process_startup(channel, "exec", 4, cmd.ptr, @intCast(cmd.len));
-            } else c.libssh2_channel_process_startup(channel, "shell", @intCast("shell".len), null, 0);
-            if (rc == 0) break;
-            if (rc == c.LIBSSH2_ERROR_EAGAIN) {
-                try waitSocket(socket_fd, session);
-                continue;
-            }
-            return error.ShellStartFailed;
-        }
-
         // Keep idle sessions from surviving a dead Wi-Fi link indefinitely.
         c.libssh2_keepalive_config(session, 1, keepalive_interval_seconds);
 
@@ -374,18 +476,11 @@ pub const SshNativeSession = struct {
         self.* = .{
             .allocator = allocator,
             .session = session,
-            .channel = channel,
             .socket_fd = socket_fd,
             .wake_pipe = wake_p,
-            .output_lock = .{},
-            .output_queue = .empty,
             .command_lock = .{},
             .command_queue = .empty,
-            .callback_lock = .{},
             .java_vm = java_vm,
-            .output_callback = null,
-            .output_callback_method = null,
-            .output_closed_method = null,
             .thread = null,
             .running = std.atomic.Value(bool).init(true),
         };
@@ -405,17 +500,16 @@ pub const SshNativeSession = struct {
                 thread.join();
             }
         } else {
-            _ = c.libssh2_channel_free(self.channel);
             _ = c.libssh2_session_disconnect_ex(self.session, c.SSH_DISCONNECT_BY_APPLICATION, "Shutdown", "");
             _ = c.libssh2_session_free(self.session);
         }
 
         _ = c.close(self.wake_pipe[0]);
         _ = c.close(self.wake_pipe[1]);
-        self.callback_lock.lock();
-        self.clearOutputCallbackLocked(env);
-        self.callback_lock.unlock();
-        self.output_queue.deinit(queue_allocator);
+        // The loop thread has exited, so nothing else references the shells.
+        for (self.shells.items) |shell| shell.destroy(env);
+        self.shells.deinit(queue_allocator);
+        self.closing_channels.deinit(queue_allocator);
         self.command_queue.deinit(queue_allocator);
         if (self.sftp_staging) |staging| queue_allocator.free(staging);
 
@@ -423,64 +517,32 @@ pub const SshNativeSession = struct {
         allocator.destroy(self);
     }
 
-    pub fn writeKeystrokes(self: *SshNativeSession, data: []const u8) void {
-        const copy = self.allocator.dupe(u8, data) catch return;
-        const command = self.allocator.create(Command) catch {
-            self.allocator.free(copy);
-            return;
-        };
-        command.* = .{ .kind = .write, .data = copy, .owned = true };
-        if (!self.enqueue(command)) {
-            self.allocator.free(copy);
-            self.allocator.destroy(command);
+    /// Opens a PTY channel running `command`, or the login shell when null.
+    pub fn openShell(
+        self: *SshNativeSession,
+        term_type: []const u8,
+        cols: c_int,
+        rows: c_int,
+        command: ?[]const u8,
+    ) ?*ShellChannel {
+        var context = OpenShellContext{ .term_type = term_type, .cols = cols, .rows = rows, .command = command };
+        if (!self.dispatchSync(openShellCallback, &context)) return null;
+        return context.result;
+    }
+
+    /// Closes the channel and frees `shell`. The caller must not use the handle afterwards.
+    pub fn closeShell(self: *SshNativeSession, shell: *ShellChannel, env: ?*c.JNIEnv) void {
+        var context = CloseShellContext{ .shell = shell };
+        if (!self.dispatchSync(closeShellCallback, &context) or !context.done) {
+            // The loop already stopped (or is stopping and cancelled the command).
+            // Unlink under the lock so its exit path can't touch the shell; the
+            // libssh2 channel itself is released by session_free.
+            self.shells_lock.lock();
+            _ = self.unlinkShellLocked(shell);
+            self.shells_lock.unlock();
         }
-    }
-
-    pub fn resizeChannel(self: *SshNativeSession, cols: c_int, rows: c_int) void {
-        const command = self.allocator.create(Command) catch return;
-        command.* = .{ .kind = .resize, .cols = cols, .rows = rows, .owned = true };
-        if (!self.enqueue(command)) self.allocator.destroy(command);
-    }
-
-    pub fn setOutputCallback(self: *SshNativeSession, env: *c.JNIEnv, callback: c.jobject) void {
-        self.callback_lock.lock();
-        defer self.callback_lock.unlock();
-        self.clearOutputCallbackLocked(env);
-        if (callback == null) return;
-
-        var java_vm: ?*c.JavaVM = null;
-        if (env.*.*.GetJavaVM.?(env, &java_vm) != 0) return;
-        const global_callback = env.*.*.NewGlobalRef.?(env, callback) orelse return;
-        const callback_class = env.*.*.GetObjectClass.?(env, callback) orelse {
-            env.*.*.DeleteGlobalRef.?(env, global_callback);
-            return;
-        };
-        const callback_method = env.*.*.GetMethodID.?(env, callback_class, "onNativeSshOutput", "([B)V") orelse {
-            env.*.*.DeleteLocalRef.?(env, callback_class);
-            env.*.*.DeleteGlobalRef.?(env, global_callback);
-            return;
-        };
-        const closed_method = env.*.*.GetMethodID.?(env, callback_class, "onNativeSshClosed", "()V") orelse {
-            env.*.*.DeleteLocalRef.?(env, callback_class);
-            env.*.*.DeleteGlobalRef.?(env, global_callback);
-            return;
-        };
-        env.*.*.DeleteLocalRef.?(env, callback_class);
-        self.java_vm = java_vm;
-        self.output_callback = global_callback;
-        self.output_callback_method = callback_method;
-        self.output_closed_method = closed_method;
-        self.deliverOutputLocked(env);
-    }
-
-    pub fn drainOutput(self: *SshNativeSession, context: ?*anyopaque, append_fn: *const fn (?*anyopaque, ?[*]const u8, usize) callconv(.c) u32) u32 {
-        self.output_lock.lock();
-        defer self.output_lock.unlock();
-        if (self.output_queue.items.len == 0) return 0;
-
-        const result = append_fn(context, self.output_queue.items.ptr, self.output_queue.items.len);
-        self.output_queue.clearRetainingCapacity();
-        return result;
+        // JNI global refs must be dropped with the caller's env, not the loop thread's.
+        shell.destroy(env);
     }
 
     pub fn execCommand(
@@ -576,11 +638,7 @@ pub const SshNativeSession = struct {
         var jni_env: ?*c.JNIEnv = null;
         var attached = false;
 
-        self.callback_lock.lock();
-        const vm_opt = self.java_vm;
-        self.callback_lock.unlock();
-
-        if (vm_opt) |vm| {
+        if (self.java_vm) |vm| {
             if (vm.*.*.AttachCurrentThreadAsDaemon.?(vm, @ptrCast(&jni_env), null) == 0) {
                 attached = true;
             }
@@ -659,46 +717,71 @@ pub const SshNativeSession = struct {
         }
 
         self.cancelQueuedCommands();
-        _ = c.libssh2_channel_free(self.channel);
+        // session_free releases the libssh2 channels; the ShellChannel structs
+        // stay alive for the JVM until closeShell or deinit.
+        self.shells_lock.lock();
+        for (self.shells.items) |shell| {
+            if (!shell.open.load(.acquire)) continue;
+            shell.deliverOutput(jni_env);
+            shell.open.store(false, .release);
+            shell.channel = null;
+            shell.deliverClosed(jni_env);
+        }
+        self.shells_lock.unlock();
         _ = c.libssh2_session_disconnect_ex(self.session, c.SSH_DISCONNECT_BY_APPLICATION, "Shutdown", "");
         _ = c.libssh2_session_free(self.session);
-        self.deliverClosed(jni_env);
     }
 
     fn processRead(self: *SshNativeSession, env: ?*c.JNIEnv) void {
+        self.retryClosingChannels();
+        var buffer: [32768]u8 = undefined;
+        self.shells_lock.lock();
+        defer self.shells_lock.unlock();
+        for (self.shells.items) |shell| {
+            if (!self.running.load(.acquire)) return;
+            self.readShell(shell, env, &buffer);
+        }
+    }
+
+    fn readShell(self: *SshNativeSession, shell: *ShellChannel, env: ?*c.JNIEnv, buffer: []u8) void {
+        const channel = shell.channel orelse return;
         // A newly opened shell can emit its greeting before the terminal worker
         // registers the JVM callback. Retain that startup window with a strict
-        // cap so connection setup cannot lose the prompt or grow without bound.
-        self.callback_lock.lock();
-        const have_callback = self.output_callback != null;
-        self.callback_lock.unlock();
-
-        var buffer: [32768]u8 = undefined;
+        // cap so channel setup cannot lose the prompt or grow without bound.
+        const have_callback = shell.hasCallback();
         while (self.running.load(.acquire)) {
-            const count = c.libssh2_channel_read(self.channel, &buffer, buffer.len);
+            const count = c.libssh2_channel_read(channel, buffer.ptr, buffer.len);
             if (count > 0) {
-                self.output_lock.lock();
+                shell.output_lock.lock();
                 const queued = ssh_output_buffer.append(
-                    &self.output_queue,
+                    &shell.output_queue,
                     queue_allocator,
                     buffer[0..@intCast(count)],
                     have_callback,
-                ) catch self.output_queue.items.len;
-                self.output_lock.unlock();
+                ) catch shell.output_queue.items.len;
+                shell.output_lock.unlock();
                 // Flush mid-drain once a batch has accumulated so a continuous
                 // burst doesn't grow an unbounded queue or stall the JVM side;
                 // the flush below the loop covers the tail.
                 if (queued >= output_flush_threshold_bytes) {
-                    self.deliverOutput(env);
+                    shell.deliverOutput(env);
                 }
             } else if (count == c.LIBSSH2_ERROR_EAGAIN) {
                 break;
+            } else if (count == 0 or count == c.LIBSSH2_ERROR_CHANNEL_CLOSED) {
+                // The remote shell exited; only this channel ends.
+                shell.deliverOutput(env);
+                shell.open.store(false, .release);
+                shell.channel = null;
+                self.releaseChannel(channel);
+                shell.deliverClosed(env);
+                return;
             } else {
                 self.running.store(false, .release);
                 break;
             }
         }
-        self.deliverOutput(env);
+        shell.deliverOutput(env);
     }
 
     fn processCommands(self: *SshNativeSession) void {
@@ -713,8 +796,8 @@ pub const SshNativeSession = struct {
             const completion = current.completion;
 
             switch (current.kind) {
-                .write => self.processWrite(data_to_free orelse &[_]u8{}),
-                .resize => self.processResize(current.cols, current.rows),
+                .write => if (current.shell) |shell| self.processWrite(shell, data_to_free orelse &[_]u8{}),
+                .resize => if (current.shell) |shell| self.processResize(shell, current.cols, current.rows),
                 .callback => if (current.callback) |callback| callback(self, current),
             }
 
@@ -727,10 +810,11 @@ pub const SshNativeSession = struct {
         }
     }
 
-    fn processWrite(self: *SshNativeSession, data: []const u8) void {
+    fn processWrite(self: *SshNativeSession, shell: *ShellChannel, data: []const u8) void {
+        const channel = shell.channel orelse return;
         var written: usize = 0;
         while (written < data.len and self.running.load(.acquire)) {
-            const result = c.libssh2_channel_write(self.channel, data[written..].ptr, data.len - written);
+            const result = c.libssh2_channel_write(channel, data[written..].ptr, data.len - written);
             if (result > 0) {
                 written += @intCast(result);
             } else if (result == c.LIBSSH2_ERROR_EAGAIN) {
@@ -741,9 +825,10 @@ pub const SshNativeSession = struct {
         }
     }
 
-    fn processResize(self: *SshNativeSession, cols: c_int, rows: c_int) void {
+    fn processResize(self: *SshNativeSession, shell: *ShellChannel, cols: c_int, rows: c_int) void {
+        const channel = shell.channel orelse return;
         while (self.running.load(.acquire)) {
-            const result = c.libssh2_channel_request_pty_size_ex(self.channel, cols, rows, 0, 0);
+            const result = c.libssh2_channel_request_pty_size_ex(channel, cols, rows, 0, 0);
             if (result == 0) return;
             if (result != c.LIBSSH2_ERROR_EAGAIN) return;
             waitSocket(self.socket_fd, self.session) catch return;
@@ -794,70 +879,123 @@ pub const SshNativeSession = struct {
         _ = c.write(self.wake_pipe[1], &dummy, 1);
     }
 
-    fn deliverOutput(self: *SshNativeSession, env: ?*c.JNIEnv) void {
-        self.callback_lock.lock();
-        defer self.callback_lock.unlock();
-        self.deliverOutputLocked(env);
+    /// Never blocks: a close that would wait on the socket is retried by the
+    /// loop, so a dead link can't stall other channels or a closeShell caller.
+    fn releaseChannel(self: *SshNativeSession, channel: *c.LIBSSH2_CHANNEL) void {
+        if (c.libssh2_channel_free(channel) != c.LIBSSH2_ERROR_EAGAIN) return;
+        // If this append fails, session_free still reclaims the channel.
+        self.closing_channels.append(queue_allocator, channel) catch {};
     }
 
-    fn deliverOutputLocked(self: *SshNativeSession, current_env: ?*c.JNIEnv) void {
-        const java_vm = self.java_vm orelse return;
-        const callback = self.output_callback orelse return;
-        const method = self.output_callback_method orelse return;
-        var env: ?*c.JNIEnv = current_env;
-        var attached = false;
-        if (env == null) {
-            if (java_vm.*.*.AttachCurrentThreadAsDaemon.?(
-                java_vm,
-                @ptrCast(&env),
+    fn retryClosingChannels(self: *SshNativeSession) void {
+        var index: usize = 0;
+        while (index < self.closing_channels.items.len) {
+            if (c.libssh2_channel_free(self.closing_channels.items[index]) == c.LIBSSH2_ERROR_EAGAIN) {
+                index += 1;
+            } else {
+                _ = self.closing_channels.swapRemove(index);
+            }
+        }
+    }
+
+    fn unlinkShellLocked(self: *SshNativeSession, shell: *ShellChannel) bool {
+        for (self.shells.items, 0..) |item, index| {
+            if (item == shell) {
+                _ = self.shells.swapRemove(index);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    fn openShellCallback(self: *SshNativeSession, command: *Command) void {
+        const context: *OpenShellContext = @ptrCast(@alignCast(command.context.?));
+        const channel = self.openShellChannel(context) catch return;
+        const shell = self.allocator.create(ShellChannel) catch {
+            self.releaseChannel(channel);
+            return;
+        };
+        shell.* = .{ .owner = self, .channel = channel, .open = std.atomic.Value(bool).init(true) };
+        self.shells_lock.lock();
+        defer self.shells_lock.unlock();
+        self.shells.append(queue_allocator, shell) catch {
+            self.releaseChannel(channel);
+            self.allocator.destroy(shell);
+            return;
+        };
+        context.result = shell;
+    }
+
+    fn openShellChannel(self: *SshNativeSession, context: *OpenShellContext) !*c.LIBSSH2_CHANNEL {
+        const channel = while (true) {
+            const ch = c.libssh2_channel_open_ex(
+                self.session,
+                "session",
+                @intCast("session".len),
+                c.LIBSSH2_CHANNEL_WINDOW_DEFAULT,
+                c.LIBSSH2_CHANNEL_PACKET_DEFAULT,
                 null,
-            ) != 0) return;
-            attached = true;
-        }
-        defer {
-            if (attached) _ = java_vm.*.*.DetachCurrentThread.?(java_vm);
-        }
+                0,
+            );
+            if (ch) |value| break value;
+            if (c.libssh2_session_last_error(self.session, null, null, 0) != c.LIBSSH2_ERROR_EAGAIN) {
+                return error.ChannelOpenFailed;
+            }
+            try waitSocket(self.socket_fd, self.session);
+        };
+        errdefer self.releaseChannel(channel);
 
-        self.output_lock.lock();
-        defer self.output_lock.unlock();
-        if (self.output_queue.items.len == 0) return;
-        const bytes = env.?.*.*.NewByteArray.?(env.?, @intCast(self.output_queue.items.len)) orelse return;
-        defer env.?.*.*.DeleteLocalRef.?(env.?, bytes);
-        env.?.*.*.SetByteArrayRegion.?(env.?, bytes, 0, @intCast(self.output_queue.items.len), @ptrCast(self.output_queue.items.ptr));
-        env.?.*.*.CallVoidMethod.?(env.?, callback, method, bytes);
-        self.output_queue.clearRetainingCapacity();
-    }
-
-    fn deliverClosed(self: *SshNativeSession, current_env: ?*c.JNIEnv) void {
-        self.callback_lock.lock();
-        defer self.callback_lock.unlock();
-        const java_vm = self.java_vm orelse return;
-        const callback = self.output_callback orelse return;
-        const method = self.output_closed_method orelse return;
-        var env: ?*c.JNIEnv = current_env;
-        var attached = false;
-        if (env == null) {
-            if (java_vm.*.*.AttachCurrentThreadAsDaemon.?(
-                java_vm,
-                @ptrCast(&env),
+        while (true) {
+            const rc = c.libssh2_channel_request_pty_ex(
+                channel,
+                context.term_type.ptr,
+                @intCast(context.term_type.len),
                 null,
-            ) != 0) return;
-            attached = true;
+                0,
+                context.cols,
+                context.rows,
+                0,
+                0,
+            );
+            if (rc == 0) break;
+            if (rc != c.LIBSSH2_ERROR_EAGAIN) return error.PtyRequestFailed;
+            try waitSocket(self.socket_fd, self.session);
         }
-        defer {
-            if (attached) _ = java_vm.*.*.DetachCurrentThread.?(java_vm);
+
+        for ([_][]const u8{ "LC_ALL", "LANG", "LC_CTYPE" }) |env_name| {
+            var attempt: i32 = 0;
+            while (attempt < 50) : (attempt += 1) {
+                const rc = c.libssh2_channel_setenv_ex(channel, env_name.ptr, @intCast(env_name.len), "en_US.UTF-8", @intCast("en_US.UTF-8".len));
+                if (rc == 0) break;
+                if (rc != c.LIBSSH2_ERROR_EAGAIN) break;
+                try waitSocket(self.socket_fd, self.session);
+            }
         }
-        env.?.*.*.CallVoidMethod.?(env.?, callback, method);
+
+        while (true) {
+            const rc = if (context.command) |cmd|
+                c.libssh2_channel_process_startup(channel, "exec", @intCast("exec".len), cmd.ptr, @intCast(cmd.len))
+            else
+                c.libssh2_channel_process_startup(channel, "shell", @intCast("shell".len), null, 0);
+            if (rc == 0) break;
+            if (rc != c.LIBSSH2_ERROR_EAGAIN) return error.ShellStartFailed;
+            try waitSocket(self.socket_fd, self.session);
+        }
+        return channel;
     }
 
-    fn clearOutputCallbackLocked(self: *SshNativeSession, env: ?*c.JNIEnv) void {
-        if (self.output_callback) |callback| {
-            if (env) |jni| jni.*.*.DeleteGlobalRef.?(jni, callback);
+    fn closeShellCallback(self: *SshNativeSession, command: *Command) void {
+        const context: *CloseShellContext = @ptrCast(@alignCast(command.context.?));
+        const shell = context.shell;
+        self.shells_lock.lock();
+        _ = self.unlinkShellLocked(shell);
+        self.shells_lock.unlock();
+        if (shell.channel) |channel| {
+            shell.open.store(false, .release);
+            shell.channel = null;
+            self.releaseChannel(channel);
         }
-        self.java_vm = null;
-        self.output_callback = null;
-        self.output_callback_method = null;
-        self.output_closed_method = null;
+        context.done = true;
     }
 
     fn execCommandCallback(self: *SshNativeSession, command: *Command) void {

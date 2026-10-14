@@ -66,8 +66,7 @@ Config files:
 
 ## Core Behaviors to Preserve
 
-### SFTP & Review Workspace Tracking (Herdr Integration)
-- The app integrates with `herdr` to persist navigation state per workspace for the SFTP and Review tabs.
-- When tapping the SFTP or Review tabs, the app queries `herdr workspace list` and `herdr pane list`.
-- **If the workspace has NOT changed:** The app MUST NOT overwrite `workspaceDirState.value`. It must respect the user's manual navigation state (which is stored in `SharedPreferences` under `sftp_last_dir_<workspace_key>`).
-- **If the workspace HAS changed:** The app must update the active workspace key, load the saved directory for the *new* workspace (or default to the active pane's `cwd`), and update the SFTP/Review panels to point to this new location.
+### Workspaces and tabs (Ecto)
+- A workspace belongs to one server and has a root dir; its tabs (Terminal, SFTP, Git, Viewer) live in `workspaces.json` (`compose-app/.../workspace/`).
+- Each SFTP tab owns its directory (`Tab.Sftp.dir`). The app never overwrites the user's manual navigation.
+- Closing a terminal is always `TerminalSession.close()` before `SshShellChannel.close()`: the channel close frees the native shell handle.

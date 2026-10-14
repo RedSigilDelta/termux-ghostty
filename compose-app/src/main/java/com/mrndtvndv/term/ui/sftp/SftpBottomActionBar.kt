@@ -51,7 +51,8 @@ fun SftpBottomActionBar(
     onToggleTree: () -> Unit,
     onUploadClick: () -> Unit,
     hazeState: HazeState,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    trailing: (@Composable () -> Unit)? = null
 ) {
     BackHandler(enabled = isSearchActive) {
         onCloseSearch()
@@ -61,7 +62,8 @@ fun SftpBottomActionBar(
         state = isSearchActive,
         hazeState = hazeState,
         modifier = modifier,
-        label = "SftpBottomActionBar"
+        label = "SftpBottomActionBar",
+        trailing = trailing
     ) { active ->
         if (active) {
             SearchEditField(

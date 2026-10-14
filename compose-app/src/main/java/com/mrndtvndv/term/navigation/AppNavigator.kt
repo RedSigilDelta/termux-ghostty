@@ -2,44 +2,37 @@ package com.mrndtvndv.term.navigation
 
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavKey
-import com.mrndtvndv.term.ui.workspace.WorkspaceTab
+import com.mrndtvndv.term.workspace.Tab
+import com.mrndtvndv.term.workspace.WorkspaceState
+import kotlinx.coroutines.flow.StateFlow
 
-class AppNavigator(private val onChanged: () -> Unit) {
+class AppNavigator(private val workspaceState: StateFlow<WorkspaceState>) {
     val backStack = NavBackStack<NavKey>(AppRoute.ServerList)
 
     private val workspaces = mutableMapOf<String, WorkspaceNavigator>()
 
     val currentWorkspaceId: String?
-        get() = backStack.filterIsInstance<AppRoute.Workspace>().lastOrNull()?.serverId
+        get() = backStack.filterIsInstance<AppRoute.Workspace>().lastOrNull()?.workspaceId
 
-    fun workspace(serverId: String): WorkspaceNavigator? = workspaces[serverId]
+    fun workspace(workspaceId: String): WorkspaceNavigator? = workspaces[workspaceId]
 
     fun navigate(route: AppRoute) {
         backStack.add(route)
-        onChanged()
     }
 
     fun goBack() {
         val top = backStack.lastOrNull()
-        if (top is AppRoute.Workspace && workspaces[top.serverId]?.goBack() == true) return
+        if (top is AppRoute.Workspace && workspaces[top.workspaceId]?.goBack() == true) return
         if (backStack.size > 1) {
             removeFrom(backStack.lastIndex)
-            onChanged()
         }
     }
 
-    fun openWorkspace(
-        serverId: String,
-        initialTab: WorkspaceTab,
-        tabs: List<WorkspaceTab>,
-        initialSftpDir: String,
-        onTabSelected: (WorkspaceTab) -> Unit,
-    ) {
-        val existing = workspaces[serverId]
-        if (existing == null) {
-            workspaces[serverId] = WorkspaceNavigator(tabs, initialTab, initialSftpDir, onTabSelected)
+    fun openWorkspace(workspaceId: String) {
+        if (workspaces[workspaceId] == null) {
+            workspaces[workspaceId] = WorkspaceNavigator { activeTab(workspaceId) }
         }
-        val route = AppRoute.Workspace(serverId)
+        val route = AppRoute.Workspace(workspaceId)
         val index = backStack.indexOf(route)
         if (index >= 0) {
             removeFrom(index + 1)
@@ -47,16 +40,18 @@ class AppNavigator(private val onChanged: () -> Unit) {
             removeFrom(1)
             backStack.add(route)
         }
-        onChanged()
-        existing?.selectTab(initialTab)
     }
 
-    fun closeWorkspace(serverId: String) {
-        workspaces.remove(serverId)
-        val index = backStack.indexOf(AppRoute.Workspace(serverId))
+    fun closeWorkspace(workspaceId: String) {
+        workspaces.remove(workspaceId)
+        val index = backStack.indexOf(AppRoute.Workspace(workspaceId))
         if (index < 0) return
         removeFrom(index)
-        onChanged()
+    }
+
+    private fun activeTab(workspaceId: String): Tab? {
+        val workspace = workspaceState.value.workspaces.firstOrNull { it.id == workspaceId } ?: return null
+        return workspace.tabs.firstOrNull { it.id == workspace.activeTabId }
     }
 
     private fun removeFrom(index: Int) {

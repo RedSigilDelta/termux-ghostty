@@ -70,7 +70,7 @@ final class GhosttySessionWorker extends Thread {
     private final byte[] mReadBuffer = new byte[32 * 1024];
     private final byte[] mDrainBuffer = new byte[4096];
 
-    private volatile long mSshSessionHandle = 0L;
+    private volatile long mSshShellHandle = 0L;
 
     private final AtomicReference<ScreenSnapshot> mPublishedSnapshot = new AtomicReference<>();
     private final AtomicReference<FrameDelta> mPublishedFrameDelta = new AtomicReference<>();
@@ -124,28 +124,28 @@ final class GhosttySessionWorker extends Thread {
         mCurrentCellHeightPixels = cellHeightPixels;
     }
 
-    void setSshSession(long sshSessionHandle) {
-        mSshSessionHandle = sshSessionHandle;
-        if (sshSessionHandle == 0L || mWorkerHandler == null) {
+    void setSshShell(long sshShellHandle) {
+        mSshShellHandle = sshShellHandle;
+        if (sshShellHandle == 0L || mWorkerHandler == null) {
             return;
         }
 
-        GhosttyNative.nativeSshSetOutputCallback(sshSessionHandle, this);
-        finishIfSshStopped(sshSessionHandle);
+        GhosttyNative.nativeSshSetOutputCallback(sshShellHandle, this);
+        finishIfSshStopped(sshShellHandle);
     }
 
     private void registerSshOutputCallback() {
-        long sshSessionHandle = mSshSessionHandle;
-        if (sshSessionHandle == 0L) {
+        long sshShellHandle = mSshShellHandle;
+        if (sshShellHandle == 0L) {
             return;
         }
 
-        GhosttyNative.nativeSshSetOutputCallback(sshSessionHandle, this);
-        finishIfSshStopped(sshSessionHandle);
+        GhosttyNative.nativeSshSetOutputCallback(sshShellHandle, this);
+        finishIfSshStopped(sshShellHandle);
     }
 
-    private void finishIfSshStopped(long sshSessionHandle) {
-        if (GhosttyNative.nativeSshIsRunning(sshSessionHandle)) {
+    private void finishIfSshStopped(long sshShellHandle) {
+        if (GhosttyNative.nativeSshIsRunning(sshShellHandle)) {
             return;
         }
 
@@ -160,7 +160,7 @@ final class GhosttySessionWorker extends Thread {
             mWorkerHandler = new WorkerHandler(Looper.myLooper());
             mCompressionActivity = mContent.getCompressionActivity();
             initializeWorkerStartup(
-                mSshSessionHandle != 0L,
+                mSshShellHandle != 0L,
                 () -> mWorkerHandler.sendEmptyMessage(MSG_REQUEST_FULL_SNAPSHOT_REFRESH),
                 this::registerSshOutputCallback
             );
@@ -247,7 +247,7 @@ final class GhosttySessionWorker extends Thread {
     }
 
     void shutdown() {
-        mSshSessionHandle = 0L;
+        mSshShellHandle = 0L;
         Handler workerHandler = getWorkerHandler();
         workerHandler.sendMessageAtFrontOfQueue(workerHandler.obtainMessage(MSG_SHUTDOWN));
         if (Thread.currentThread() == this) {
@@ -266,14 +266,14 @@ final class GhosttySessionWorker extends Thread {
     }
 
     public void onNativeSshOutput(byte[] data) {
-        if (data == null || data.length == 0 || mSshSessionHandle == 0L) {
+        if (data == null || data.length == 0 || mSshShellHandle == 0L) {
             return;
         }
         getWorkerHandler().obtainMessage(MSG_APPEND_DIRECT, data).sendToTarget();
     }
 
     public void onNativeSshClosed() {
-        if (mSshSessionHandle != 0L) {
+        if (mSshShellHandle != 0L) {
             mMainThreadHandler.post(mSession::finishIfRunning);
         }
     }
@@ -596,6 +596,12 @@ final class GhosttySessionWorker extends Thread {
         if ((result & GhosttyNative.APPEND_RESULT_CLIPBOARD_COPY) != 0) {
             String text = mContent.consumePendingClipboardText();
             mMainThreadHandler.post(() -> mSession.onCopyTextToClipboard(text));
+        }
+        if ((result & GhosttyNative.APPEND_RESULT_PWD_CHANGED) != 0) {
+            String path = ReportedCwd.parse(mContent.consumePendingReportedPwd());
+            if (path != null) {
+                mSession.setReportedCwd(path);
+            }
         }
         if ((result & GhosttyNative.APPEND_RESULT_DESKTOP_NOTIFICATION) != 0) {
             handleDesktopNotification();

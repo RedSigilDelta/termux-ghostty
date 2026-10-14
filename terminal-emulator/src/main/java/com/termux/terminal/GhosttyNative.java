@@ -16,6 +16,7 @@ public final class GhosttyNative {
     static final int APPEND_RESULT_DESKTOP_NOTIFICATION = 1 << 7;
     static final int APPEND_RESULT_PROGRESS = 1 << 8;
     static final int APPEND_RESULT_PROGRAM_STATUS = 1 << 9;
+    static final int APPEND_RESULT_PWD_CHANGED = 1 << 10;
 
     static final int MODE_CURSOR_KEYS_APPLICATION = 1;
     static final int MODE_KEYPAD_APPLICATION = 1 << 1;
@@ -119,6 +120,9 @@ public final class GhosttyNative {
     static native String nativeConsumeClipboardText(long nativeHandle);
 
     @Nullable
+    static native String nativeConsumeReportedPwd(long nativeHandle);
+
+    @Nullable
     static native String nativeConsumeNotificationTitle(long nativeHandle);
 
     @Nullable
@@ -167,14 +171,20 @@ public final class GhosttyNative {
     @Nullable
     static native String nativeGetTranscriptText(long nativeHandle, int flags);
 
-    public static native long nativeSshInit(int socketFd, String username, String passwordOrKey, boolean isPassword, String termType, int cols, int rows, boolean herdrIntegration);
+    public static native long nativeSshInit(int socketFd, String username, String passwordOrKey, boolean isPassword);
     public static native void nativeSshStart(long sessionHandle);
     public static native void nativeSshDeinit(long sessionHandle);
-    public static native void nativeSshWrite(long sessionHandle, byte[] data, int offset, int length);
-    public static native void nativeSshResize(long sessionHandle, int cols, int rows);
-    public static native void nativeSshSetOutputCallback(long sessionHandle, Object callback);
+    /** False once the SSH connection has died or was torn down. */
+    public static native boolean nativeSshIsConnected(long sessionHandle);
+    /** Opens a PTY channel running {@code command}, or the login shell when null. Returns 0 on failure. */
+    public static native long nativeSshOpenShell(long sessionHandle, String termType, int cols, int rows, String command);
+    /** Closes and frees the shell; the handle must not be used afterwards. */
+    public static native void nativeSshCloseShell(long sessionHandle, long shellHandle);
+    public static native void nativeSshWrite(long shellHandle, byte[] data, int offset, int length);
+    public static native void nativeSshResize(long shellHandle, int cols, int rows);
+    public static native void nativeSshSetOutputCallback(long shellHandle, Object callback);
     public static native int nativeGetKittyKeyboardFlags(long terminalHandle);
-    public static native boolean nativeSshIsRunning(long sessionHandle);
+    public static native boolean nativeSshIsRunning(long shellHandle);
 
     public static native String nativeSshExec(long sessionHandle, String command);
     public static native long nativeSftpInit(long sessionHandle);

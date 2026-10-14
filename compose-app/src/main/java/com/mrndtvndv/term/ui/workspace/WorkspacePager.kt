@@ -1,51 +1,48 @@
 package com.mrndtvndv.term.ui.workspace
 
 import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerDefaults
 import androidx.compose.foundation.pager.PagerSnapDistance
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.systemGestureExclusion
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SecondaryTabRow
-import androidx.compose.material3.Tab
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Velocity
 import com.mrndtvndv.term.CrashBreadcrumbs
 import com.mrndtvndv.term.navigation.LocalAnimationsEnabled
+import com.mrndtvndv.term.workspace.Tab
 import kotlin.math.abs
 
 /**
- * Pages [tabs] horizontally. [currentTab] is the source of truth; the pager is a view of it
- * and reports user-driven page changes through [onSelectTab].
+ * Pages [tabs] horizontally. [currentTabId] is the source of truth; the pager is a view of it
+ * and reports user-driven page changes through [onSelectTab]. [empty] is shown instead of pages when there are no tabs.
  */
 @Composable
 fun WorkspacePager(
-    tabs: List<WorkspaceTab>,
-    currentTab: WorkspaceTab,
-    onSelectTab: (WorkspaceTab) -> Unit,
-    hideTabs: Boolean,
+    tabs: List<Tab>,
+    currentTabId: String?,
+    onSelectTab: (Tab) -> Unit,
+    empty: @Composable () -> Unit,
     modifier: Modifier = Modifier,
-    content: @Composable (tab: WorkspaceTab, isActive: Boolean) -> Unit,
+    content: @Composable (tab: Tab, isActive: Boolean) -> Unit,
 ) {
     val pagerState = rememberPagerState(
-        initialPage = tabs.indexOf(currentTab).coerceAtLeast(0),
+        initialPage = tabs.indexOfFirst { it.id == currentTabId }.coerceAtLeast(0),
         pageCount = { tabs.size }
     )
     val flingBehavior = PagerDefaults.flingBehavior(
@@ -53,9 +50,9 @@ fun WorkspacePager(
         pagerSnapDistance = PagerSnapDistance.atMost(1),
     )
 
-    // On non-Terminal pages, rightward swipes near the left screen edge would be
+    // On non-first pages, rightward swipes near the left screen edge would be
     // captured by the system back gesture (predictive back, API 29+) instead of the
-    // pager — e.g. SFTP→Git becomes a back press that navigates to the Terminal tab.
+    // pager — e.g. SFTP→Git becomes a back press that navigates to the previous tab.
     // Hand the edge zone to the pager so those swipes always switch pages.
     // NOTE: keyed on settledPage, not currentPage. currentPage flips mid-swipe while
     // the pager is still placing pages; toggling systemGestureExclusion then replaces
@@ -66,41 +63,34 @@ fun WorkspacePager(
 
     val pageNestedScrollConnection = rememberHorizontalDominantConnection(pagerState)
 
-    PagerSyncEffects(pagerState, tabs, currentTab, onSelectTab, LocalAnimationsEnabled.current)
+    PagerSyncEffects(pagerState, tabs, currentTabId, onSelectTab, LocalAnimationsEnabled.current)
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        topBar = {
-            if (tabs.size > 1 && !hideTabs) {
-                WorkspaceTabRow(
-                    tabs = tabs,
-                    selectedIndex = pagerState.currentPage,
-                    onTabClick = { index -> onSelectTab(tabs[index]) },
-                )
-            }
-        }
     ) { paddingValues ->
+        val pageModifier = Modifier
+            .fillMaxSize()
+            .padding(paddingValues)
+        if (tabs.isEmpty()) {
+            Box(modifier = pageModifier) { empty() }
+            return@Scaffold
+        }
         HorizontalPager(
             state = pagerState,
             flingBehavior = flingBehavior,
             pageNestedScrollConnection = pageNestedScrollConnection,
             // Stable identity per tab, not per index, so moved pages survive
-            // list-instance changes without teardown (e.g. SFTP keeps its node
-            // when Git is absent). Keys must be Bundle-storable: Lazy layouts
-            // route page keys through SaveableStateProvider, which crashes on
-            // arbitrary objects (e.g. the WorkspaceTab enum constants themselves).
-            key = { index -> tabs.getOrNull(index)?.name ?: "page:$index" },
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-                .then(if (tabs.size <= 1 || hideTabs) Modifier.statusBarsPadding() else Modifier)
-                .imePadding()
+            // list-instance changes without teardown. Keys must be Bundle-storable:
+            // Lazy layouts route page keys through SaveableStateProvider, which crashes
+            // on arbitrary objects.
+            key = { index -> tabs.getOrNull(index)?.id ?: "page:$index" },
+            modifier = pageModifier
                 .clipToBounds()
                 .then(if (excludeFromSystemGesture) Modifier.systemGestureExclusion() else Modifier)
         ) { page ->
             tabs.getOrNull(page)?.let { tab ->
-                val isActive = tab == currentTab &&
+                val isActive = tab.id == currentTabId &&
                     pagerState.settledPage == page &&
                     !pagerState.isScrollInProgress
                 content(tab, isActive)
@@ -128,85 +118,57 @@ private fun rememberHorizontalDominantConnection(pagerState: PagerState): Nested
 @Composable
 private fun PagerSyncEffects(
     pagerState: PagerState,
-    tabs: List<WorkspaceTab>,
-    currentTab: WorkspaceTab,
-    onSelectTab: (WorkspaceTab) -> Unit,
+    tabs: List<Tab>,
+    currentTabId: String?,
+    onSelectTab: (Tab) -> Unit,
     animate: Boolean,
 ) {
-    // The only place that moves the pager to currentTab (tab taps, back, notifications).
-    // Skipping when already at/heading to the page avoids re-animating, which replaces
-    // pager nodes mid-layout for no visible effect.
-    LaunchedEffect(currentTab, tabs) {
-        val index = tabs.indexOf(currentTab)
-        if (index < 0 || pagerState.targetPage == index) return@LaunchedEffect
-        if (animate) pagerState.animateScrollToPage(index) else pagerState.scrollToPage(index)
+    val targetIndex = tabs.indexOfFirst { it.id == currentTabId }
+    val latestTabs by rememberUpdatedState(tabs)
+    val latestCurrentTabId by rememberUpdatedState(currentTabId)
+
+    // The only place that moves the pager to the active tab (tab taps, notifications, closes).
+    // Keyed on the index, not the tab list: the list changes on every model update (an SFTP
+    // tab saving its dir), which must not restart these effects. Skipping when already
+    // at/heading to the page avoids re-animating, which replaces pager nodes mid-layout.
+    LaunchedEffect(targetIndex) {
+        if (targetIndex < 0 || pagerState.targetPage == targetIndex) return@LaunchedEffect
+        if (animate) pagerState.animateScrollToPage(targetIndex) else pagerState.scrollToPage(targetIndex)
     }
 
-    // The tab list can shrink while the pager sits on a now-removed page (e.g. the
-    // session backing SFTP/Review goes away). Snap back to a valid page immediately;
-    // leaving currentPage out of bounds breaks the tab row and the pager's layout.
+    // Tabs can be closed while the pager sits on the removed page. Snap to a valid page
+    // immediately; leaving currentPage out of bounds breaks the pager's layout.
     LaunchedEffect(tabs.size) {
-        if (pagerState.currentPage >= tabs.size) {
-            pagerState.scrollToPage(0)
+        if (tabs.isNotEmpty() && pagerState.currentPage >= tabs.size) {
+            pagerState.scrollToPage(targetIndex.coerceIn(0, tabs.lastIndex))
         }
     }
 
-    // Propagates a user swipe to currentTab.
+    // Propagates a user swipe to the active tab.
     // Also records a breadcrumb for crash reports (see CrashBreadcrumbs).
-    // Keyed on settledPage (the idle page) rather than currentPage: side effects
-    // belong to settled state per PagerState semantics. currentPage is still read
-    // for the breadcrumb, but a body read does not restart the effect.
-    LaunchedEffect(pagerState.settledPage, tabs) {
+    // Keyed on settledPage alone (the idle page): re-running on a tab-list change while a
+    // tap's scroll is still in flight would select the old page and undo the tap.
+    LaunchedEffect(pagerState.settledPage) {
+        val tab = latestTabs.getOrNull(pagerState.settledPage)
         CrashBreadcrumbs.setWorkspace(
-            tab = currentTab.title,
+            tab = tab?.typeName ?: "none",
             page = pagerState.settledPage,
             currentPage = pagerState.currentPage,
-            tabCount = tabs.size,
+            tabCount = latestTabs.size,
         )
-        val tab = tabs.getOrNull(pagerState.settledPage)
-        if (tab != null && tab != currentTab) {
+        if (tab != null && tab.id != latestCurrentTabId) {
             onSelectTab(tab)
         }
     }
 }
 
-@Composable
-private fun WorkspaceTabRow(
-    tabs: List<WorkspaceTab>,
-    selectedIndex: Int,
-    onTabClick: (Int) -> Unit,
-) {
-    SecondaryTabRow(
-        modifier = Modifier.statusBarsPadding(),
-        // Live indicator driven by currentPage (the documented pattern);
-        // side effects stay gated on settledPage in PagerSyncEffects.
-        selectedTabIndex = selectedIndex.coerceIn(tabs.indices),
-        containerColor = MaterialTheme.colorScheme.surface,
-        contentColor = MaterialTheme.colorScheme.onSurface,
-    ) {
-        tabs.forEachIndexed { index, tab ->
-            val isSelected = selectedIndex == index
-            val labelColor = if (isSelected) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-            }
-            Tab(
-                selected = isSelected,
-                onClick = { onTabClick(index) },
-                selectedContentColor = MaterialTheme.colorScheme.primary,
-                unselectedContentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                text = {
-                    Text(
-                        text = tab.title,
-                        color = labelColor,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                    )
-                }
-            )
-        }
+private val Tab.typeName: String
+    get() = when (this) {
+        is Tab.Terminal -> "Terminal"
+        is Tab.Sftp -> "SFTP"
+        is Tab.Git -> "Git"
+        is Tab.Viewer -> "Viewer"
     }
-}
 
 /** Lets the pager react only to clearly horizontal gestures so vertical scrolling inside pages is untouched. */
 private class HorizontalDominantScrollConnection(

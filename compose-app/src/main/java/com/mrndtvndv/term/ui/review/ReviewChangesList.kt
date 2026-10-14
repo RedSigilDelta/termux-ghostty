@@ -158,7 +158,8 @@ internal fun FileChangesList(
     onFetch: () -> Unit,
     onPull: () -> Unit,
     onPush: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    tabsButton: (@Composable () -> Unit)? = null
 ) {
     val content = state.content
     val stagedFiles = (content as? ReviewUiState.Success)?.stagedFiles.orEmpty()
@@ -337,7 +338,8 @@ internal fun FileChangesList(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .navigationBarsPadding()
-                        .padding(bottom = 16.dp)
+                        .padding(bottom = 16.dp),
+                    trailing = tabsButton
                 )
             }
     }

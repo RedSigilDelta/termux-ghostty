@@ -16,9 +16,13 @@ import java.net.Socket
 class NativeSshSession : SshSession {
     private val _isConnected = MutableStateFlow(false)
     override val isConnected: StateFlow<Boolean> = _isConnected
+    override val isAlive: Boolean
+        get() {
+            val handle = nativeSessionHandle
+            return handle != 0L && GhosttyNative.nativeSshIsConnected(handle)
+        }
 
     private var config: SshConfig? = null
-    private var auth: SshAuth? = null
     private var socket: Socket? = null
     @Volatile
     var nativeSessionHandle: Long = 0L
@@ -26,6 +30,7 @@ class NativeSshSession : SshSession {
 
     private val lock = Any()
     private var activeSftpClient: NativeSftpClient? = null
+    private val shells = mutableSetOf<NativeSshShellChannel>()
 
     override suspend fun connect(config: SshConfig) {
         this.config = config
@@ -40,62 +45,48 @@ class NativeSshSession : SshSession {
         }
     }
 
-    override suspend fun authenticate(auth: SshAuth) {
-        this.auth = auth
-        withContext(Dispatchers.IO) {
-            _isConnected.value = true
-        }
-    }
-
     @Suppress("TooGenericExceptionCaught")
-    override suspend fun openShellChannel(
-        termType: String,
-        cols: Int,
-        rows: Int,
-        herdrIntegration: Boolean
-    ): SshShellChannel {
-        return withContext(Dispatchers.IO) {
+    override suspend fun authenticate(auth: SshAuth) {
+        withContext(Dispatchers.IO) {
             val s = socket ?: throw IllegalStateException("Not connected")
-            val pfd = ParcelFileDescriptor.fromSocket(s)
-            val fd = pfd.detachFd()
-
             val currentConfig = config ?: throw IllegalStateException("Config missing")
-            val currentAuth = auth ?: throw IllegalStateException("Auth missing")
-
-            val username = currentConfig.username
-            val isPassword = currentAuth is SshAuth.Password
-            val passwordOrKey = when (currentAuth) {
-                is SshAuth.Password -> String(currentAuth.password)
-                is SshAuth.PublicKey -> currentAuth.privateKeyPem
+            val fd = ParcelFileDescriptor.fromSocket(s).detachFd()
+            val isPassword = auth is SshAuth.Password
+            val passwordOrKey = when (auth) {
+                is SshAuth.Password -> String(auth.password)
+                is SshAuth.PublicKey -> auth.privateKeyPem
             }
 
             synchronized(lock) {
                 val handle = try {
-                    GhosttyNative.nativeSshInit(
-                        fd,
-                        username,
-                        passwordOrKey,
-                        isPassword,
-                        termType,
-                        cols,
-                        rows,
-                        herdrIntegration
-                    )
+                    GhosttyNative.nativeSshInit(fd, currentConfig.username, passwordOrKey, isPassword)
                 } catch (e: Throwable) {
                     com.termux.terminal.JNI.close(fd)
                     throw e
                 }
-
                 if (handle == 0L) {
                     com.termux.terminal.JNI.close(fd)
                     throw IllegalStateException("Failed to initialize native SSH session")
                 }
-
                 nativeSessionHandle = handle
                 GhosttyNative.nativeSshStart(handle)
-
-                NativeSshShellChannel(this@NativeSshSession)
             }
+            _isConnected.value = true
+        }
+    }
+
+    override suspend fun openShellChannel(
+        termType: String,
+        cols: Int,
+        rows: Int,
+        command: String?,
+    ): SshShellChannel = withContext(Dispatchers.IO) {
+        synchronized(lock) {
+            val sessionHandle = nativeSessionHandle
+            check(sessionHandle != 0L) { "SSH session is not connected" }
+            val shellHandle = GhosttyNative.nativeSshOpenShell(sessionHandle, termType, cols, rows, command)
+            if (shellHandle == 0L) throw IOException("Failed to open SSH shell channel")
+            NativeSshShellChannel(this@NativeSshSession, shellHandle).also { shells += it }
         }
     }
 
@@ -122,21 +113,29 @@ class NativeSshSession : SshSession {
         }
     }
 
-    internal fun writeToShell(data: ByteArray, offset: Int, length: Int) {
+    internal fun writeToShell(shellHandle: Long, data: ByteArray, offset: Int, length: Int) {
         synchronized(lock) {
-            val handle = nativeSessionHandle
-            if (handle != 0L) {
-                GhosttyNative.nativeSshWrite(handle, data, offset, length)
+            if (shellHandle != 0L && nativeSessionHandle != 0L) {
+                GhosttyNative.nativeSshWrite(shellHandle, data, offset, length)
             }
         }
     }
 
-    internal fun resizeShell(cols: Int, rows: Int) {
+    internal fun resizeShell(shellHandle: Long, cols: Int, rows: Int) {
         synchronized(lock) {
-            val handle = nativeSessionHandle
-            if (handle != 0L) {
-                GhosttyNative.nativeSshResize(handle, cols, rows)
+            if (shellHandle != 0L && nativeSessionHandle != 0L) {
+                GhosttyNative.nativeSshResize(shellHandle, cols, rows)
             }
+        }
+    }
+
+    internal fun closeShell(shell: NativeSshShellChannel) {
+        synchronized(lock) {
+            if (!shells.remove(shell)) return
+            val shellHandle = shell.handle
+            shell.handle = 0L
+            val sessionHandle = nativeSessionHandle
+            if (sessionHandle != 0L) GhosttyNative.nativeSshCloseShell(sessionHandle, shellHandle)
         }
     }
 
@@ -144,6 +143,9 @@ class NativeSshSession : SshSession {
         synchronized(lock) {
             activeSftpClient?.close()
             activeSftpClient = null
+            // Deinit frees every native shell, so invalidate the Kotlin handles first.
+            shells.forEach { it.handle = 0L }
+            shells.clear()
             val handle = nativeSessionHandle
             nativeSessionHandle = 0L
             if (handle != 0L) {
@@ -157,28 +159,37 @@ class NativeSshSession : SshSession {
     }
 }
 
-class NativeSshShellChannel(private val session: NativeSshSession) : SshShellChannel {
+/**
+ * One PTY channel on a [NativeSshSession]. Close the [com.termux.terminal.TerminalSession]
+ * bound to [handle] before calling [close]; the native handle is freed there.
+ */
+class NativeSshShellChannel internal constructor(
+    private val session: NativeSshSession,
+    handle: Long,
+) : SshShellChannel {
+    @Volatile
+    var handle: Long = handle
+        internal set
+
     override val inputStream: InputStream = object : InputStream() {
         override fun read(): Int = -1
     }
 
     override val outputStream: OutputStream = object : OutputStream() {
         override fun write(b: Int) {
-            val buf = ByteArray(1)
-            buf[0] = b.toByte()
-            write(buf, 0, 1)
+            write(byteArrayOf(b.toByte()), 0, 1)
         }
 
         override fun write(b: ByteArray, off: Int, len: Int) {
-            session.writeToShell(b, off, len)
+            session.writeToShell(handle, b, off, len)
         }
     }
 
     override fun resizeWindow(cols: Int, rows: Int, widthPx: Int, heightPx: Int) {
-        session.resizeShell(cols, rows)
+        session.resizeShell(handle, cols, rows)
     }
 
     override fun close() {
-        // Session deinit handles this
+        session.closeShell(this)
     }
 }

@@ -21,6 +21,7 @@ pub const append_result_reply_bytes_available: u32 = 1 << 6;
 pub const append_result_desktop_notification: u32 = 1 << 7;
 pub const append_result_progress: u32 = 1 << 8;
 pub const append_result_program_status: u32 = 1 << 9;
+pub const append_result_pwd_changed: u32 = 1 << 10;
 
 pub const mode_cursor_keys_application: u32 = 1 << 0;
 pub const mode_keypad_application: u32 = 1 << 1;
@@ -271,6 +272,7 @@ pub const Session = struct {
     pending_output: std.ArrayListUnmanaged(u8) = .empty,
     pending_title: std.ArrayListUnmanaged(u8) = .empty,
     pending_clipboard: std.ArrayListUnmanaged(u8) = .empty,
+    pending_pwd: std.ArrayListUnmanaged(u8) = .empty,
     pending_notification_title: std.ArrayListUnmanaged(u8) = .empty,
     pending_notification_body: std.ArrayListUnmanaged(u8) = .empty,
     scratch_utf16: std.ArrayListUnmanaged(u16) = .empty,
@@ -318,6 +320,7 @@ pub const Session = struct {
         self.pending_output.deinit(self.alloc);
         self.pending_title.deinit(self.alloc);
         self.pending_clipboard.deinit(self.alloc);
+        self.pending_pwd.deinit(self.alloc);
         self.pending_notification_title.deinit(self.alloc);
         self.pending_notification_body.deinit(self.alloc);
         self.scratch_utf16.deinit(self.alloc);
@@ -338,6 +341,7 @@ pub const Session = struct {
         self.pending_output.clearRetainingCapacity();
         self.pending_title.clearRetainingCapacity();
         self.pending_clipboard.clearRetainingCapacity();
+        self.pending_pwd.clearRetainingCapacity();
         self.clearPendingNotification();
         self.clearProgress();
         self.colors_changed = false;
@@ -1279,6 +1283,12 @@ pub const Session = struct {
         ghostty_log.debug("core queued clipboard bytes={}", .{ text.len });
     }
 
+    fn replacePendingPwd(self: *Session, url: []const u8) !void {
+        self.pending_pwd.clearRetainingCapacity();
+        try self.pending_pwd.appendSlice(self.alloc, url);
+        ghostty_log.debug("core queued pwd bytes={}", .{ url.len });
+    }
+
     fn replacePendingNotification(self: *Session, title: []const u8, body: []const u8) !void {
         self.clearPendingNotification();
         try self.pending_notification_title.appendSlice(self.alloc, title);
@@ -1484,6 +1494,10 @@ pub const Session = struct {
 
     fn consumeClipboard(self: *Session) ?[:0]u8 {
         return consumeOwnedUtf8(&self.pending_clipboard, self.alloc);
+    }
+
+    fn consumePwd(self: *Session) ?[:0]u8 {
+        return consumeOwnedUtf8(&self.pending_pwd, self.alloc);
     }
 
     fn consumeNotificationTitle(self: *Session) ?[:0]u8 {
@@ -1773,7 +1787,7 @@ const Handler = struct {
             .active_status_display => self.session.terminal.status_display = value,
             .decaln => try self.session.terminal.decaln(),
             .window_title => try self.session.replacePendingTitle(value.title),
-            .report_pwd => {},
+            .report_pwd => try self.session.replacePendingPwd(value.url),
             .resize_window, .osc_unknown, .request_xt_checksum, .xt_checksum_extension => {},
             .show_desktop_notification => try self.session.replacePendingNotification(value.title, value.body),
             .progress_report => self.progressReport(value),
@@ -2222,6 +2236,7 @@ pub export fn termux_ghostty_session_create(
     session.pending_output = .empty;
     session.pending_title = .empty;
     session.pending_clipboard = .empty;
+    session.pending_pwd = .empty;
     session.pending_notification_title = .empty;
     session.pending_notification_body = .empty;
     session.scratch_utf16 = .empty;
@@ -2532,6 +2547,9 @@ pub export fn termux_ghostty_session_append(
     }
     if (handle.pending_clipboard.items.len > 0) {
         result |= append_result_clipboard_copy;
+    }
+    if (handle.pending_pwd.items.len > 0) {
+        result |= append_result_pwd_changed;
     }
     if (handle.pending_notification_title.items.len > 0 or handle.pending_notification_body.items.len > 0) {
         result |= append_result_desktop_notification;
@@ -2982,6 +3000,15 @@ pub fn termux_ghostty_session_consume_clipboard_text(session: ?*Session) ?[:0]u8
     return text;
 }
 
+pub fn termux_ghostty_session_consume_pwd(session: ?*Session) ?[:0]u8 {
+    const handle = session orelse return null;
+    const url = handle.consumePwd();
+    if (url) |owned| {
+        ghostty_log.debug("core consumePwd session=0x{x} bytes={}", .{ @intFromPtr(handle), owned.len });
+    }
+    return url;
+}
+
 pub fn termux_ghostty_session_get_selected_text(
     session: ?*Session,
     start_column: i32,
@@ -3420,6 +3447,18 @@ test "session enables Unicode grapheme widths for emoji" {
         }
         try testing.expectEqual(case.expected_cursor_column, @as(usize, session.terminal.screens.active.cursor.x));
     }
+}
+
+test "osc 7 stores reported working directory" {
+    const session = termux_ghostty_session_create(10, 5, 100, 10, 20) orelse return error.OutOfMemory;
+    defer termux_ghostty_session_destroy(session);
+
+    const result = appendTestBytes(session, "\x1B]7;file://host/home/u/my%20dir\x07");
+    try testing.expect((result & append_result_pwd_changed) != 0);
+    const url = termux_ghostty_session_consume_pwd(session) orelse return error.ExpectedText;
+    defer native_allocator.free(url);
+    try testing.expectEqualSlices(u8, "file://host/home/u/my%20dir", url);
+    try testing.expect(termux_ghostty_session_consume_pwd(session) == null);
 }
 
 test "osc 9 stores pending desktop notification body" {

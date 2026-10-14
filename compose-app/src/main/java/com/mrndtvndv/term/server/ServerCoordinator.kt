@@ -3,10 +3,7 @@ package com.mrndtvndv.term.server
 import kotlinx.coroutines.Job
 
 /**
- * Coordinates connection lifecycle and workspace tracking.
- *
- * Sits above ServerManager, adding workspace awareness
- * that ServerManager shouldn't know about.
+ * Coordinates connection lifecycle.
  */
 class ServerCoordinator(
     private val serverManager: ServerManager,
@@ -14,10 +11,6 @@ class ServerCoordinator(
 ) : ServerCoordinatorAccess {
     // Track in-flight connections to allow cancellation on disconnectAll
     private val connectJobs = mutableMapOf<String, Job>()
-
-    private val herdrFrameSynchronizer = HerdrTerminalFrameSynchronizer { serverId ->
-        serverManager.get(serverId)?.terminalSession?.requestGhosttyFullSnapshotRefresh()
-    }
 
     /**
      * Connect to a server. Returns the Server on success, or failure result.
@@ -52,45 +45,4 @@ class ServerCoordinator(
         connectJobs.clear()
         serverManager.disconnectAll()
     }
-
-    /** Returns new workspace dir if workspace changed, null otherwise. */
-    override suspend fun refreshWorkspace(serverId: String): WorkspaceChange? {
-        val tracker = workspaceTracker(serverId) ?: return null
-        val result = tracker.sync()
-        if (result !is WorkspaceTracker.SyncResult.WorkspaceChanged) return null
-        return WorkspaceChange(
-            workspaceDir = result.workspaceDir,
-        )
-    }
-
-    private fun workspaceTracker(serverId: String): WorkspaceTracker? {
-        val server = serverManager.get(serverId) ?: return null
-        // Local sessions have no workspace tracker — nothing to refresh
-        if (server.config.isLocal) return null
-        return server.tracker
-    }
-
-    /**
-     * Notify the tracker that the user navigated in SFTP.
-     * Called by SftpViewModel.onDirectoryChanged (wired by the workspace route).
-     */
-    override fun onDirectoryChanged(serverId: String, path: String) {
-        serverManager.get(serverId)?.tracker?.onDirectoryChanged(path)
-    }
-
-    /**
-     * Runs a best-effort Herdr focus operation. UI nodes and notification bodies can
-     * outlive their workspace/pane, so a failed focus must never crash the app.
-     */
-    override suspend fun focusHerdr(
-        serverId: String,
-        operation: suspend HerdrWorkspaceResolver.() -> Boolean,
-    ) {
-        val resolver = serverManager.get(serverId)?.herdrResolver() ?: return
-        runCatching { herdrFrameSynchronizer.focus(serverId) { resolver.operation() } }
-    }
-
-    data class WorkspaceChange(
-        val workspaceDir: String,
-    )
 }

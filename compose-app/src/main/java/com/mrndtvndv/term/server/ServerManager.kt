@@ -19,9 +19,11 @@ class ServerManager(
 
     fun isConnected(id: String): Boolean = activeServers.containsKey(id)
 
-    /** Find the id of the server whose terminal session matches [session]. */
-    fun serverIdForSession(session: TerminalSession): String? =
-        activeServers.entries.firstOrNull { it.value.terminalSession === session }?.key
+    /** Find the server and tab whose terminal matches [session]. */
+    fun locate(session: TerminalSession): SessionLocation? =
+        activeServers.entries.firstNotNullOfOrNull { (serverId, server) ->
+            server.tabIdFor(session)?.let { SessionLocation(serverId, it) }
+        }
 
     /**
      * Connect to a server. If already connected, returns existing instance.

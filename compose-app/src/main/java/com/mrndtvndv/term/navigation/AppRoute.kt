@@ -18,8 +18,5 @@ sealed interface AppRoute : NavKey {
     data object Settings : AppRoute
 
     @Serializable
-    data class Workspace(val serverId: String) : AppRoute
-
-    @Serializable
-    data class FileViewer(val path: String) : AppRoute
+    data class Workspace(val workspaceId: String) : AppRoute
 }

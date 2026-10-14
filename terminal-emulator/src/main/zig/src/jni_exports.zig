@@ -444,6 +444,19 @@ pub export fn Java_com_termux_terminal_GhosttyNative_nativeConsumeClipboardText(
     return newJStringFromUtf8(jni, owned);
 }
 
+pub export fn Java_com_termux_terminal_GhosttyNative_nativeConsumeReportedPwd(
+    env: ?*c.JNIEnv,
+    clazz: c.jclass,
+    native_handle: jlong,
+) c.jstring {
+    _ = clazz;
+
+    const jni = env orelse return null;
+    const owned = core.termux_ghostty_session_consume_pwd(sessionFromHandle(native_handle)) orelse return null;
+    defer native_allocator.free(owned);
+    return newJStringFromUtf8(jni, owned);
+}
+
 pub export fn Java_com_termux_terminal_GhosttyNative_nativeConsumeNotificationTitle(
     env: ?*c.JNIEnv,
     clazz: c.jclass,
@@ -810,14 +823,10 @@ pub export fn Java_com_termux_terminal_GhosttyNative_nativeSshInit(
     username: c.jstring,
     password_or_key: c.jstring,
     is_password: jboolean,
-    term_type: c.jstring,
-    cols: jint,
-    rows: jint,
-    herdr_integration: jboolean,
 ) jlong {
     _ = clazz;
     const jni = env orelse return 0;
-    if (username == null or password_or_key == null or term_type == null) return 0;
+    if (username == null or password_or_key == null) return 0;
 
     const username_chars = jni.*.*.GetStringUTFChars.?(jni, username, null);
     defer jni.*.*.ReleaseStringUTFChars.?(jni, username, username_chars);
@@ -827,12 +836,7 @@ pub export fn Java_com_termux_terminal_GhosttyNative_nativeSshInit(
     defer jni.*.*.ReleaseStringUTFChars.?(jni, password_or_key, pass_key_chars);
     const pass_key_slice = std.mem.span(pass_key_chars);
 
-    const term_type_chars = jni.*.*.GetStringUTFChars.?(jni, term_type, null);
-    defer jni.*.*.ReleaseStringUTFChars.?(jni, term_type, term_type_chars);
-    const term_type_slice = std.mem.span(term_type_chars);
-
     const is_pass = (is_password != c.JNI_FALSE);
-    const is_herdr = (herdr_integration != c.JNI_FALSE);
 
     var java_vm: ?*c.JavaVM = null;
     _ = jni.*.*.GetJavaVM.?(jni, &java_vm);
@@ -843,10 +847,6 @@ pub export fn Java_com_termux_terminal_GhosttyNative_nativeSshInit(
         username_slice,
         pass_key_slice,
         is_pass,
-        term_type_slice,
-        cols,
-        rows,
-        is_herdr,
         java_vm,
     ) catch |err| {
         ghostty_log.err("nativeSshInit failed: {}", .{err});
@@ -870,6 +870,17 @@ pub export fn Java_com_termux_terminal_GhosttyNative_nativeSshStart(
     };
 }
 
+pub export fn Java_com_termux_terminal_GhosttyNative_nativeSshIsConnected(
+    env: ?*c.JNIEnv,
+    clazz: c.jclass,
+    session_handle: jlong,
+) jboolean {
+    _ = env;
+    _ = clazz;
+    const session = sshSessionFromHandle(session_handle) orelse return c.JNI_FALSE;
+    return toJBoolean(session.running.load(.acquire));
+}
+
 pub export fn Java_com_termux_terminal_GhosttyNative_nativeSshDeinit(
     env: ?*c.JNIEnv,
     clazz: c.jclass,
@@ -884,16 +895,15 @@ pub export fn Java_com_termux_terminal_GhosttyNative_nativeSshDeinit(
 pub export fn Java_com_termux_terminal_GhosttyNative_nativeSshWrite(
     env: ?*c.JNIEnv,
     clazz: c.jclass,
-    session_handle: jlong,
+    shell_handle: jlong,
     data: c.jbyteArray,
     offset: jint,
     length: jint,
 ) void {
     _ = clazz;
     const jni = env orelse return;
-    if (session_handle <= 0 or data == null or length <= 0 or offset < 0) return;
-
-    const session = @as(*ssh.SshNativeSession, @ptrFromInt(@as(usize, @intCast(session_handle))));
+    if (data == null or length <= 0 or offset < 0) return;
+    const shell = shellFromHandle(shell_handle) orelse return;
 
     const count = std.math.cast(usize, length) orelse return;
     const offset_u = std.math.cast(usize, offset) orelse return;
@@ -903,7 +913,7 @@ pub export fn Java_com_termux_terminal_GhosttyNative_nativeSshWrite(
 
     const bytes_ptr: [*]const u8 = @ptrCast(raw_ptr);
     const bytes = bytes_ptr[offset_u .. offset_u + count];
-    session.writeKeystrokes(bytes);
+    shell.writeKeystrokes(bytes);
 }
 
 pub export fn Java_com_termux_terminal_GhosttyNative_nativeGetKittyKeyboardFlags(
@@ -928,40 +938,82 @@ pub export fn Java_com_termux_terminal_GhosttyNative_nativeGetKittyKeyboardFlags
 pub export fn Java_com_termux_terminal_GhosttyNative_nativeSshSetOutputCallback(
     env: ?*c.JNIEnv,
     clazz: c.jclass,
-    session_handle: jlong,
+    shell_handle: jlong,
     callback: c.jobject,
 ) void {
     _ = clazz;
     const jni = env orelse return;
-    if (session_handle <= 0) return;
-    const session = @as(*ssh.SshNativeSession, @ptrFromInt(@as(usize, @intCast(session_handle))));
-    session.setOutputCallback(jni, callback);
+    const shell = shellFromHandle(shell_handle) orelse return;
+    shell.setOutputCallback(jni, callback);
 }
 
 pub export fn Java_com_termux_terminal_GhosttyNative_nativeSshResize(
     env: ?*c.JNIEnv,
     clazz: c.jclass,
-    session_handle: jlong,
+    shell_handle: jlong,
     cols: jint,
     rows: jint,
 ) void {
     _ = env;
     _ = clazz;
-    if (session_handle <= 0) return;
-    const session = @as(*ssh.SshNativeSession, @ptrFromInt(@as(usize, @intCast(session_handle))));
-    session.resizeChannel(cols, rows);
+    const shell = shellFromHandle(shell_handle) orelse return;
+    shell.resize(cols, rows);
 }
 
 pub export fn Java_com_termux_terminal_GhosttyNative_nativeSshIsRunning(
     env: ?*c.JNIEnv,
     clazz: c.jclass,
-    session_handle: jlong,
+    shell_handle: jlong,
 ) jboolean {
     _ = env;
     _ = clazz;
-    if (session_handle <= 0) return c.JNI_FALSE;
-    const session = @as(*ssh.SshNativeSession, @ptrFromInt(@as(usize, @intCast(session_handle))));
-    return toJBoolean(session.running.load(.acquire));
+    const shell = shellFromHandle(shell_handle) orelse return c.JNI_FALSE;
+    return toJBoolean(shell.isRunning());
+}
+
+fn shellFromHandle(shell_handle: jlong) ?*ssh.SshNativeSession.ShellChannel {
+    if (shell_handle <= 0) return null;
+    return @as(*ssh.SshNativeSession.ShellChannel, @ptrFromInt(@as(usize, @intCast(shell_handle))));
+}
+
+pub export fn Java_com_termux_terminal_GhosttyNative_nativeSshOpenShell(
+    env: ?*c.JNIEnv,
+    clazz: c.jclass,
+    session_handle: jlong,
+    term_type: c.jstring,
+    cols: jint,
+    rows: jint,
+    command: c.jstring,
+) jlong {
+    _ = clazz;
+    const jni = env orelse return 0;
+    const session = sshSessionFromHandle(session_handle) orelse return 0;
+    if (term_type == null) return 0;
+
+    const term_chars = jni.*.*.GetStringUTFChars.?(jni, term_type, null);
+    defer jni.*.*.ReleaseStringUTFChars.?(jni, term_type, term_chars);
+    const command_chars = if (command != null) jni.*.*.GetStringUTFChars.?(jni, command, null) else null;
+    defer if (command_chars) |chars| jni.*.*.ReleaseStringUTFChars.?(jni, command, chars);
+
+    const shell = session.openShell(
+        std.mem.span(term_chars),
+        cols,
+        rows,
+        if (command_chars) |chars| std.mem.span(chars) else null,
+    ) orelse return 0;
+    return @intCast(@intFromPtr(shell));
+}
+
+pub export fn Java_com_termux_terminal_GhosttyNative_nativeSshCloseShell(
+    env: ?*c.JNIEnv,
+    clazz: c.jclass,
+    session_handle: jlong,
+    shell_handle: jlong,
+) void {
+    _ = clazz;
+    const session = sshSessionFromHandle(session_handle) orelse return;
+    const shell = shellFromHandle(shell_handle) orelse return;
+    session.closeShell(shell, env);
 }
 
 // --- SSH Exec & SFTP Support ---

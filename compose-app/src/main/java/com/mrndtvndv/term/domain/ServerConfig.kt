@@ -1,5 +1,6 @@
 package com.mrndtvndv.term.domain
 
+import com.mrndtvndv.term.workspace.TerminalPersistenceKind
 import kotlinx.serialization.Serializable
 import java.util.UUID
 
@@ -11,13 +12,14 @@ data class ServerConfig(
     val port: Int = 22,
     val username: String = "",
     val auth: AuthType? = null,
-    val herdrEnabled: Boolean = true,
+    val useGhosttyTerm: Boolean = false,
     val isLocal: Boolean = false,
     val startupCommand: String? = null,
     val imagePasteEnabled: Boolean = false,
     val imagePasteDirectory: String? = null,
     val imagePasteAutoCleanup: Boolean = true,
     val imagePasteMaxFiles: Int = DEFAULT_IMAGE_PASTE_MAX_FILES,
+    val persistence: TerminalPersistenceKind = TerminalPersistenceKind.None,
 ) {
     companion object {
         const val DEFAULT_IMAGE_PASTE_MAX_FILES = 20
@@ -38,7 +40,7 @@ data class ServerConfig(
     }
 
     /** Terminal type string sent to the SSH server */
-    val termType: String get() = if (herdrEnabled) "xterm-ghostty" else "xterm-256color"
+    val termType: String get() = if (useGhosttyTerm) "xterm-ghostty" else "xterm-256color"
 }
 
 @Serializable

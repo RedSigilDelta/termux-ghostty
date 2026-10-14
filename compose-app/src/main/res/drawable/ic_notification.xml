@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Status-bar small icon for OS notifications dispatched by the terminal or herdr.
+  Status-bar small icon for OS notifications dispatched by the terminal.
   White monochrome ghost silhouette (matches the adaptive-icon monochrome layer).
   Small icons must be white-on-transparent; the full-color launcher is used as
   the large icon in the notification shade instead.

@@ -3,7 +3,6 @@ package com.mrndtvndv.term
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.viewModelScope
-import com.mrndtvndv.term.data.prefs.LastSessionStore
 import com.mrndtvndv.term.domain.ServerConfig
 import com.mrndtvndv.term.navigation.AppNavigator
 import com.mrndtvndv.term.server.AppSessionManagerAccess
@@ -11,7 +10,11 @@ import com.mrndtvndv.term.server.Server
 import com.mrndtvndv.term.server.ServerCoordinatorAccess
 import com.mrndtvndv.term.server.ServerRepositoryAccess
 import com.mrndtvndv.term.ui.notification.NotificationState
-import com.mrndtvndv.term.ui.workspace.WorkspaceTab
+import com.mrndtvndv.term.workspace.Tab
+import com.mrndtvndv.term.workspace.WorkspaceRepository
+import com.mrndtvndv.term.workspace.WorkspaceState
+import com.mrndtvndv.term.workspace.newId
+import com.termux.terminal.TerminalSession
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -27,18 +30,22 @@ data class ServerListUiState(
     val localConfig: ServerConfig? = null,
 )
 
+/** Tab kinds that can be added from the workspace tab strip. */
+enum class TabType { Terminal, Sftp, Git }
+
 @Suppress("TooManyFunctions")
 class AppViewModel(
     private val sessionManager: AppSessionManagerAccess,
     val notificationState: NotificationState,
-    private val lastSessionStore: LastSessionStore,
+    private val repository: WorkspaceRepository,
 ) : ViewModel() {
 
     private val coordinator: ServerCoordinatorAccess get() = sessionManager.coordinator
     private val serverRepository: ServerRepositoryAccess get() = sessionManager.serverRepository
     private val connectionStores = ConnectionViewModelStores()
 
-    val navigator = AppNavigator(onChanged = ::persistLastSession)
+    val workspaces: StateFlow<WorkspaceState> = repository.state
+    val navigator = AppNavigator(repository.state)
 
     private val _serverListState = MutableStateFlow(ServerListUiState())
     val serverListState: StateFlow<ServerListUiState> = _serverListState.asStateFlow()
@@ -47,7 +54,7 @@ class AppViewModel(
         reloadServers()
         _serverListState.update { it.copy(activeIds = coordinator.activeIds) }
         observeSessionFinishes()
-        restoreLastSession()
+        restoreActiveWorkspace()
     }
 
     /**
@@ -60,31 +67,41 @@ class AppViewModel(
             sessionManager.sessionFinished.collect { serverId ->
                 if (coordinator.getServer(serverId) != null) return@collect
                 _serverListState.update { it.copy(activeIds = it.activeIds - serverId) }
-                navigator.closeWorkspace(serverId)
-                connectionStores.clear(serverId)
+                closeServerWorkspaces(serverId)
             }
         }
     }
 
     /**
-     * If the app was previously in a terminal workspace (process killed in
-     * background, or ViewModel destroyed), reconnect to that server so the
-     * user returns to their last session instead of the server list.
+     * If the app was in a workspace when it was killed, reconnect to that
+     * workspace's server and reopen that workspace.
      *
      * If the session is still alive in the app-scoped manager (dismissed
-     * from recents), connect() is a no-op re-attach: the live session is
+     * from recents), connect is a no-op re-attach: the live session is
      * returned immediately without a new SSH connection.
      */
-    private fun restoreLastSession() {
-        val last = lastSessionStore.load() ?: return
-        if (serverRepository.get(last.serverId) == null) return
-        connect(last.serverId, last.activeTab)
+    private fun restoreActiveWorkspace() {
+        val workspace = repository.state.value.activeWorkspace ?: return
+        if (serverRepository.get(workspace.serverId) == null) return
+        connectServer(workspace.serverId) { openWorkspace(workspace.id) }
     }
 
-    private fun persistLastSession() {
-        val serverId = navigator.currentWorkspaceId
-        val tab = serverId?.let { navigator.workspace(it)?.currentTab } ?: WorkspaceTab.Terminal
-        lastSessionStore.save(serverId, tab)
+    /** Called when the workspace route is popped back to the server list. */
+    fun leaveWorkspace() {
+        syncTerminalCwds()
+        repository.deactivate()
+    }
+
+    /** Copies each live terminal's current working directory onto its tab so new shells start there. */
+    fun syncTerminalCwds() {
+        repository.state.value.workspaces.forEach { workspace ->
+            val server = coordinator.getServer(workspace.serverId) ?: return@forEach
+            workspace.tabs.filterIsInstance<Tab.Terminal>().forEach { tab ->
+                val entry = server.terminals.value[tab.id] ?: return@forEach
+                val cwd = if (server.config.isLocal) entry.session.cwd else entry.session.reportedCwd
+                if (cwd != null && cwd != tab.cwd) repository.setTerminalCwd(tab.id, cwd)
+            }
+        }
     }
 
     // ── Server management ─────────────────────────────────────────────
@@ -109,36 +126,29 @@ class AppViewModel(
     fun deleteServer(id: String) {
         sessionManager.disconnect(id)
         _serverListState.update { it.copy(activeIds = it.activeIds - id) }
-        navigator.closeWorkspace(id)
-        connectionStores.clear(id)
+        closeServerWorkspaces(id)
+        repository.deleteServer(id)
         serverRepository.remove(id)
         reloadServers()
     }
 
     fun getServer(serverId: String): Server? = coordinator.getServer(serverId)
 
-    fun connectionStore(serverId: String): ViewModelStoreOwner = connectionStores.owner(serverId)
+    fun connectionStore(serverId: String, tabId: String? = null): ViewModelStoreOwner =
+        connectionStores.owner(serverId, tabId)
 
     /**
-     * Handle a tapped terminal notification by selecting its terminal session and,
-     * when available, focusing the Herdr target from the notification body and title.
+     * Handle a tapped terminal notification: open the workspace that owns
+     * [tabId] on the tab, or the server's workspace when the tab is unknown.
      */
-    fun focusTerminalNotification(
-        serverId: String?,
-        body: String?,
-        title: String? = null,
-    ) {
+    fun focusTerminalNotification(serverId: String?, tabId: String?) {
         val targetServerId = serverId ?: return
+        val target = tabId?.let { repository.state.value.workspaceOf(it) }?.takeIf { it.serverId == targetServerId }
+        val open: (Server) -> Unit = { server ->
+            if (target == null) openServer(server) else openWorkspace(target.id, tabId)
+        }
         val server = coordinator.getServer(targetServerId)
-        if (server != null) {
-            openWorkspace(server, WorkspaceTab.Terminal)
-        } else {
-            connect(targetServerId)
-        }
-
-        viewModelScope.launch {
-            coordinator.focusHerdr(targetServerId) { focusFromNotification(body, title) }
-        }
+        if (server != null) open(server) else connectServer(targetServerId, open)
     }
 
     /**
@@ -190,23 +200,27 @@ class AppViewModel(
 
     // ── Connection ────────────────────────────────────────────────────
 
-    fun connect(id: String, initialTab: WorkspaceTab = WorkspaceTab.Terminal) {
-        if (serverRepository.get(id) == null) return
-        _serverListState.update { it.copy(connectingId = id, error = null) }
+    fun connect(serverId: String) {
+        connectServer(serverId, ::openServer)
+    }
+
+    private fun connectServer(serverId: String, onConnected: (Server) -> Unit) {
+        if (serverRepository.get(serverId) == null) return
+        _serverListState.update { it.copy(connectingId = serverId, error = null) }
 
         viewModelScope.launch {
-            val result = sessionManager.connect(id)
+            val result = sessionManager.connect(serverId)
             result.fold(
                 onSuccess = { server ->
                     _serverListState.update {
-                        it.copy(connectingId = null, activeIds = it.activeIds + id)
+                        it.copy(connectingId = null, activeIds = it.activeIds + serverId)
                     }
-                    openWorkspace(server, initialTab)
+                    onConnected(server)
                 },
                 onFailure = { error ->
                     _serverListState.update { it.copy(connectingId = null, error = error.message) }
-                    // Don't retry a dead connection on every launch.
-                    persistLastSession()
+                    // Don't reopen a dead connection's workspace on every launch.
+                    if (repository.state.value.activeWorkspace?.serverId == serverId) repository.deactivate()
                 },
             )
         }
@@ -234,38 +248,106 @@ class AppViewModel(
         _serverListState.update { it.copy(disconnectingId = id) }
         sessionManager.disconnect(id)
         _serverListState.update { it.copy(disconnectingId = null, activeIds = it.activeIds - id) }
-        navigator.closeWorkspace(id)
-        connectionStores.clear(id)
+        closeServerWorkspaces(id)
     }
 
     // ── Workspace ─────────────────────────────────────────────────────
 
-    private fun openWorkspace(server: Server, initialTab: WorkspaceTab) {
+    /** Opens the server's most recent workspace, creating one rooted at the server's home if none exists. */
+    private fun openServer(server: Server) {
         val serverId = server.config.id
-        val tabs = buildList {
-            add(WorkspaceTab.Terminal)
-            if (!server.config.isLocal) {
-                if (server.tracker != null) add(WorkspaceTab.Review)
-                if (server.sftpClient != null) add(WorkspaceTab.Sftp)
-            }
+        val workspace = repository.state.value.workspacesFor(serverId).firstOrNull()
+            ?: repository.createWorkspace(serverId, server.config.label, server.homeDir)
+        openWorkspace(workspace.id)
+    }
+
+    private fun openWorkspace(workspaceId: String, tabId: String? = null) {
+        if (repository.state.value.workspaces.none { it.id == workspaceId }) return
+        if (tabId != null) repository.activateTab(tabId) else repository.activateWorkspace(workspaceId)
+        navigator.openWorkspace(workspaceId)
+    }
+
+    /** Drops the open route and per-tab state of every workspace of [serverId]. */
+    private fun closeServerWorkspaces(serverId: String) {
+        repository.state.value.workspacesFor(serverId).forEach { navigator.closeWorkspace(it.id) }
+        connectionStores.clear(serverId)
+        if (repository.state.value.activeWorkspace?.serverId == serverId) repository.deactivate()
+    }
+
+    fun createWorkspace(serverId: String, name: String, root: String) {
+        val workspace = repository.createWorkspace(serverId, name, root)
+        openWorkspace(workspace.id)
+    }
+
+    fun switchWorkspace(workspaceId: String) {
+        openWorkspace(workspaceId)
+    }
+
+    fun renameWorkspace(workspaceId: String, name: String) {
+        repository.renameWorkspace(workspaceId, name)
+    }
+
+    fun deleteWorkspace(workspaceId: String) {
+        val workspace = repository.state.value.workspaces.firstOrNull { it.id == workspaceId } ?: return
+        val wasOpen = navigator.currentWorkspaceId == workspaceId
+        workspace.tabs.forEach { tab ->
+            if (tab is Tab.Terminal) sessionManager.closeTerminal(workspace.serverId, tab, terminate = true)
+            connectionStores.clearTab(workspace.serverId, tab.id)
         }
-        val initialSftpDir = server.tracker?.workspaceDir?.value ?: "/"
-        navigator.openWorkspace(serverId, initialTab, tabs, initialSftpDir) { tab ->
-            persistLastSession()
-            if (tab != WorkspaceTab.Terminal) refreshWorkspace(serverId)
+        navigator.closeWorkspace(workspaceId)
+        repository.deleteWorkspace(workspaceId)
+        if (wasOpen) {
+            repository.state.value.workspacesFor(workspace.serverId).firstOrNull()?.let { openWorkspace(it.id) }
         }
     }
 
-    /**
-     * Syncs with the Herdr workspace. Only a workspace change moves the SFTP
-     * directory; otherwise the user's manual navigation is left alone.
-     */
-    private fun refreshWorkspace(serverId: String) {
-        viewModelScope.launch {
-            coordinator.refreshWorkspace(serverId)?.let { change ->
-                navigator.workspace(serverId)?.resetSftp(change.workspaceDir)
-            }
+    fun addTab(workspaceId: String, type: TabType) {
+        val root = repository.state.value.workspaces.firstOrNull { it.id == workspaceId }?.root ?: return
+        val tab = when (type) {
+            TabType.Terminal -> Tab.Terminal(newId(), cwd = root)
+            TabType.Sftp -> Tab.Sftp(newId(), dir = root)
+            TabType.Git -> Tab.Git(newId(), repoDir = root)
         }
+        repository.openTab(workspaceId, tab)
+    }
+
+    fun openTerminalHere(dir: String) {
+        val workspaceId = navigator.currentWorkspaceId ?: return
+        repository.openTab(workspaceId, Tab.Terminal(newId(), cwd = dir))
+    }
+
+    fun openViewer(path: String) {
+        val workspaceId = navigator.currentWorkspaceId ?: return
+        repository.openTab(workspaceId, Tab.Viewer(newId(), path))
+    }
+
+    fun closeTab(tabId: String) {
+        val workspace = repository.state.value.workspaceOf(tabId) ?: return
+        val tab = workspace.tabs.firstOrNull { it.id == tabId } ?: return
+        if (tab is Tab.Terminal) sessionManager.closeTerminal(workspace.serverId, tab, terminate = true)
+        navigator.workspace(workspace.id)?.dropTab(tabId)
+        connectionStores.clearTab(workspace.serverId, tabId)
+        repository.closeTab(tabId)
+    }
+
+    fun activateTab(tabId: String) {
+        repository.activateTab(tabId)
+    }
+
+    fun renameTerminal(tabId: String, name: String?) {
+        repository.renameTerminal(tabId, name?.trim()?.ifEmpty { null })
+    }
+
+    fun setSftpDir(tabId: String, dir: String) {
+        repository.setSftpDir(tabId, dir)
+    }
+
+    suspend fun openTerminal(serverId: String, tab: Tab.Terminal): Result<TerminalSession> =
+        sessionManager.openTerminal(serverId, tab)
+
+    fun restartTerminal(serverId: String, tab: Tab.Terminal) {
+        syncTerminalCwds()
+        sessionManager.closeTerminal(serverId, tab, terminate = false)
     }
 
     override fun onCleared() {

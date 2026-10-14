@@ -18,6 +18,7 @@ class MockSshShellChannel : SshShellChannel {
 class MockSshSession : SshSession {
     private val _isConnected = MutableStateFlow(false)
     override val isConnected: StateFlow<Boolean> = _isConnected
+    override val isAlive: Boolean = true
 
     override suspend fun connect(config: SshConfig) {
         _isConnected.value = true
@@ -27,7 +28,7 @@ class MockSshSession : SshSession {
         _isConnected.value = true
     }
 
-    override suspend fun openShellChannel(termType: String, cols: Int, rows: Int, herdrIntegration: Boolean): SshShellChannel {
+    override suspend fun openShellChannel(termType: String, cols: Int, rows: Int, command: String?): SshShellChannel {
         return MockSshShellChannel()
     }
 

@@ -173,8 +173,8 @@ class SshSessionService : Service() {
 
     private fun getNotificationTitleAndText(): Pair<String, String> {
         val activeSessions = sessions.values
-        val sshCount = activeSessions.count { it.sshSessionHandle != 0L }
-        val localCount = activeSessions.count { it.sshSessionHandle == 0L }
+        val sshCount = activeSessions.count { it.sshShellHandle != 0L }
+        val localCount = activeSessions.count { it.sshShellHandle == 0L }
         val wakeLockHeld = wakeLock?.isHeld == true
         return SshSessionNotificationFormatter.formatTitleAndText(sshCount, localCount, wakeLockHeld)
     }

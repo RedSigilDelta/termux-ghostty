@@ -61,7 +61,7 @@ public final class TerminalSession extends TerminalOutput implements AutoCloseab
     private volatile GhosttyTerminalContent mGhosttyTerminalContent;
     private volatile GhosttySessionWorker mGhosttySessionWorker;
     private volatile BackendResources mBackendResources;
-    private long mSshSessionHandle = 0L;
+    private long mSshShellHandle = 0L;
 
     private volatile TerminalSessionIO mIoHandler;
     private boolean mIsCustomIO = false;
@@ -148,6 +148,8 @@ public final class TerminalSession extends TerminalOutput implements AutoCloseab
     volatile String mGhosttyProtocolNotificationBody;
     @Nullable
     private String mTitle;
+    @Nullable
+    private volatile String mReportedCwd;
 
     private volatile boolean mGhosttyFocusKnown;
     private volatile boolean mGhosttyFocused = true;
@@ -242,15 +244,15 @@ public final class TerminalSession extends TerminalOutput implements AutoCloseab
         mClient = client;
     }
 
-    public void setSshSessionHandle(long handle) {
-        mSshSessionHandle = handle;
+    public void setSshShellHandle(long handle) {
+        mSshShellHandle = handle;
         if (mGhosttySessionWorker != null) {
-            mGhosttySessionWorker.setSshSession(handle);
+            mGhosttySessionWorker.setSshShell(handle);
         }
     }
 
-    public long getSshSessionHandle() {
-        return mSshSessionHandle;
+    public long getSshShellHandle() {
+        return mSshShellHandle;
     }
 
     public void appendOutput(byte[] data, int offset, int count) {
@@ -309,6 +311,16 @@ public final class TerminalSession extends TerminalOutput implements AutoCloseab
     @Nullable
     public String getTitle() {
         return mTitle;
+    }
+
+    /** Last working directory the shell reported with OSC 7, or null. Safe to read from any thread. */
+    @Nullable
+    public String getReportedCwd() {
+        return mReportedCwd;
+    }
+
+    void setReportedCwd(String cwd) {
+        mReportedCwd = cwd;
     }
 
     /** OSC 7501 program status records for this terminal, most recent snapshot, immutable. */
@@ -386,8 +398,8 @@ public final class TerminalSession extends TerminalOutput implements AutoCloseab
             if (mIsCustomIO) {
                 mShellPid = 1; // Dummy positive PID to pass isRunning() check
             }
-            if (mSshSessionHandle != 0L) {
-                mGhosttySessionWorker.setSshSession(mSshSessionHandle);
+            if (mSshShellHandle != 0L) {
+                mGhosttySessionWorker.setSshShell(mSshShellHandle);
             }
             mGhosttySessionWorker.start();
             if (mGhosttyFocusKnown) {
@@ -499,7 +511,7 @@ public final class TerminalSession extends TerminalOutput implements AutoCloseab
         if (mClosed || mProcessExited) {
             return;
         }
-        long sshHandle = mSshSessionHandle;
+        long sshHandle = mSshShellHandle;
         if (sshHandle != 0L) {
             GhosttyNative.nativeSshWrite(sshHandle, data, offset, count);
             return;

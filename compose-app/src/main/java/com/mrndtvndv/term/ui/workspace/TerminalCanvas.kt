@@ -16,9 +16,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import com.mrndtvndv.term.data.prefs.AppSettings
-import com.mrndtvndv.term.ui.keyboard.ExtraKeysController
+import com.mrndtvndv.term.ui.keyboard.ModifierKeys
 import com.termux.terminal.TerminalSession
 import com.termux.terminal.compose.ModifierKeyReader
+import com.termux.terminal.compose.TerminalBlurRegion
 import com.termux.terminal.compose.TerminalCanvas as ComposeTerminalCanvas
 import com.termux.terminal.compose.TerminalCanvasConfig
 import com.termux.terminal.compose.TerminalImeController
@@ -52,7 +53,7 @@ fun TerminalCanvas(
     typeface: Typeface,
     fontSizeRange: IntRange,
     onFontSizeChange: (Int) -> Unit,
-    extraKeysController: ExtraKeysController,
+    modifierKeys: ModifierKeys,
     onUploadMedia: () -> Unit,
     onUploadFile: () -> Unit,
     onCommitContent: (ClipData) -> Boolean = { false },
@@ -60,13 +61,16 @@ fun TerminalCanvas(
     isTerminalActive: Boolean,
     imeController: TerminalImeController,
     wallpaperConfig: TerminalWallpaperConfig = TerminalWallpaperConfig(),
+    contentTopInsetPx: Int = 0,
+    contentBottomInsetPx: Int = 0,
+    blurRegions: List<TerminalBlurRegion> = emptyList(),
     modifier: Modifier = Modifier
 ) {
     val backend = rememberTerminalBackend(
         session = session,
         resizeDebounceMillis = settings.keyboardResizeDebounceMs.toLong()
     )
-    val modifierKeys = rememberModifierKeys(extraKeysController)
+    val modifierKeyReader = rememberModifierKeys(modifierKeys)
     var showContextMenu by remember { mutableStateOf(false) }
     val config = rememberTerminalCanvasConfig(
         session = session,
@@ -79,12 +83,15 @@ fun TerminalCanvas(
         onCommitContent = onCommitContent,
         onOpenContextMenu = {
             showContextMenu = true
-        }
+        },
+        contentTopInsetPx = contentTopInsetPx,
+        contentBottomInsetPx = contentBottomInsetPx,
+        blurRegions = blurRegions,
     )
 
     TerminalCanvasSurface(
         backend = backend,
-        modifierKeys = modifierKeys,
+        modifierKeys = modifierKeyReader,
         config = config,
         imeController = imeController,
         requestFocus = isTerminalActive,
@@ -115,7 +122,10 @@ private fun rememberTerminalCanvasConfig(
     wallpaper: TerminalWallpaperConfig,
     onOpenUrl: (String) -> Unit,
     onCommitContent: (ClipData) -> Boolean,
-    onOpenContextMenu: (String) -> Unit
+    onOpenContextMenu: (String) -> Unit,
+    contentTopInsetPx: Int,
+    contentBottomInsetPx: Int,
+    blurRegions: List<TerminalBlurRegion>,
 ): TerminalCanvasConfig {
     val context = LocalContext.current
     val cursorEffect = remember(settings.cursorTrail) { settings.cursorTrail.toCursorEffect() }
@@ -133,6 +143,9 @@ private fun rememberTerminalCanvasConfig(
             onOpenUrl = onOpenUrl,
             onCommitContent = onCommitContent,
             onMoreSelectionRequest = onOpenContextMenu,
+            contentTopInsetPx = contentTopInsetPx,
+            contentBottomInsetPx = contentBottomInsetPx,
+            blurRegions = blurRegions,
             onCodePoint = { codePoint, controlDown, altDown ->
                 handleTerminalCodePoint(
                     codePoint = codePoint,
@@ -191,18 +204,19 @@ private fun rememberTerminalBackend(
 
 
 @Composable
-private fun rememberModifierKeys(controller: ExtraKeysController): ModifierKeyReader =
-    remember(controller) {
+private fun rememberModifierKeys(modifierKeys: ModifierKeys): ModifierKeyReader =
+    remember(modifierKeys) {
         object : ModifierKeyReader {
-            override fun readControl(): Boolean = controller.readControl()
+            override fun readControl(): Boolean = modifierKeys.readCtrl()
 
-            override fun readAlt(): Boolean = controller.readAlt()
+            override fun readAlt(): Boolean = modifierKeys.readAlt()
 
-            override fun readShift(): Boolean = controller.readShift()
+            // The key bar has no shift or fn modifiers.
+            override fun readShift(): Boolean = false
 
-            override fun readFn(): Boolean = controller.readFn()
+            override fun readFn(): Boolean = false
 
-            override fun clearConsumedModifiers() = controller.clearConsumedModifiers()
+            override fun clearConsumedModifiers() = modifierKeys.clearConsumed()
         }
     }
 
@@ -219,7 +233,10 @@ private data class TerminalCanvasConfigInput(
     val onOpenUrl: (String) -> Unit,
     val onCommitContent: (ClipData) -> Boolean,
     val onMoreSelectionRequest: (String) -> Unit,
-    val onCodePoint: (Int, Boolean, Boolean) -> Boolean
+    val onCodePoint: (Int, Boolean, Boolean) -> Boolean,
+    val contentTopInsetPx: Int,
+    val contentBottomInsetPx: Int,
+    val blurRegions: List<TerminalBlurRegion>,
 )
 
 private fun createTerminalCanvasConfig(input: TerminalCanvasConfigInput): TerminalCanvasConfig =
@@ -240,7 +257,10 @@ private fun createTerminalCanvasConfig(input: TerminalCanvasConfigInput): Termin
         onPasteRequest = input.session::onPasteTextFromClipboard,
         onCommitContent = input.onCommitContent,
         onMoreSelectionRequest = input.onMoreSelectionRequest,
-        onCodePoint = input.onCodePoint
+        onCodePoint = input.onCodePoint,
+        contentTopInsetPx = input.contentTopInsetPx,
+        contentBottomInsetPx = input.contentBottomInsetPx,
+        blurRegions = input.blurRegions,
     )
 
 private fun handleTerminalCodePoint(

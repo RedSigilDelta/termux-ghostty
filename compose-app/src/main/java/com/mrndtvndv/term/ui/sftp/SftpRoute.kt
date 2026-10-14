@@ -55,8 +55,9 @@ fun SftpScreenRoute(
     onOpenFolder: (String) -> Unit,
     onBack: () -> Unit,
     isTabActive: Boolean,
-    onOpenFile: (File) -> Unit,
-    onOpenFileError: (String) -> Unit
+    onOpenFile: (SftpFile, File) -> Unit,
+    onOpenFileError: (String) -> Unit,
+    tabsButton: (@Composable () -> Unit)? = null
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
@@ -207,7 +208,7 @@ fun SftpScreenRoute(
                                     viewModel.downloadAndOpenFile(
                                         file = file,
                                         cacheDir = context.cacheDir,
-                                        onFileReady = onOpenFile,
+                                        onFileReady = { staged -> onOpenFile(file, staged) },
                                         onError = onOpenFileError
                                     )
                                 },
@@ -266,7 +267,8 @@ fun SftpScreenRoute(
                                         Modifier.navigationBarsPadding()
                                     }
                                 )
-                                .padding(bottom = 16.dp)
+                                .padding(bottom = 16.dp),
+                            trailing = tabsButton
                         )
                     }
                 }

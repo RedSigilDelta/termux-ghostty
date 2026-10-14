@@ -17,6 +17,7 @@ import com.mrndtvndv.term.domain.AuthType
 import com.mrndtvndv.term.domain.ServerConfig
 import com.mrndtvndv.term.ui.components.ImagePasteSettingsSection
 import com.mrndtvndv.term.ui.components.rememberImagePasteSettingsState
+import com.mrndtvndv.term.workspace.TerminalPersistenceKind
 
 @Suppress("LongMethod")
 @OptIn(ExperimentalMaterial3Api::class)
@@ -33,7 +34,10 @@ fun AddServerScreen(
     var portString by remember(initialConfig) { mutableStateOf(initialConfig?.port?.toString() ?: "22") }
     var username by remember(initialConfig) { mutableStateOf(initialConfig?.username ?: "") }
     var password by remember(initialConfig) { mutableStateOf(initialPassword) }
-    var herdrEnabled by remember(initialConfig) { mutableStateOf(initialConfig?.herdrEnabled ?: true) }
+    var useGhosttyTerm by remember(initialConfig) { mutableStateOf(initialConfig?.useGhosttyTerm ?: false) }
+    var persistence by remember(initialConfig) {
+        mutableStateOf(initialConfig?.persistence ?: TerminalPersistenceKind.None)
+    }
     val imagePasteState = rememberImagePasteSettingsState(initialConfig)
 
     Scaffold(
@@ -103,8 +107,36 @@ fun AddServerScreen(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("Herdr Integration", modifier = Modifier.weight(1f))
-                Switch(checked = herdrEnabled, onCheckedChange = { herdrEnabled = it })
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Use xterm-ghostty")
+                    Text(
+                        "Needs Ghostty's terminfo on the server",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(checked = useGhosttyTerm, onCheckedChange = { useGhosttyTerm = it })
+            }
+
+            val persistenceOptions = TerminalPersistenceKind.entries
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Session persistence")
+                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                    persistenceOptions.forEachIndexed { index, option ->
+                        SegmentedButton(
+                            selected = persistence == option,
+                            onClick = { persistence = option },
+                            shape = SegmentedButtonDefaults.itemShape(index, persistenceOptions.size),
+                        ) {
+                            Text(if (option == TerminalPersistenceKind.None) "None" else "dtach")
+                        }
+                    }
+                }
+                Text(
+                    "dtach keeps shells running on the server between connections (must be installed there)",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
@@ -126,7 +158,8 @@ fun AddServerScreen(
                             port = parsePort(portString),
                             username = username,
                             auth = AuthType.Password(password),
-                            herdrEnabled = herdrEnabled,
+                            useGhosttyTerm = useGhosttyTerm,
+                            persistence = persistence,
                             imagePasteEnabled = imagePasteState.isPasteActive,
                             imagePasteDirectory = imagePasteState.trimmedDirectory,
                             imagePasteAutoCleanup = imagePasteState.autoCleanup,

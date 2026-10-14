@@ -223,6 +223,14 @@ public final class GhosttyTerminalContent implements TerminalContent, AutoClosea
     }
 
     @Nullable
+    public synchronized String consumePendingReportedPwd() {
+        if (mNativeHandle == 0) {
+            return null;
+        }
+        return GhosttyNative.nativeConsumeReportedPwd(mNativeHandle);
+    }
+
+    @Nullable
     public synchronized String consumePendingNotificationTitle() {
         if (mNativeHandle == 0) {
             return null;

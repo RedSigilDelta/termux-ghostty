@@ -13,12 +13,18 @@ import android.os.Build
 import android.os.IBinder
 import androidx.lifecycle.Lifecycle
 import com.mrndtvndv.term.R
-import com.mrndtvndv.term.data.prefs.SharedPreferencesWorkspacePersistence
 import com.mrndtvndv.term.service.SshSessionService
+import com.mrndtvndv.term.workspace.Tab
+import com.mrndtvndv.term.workspace.create
 import com.termux.shared.termux.TermuxConstants
 import com.termux.shared.termux.terminal.TermuxTerminalSessionClientBase
 import com.termux.terminal.TerminalSession
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
+import java.io.IOException
 import java.lang.ref.WeakReference
 
 /**
@@ -36,15 +42,12 @@ class AppSessionManager private constructor(context: Context) : AppSessionManage
     private val prefs by lazy { appContext.getSharedPreferences("ssh_prefs", Context.MODE_PRIVATE) }
 
     override val serverRepository by lazy { ServerRepository(prefs) }
-    private val persistence by lazy { SharedPreferencesWorkspacePersistence(prefs) }
 
     private val serverFactory by lazy {
         ServerFactory(
             context = appContext,
-            persistence = persistence,
             onSessionClientCreated = { createDefaultSessionClient() },
             onServiceBind = { bindTerminalSession(it) },
-            onSessionFinished = { serverId -> onServerSessionFinished(serverId) },
         )
     }
     private val serverManager by lazy { ServerManager(serverFactory) }
@@ -60,6 +63,12 @@ class AppSessionManager private constructor(context: Context) : AppSessionManage
     override val sessionFinished = finishedSessions.flow
     private val terminalProgress = TerminalProgressStore()
     private val programStatus = ProgramStatusStore()
+
+    private val appScope = MainScope()
+    /** In-flight terminal opens by tab id. Main thread only. */
+    private val pendingOpens = mutableMapOf<String, Deferred<Result<TerminalSession>>>()
+    /** Tabs closed while their open was in flight, mapped to whether that close also terminates. */
+    private val cancelledOpens = mutableMapOf<String, Boolean>()
 
     private var hostRef: WeakReference<SessionHost>? = null
 
@@ -79,36 +88,41 @@ class AppSessionManager private constructor(context: Context) : AppSessionManage
         programStatus.markSeen(session.mHandle)
     }
 
+    override fun locateSession(session: TerminalSession): SessionLocation? =
+        serverManager.locate(session)
+
     override fun serverIdForSession(session: TerminalSession): String? =
-        serverManager.serverIdForSession(session)
+        locateSession(session)?.serverId
 
     // ── Connection lifecycle ─────────────────────────────────────────
 
     override suspend fun connect(id: String): Result<Server> = coordinator.connect(id)
 
     /**
-     * Disconnect one server and remove its terminal from every process-scoped
+     * Disconnect one server and remove its terminals from every process-scoped
      * session registry. Manual close suppresses TerminalSession's finish
      * callback, so this cleanup cannot rely on onSessionFinished().
      */
     override fun disconnect(id: String) {
-        val terminalSession = coordinator.getServer(id)?.terminalSession
-        coordinator.disconnect(id)
-        if (terminalSession != null) {
-            terminalProgress.remove(terminalSession)
-            programStatus.remove(terminalSession)
-            unbindTerminalSession(terminalSession)
+        val sessions = coordinator.getServer(id)?.terminals?.value?.values?.map { it.session }.orEmpty()
+        sessions.forEach {
+            terminalProgress.remove(it)
+            programStatus.remove(it)
+            unbindTerminalSession(it)
         }
+        coordinator.disconnect(id)
     }
 
     fun disconnectAll() {
         val disconnectedIds = coordinator.activeIds.toList()
-        val disconnectedSessions = disconnectedIds.mapNotNull { coordinator.getServer(it)?.terminalSession }
-        coordinator.disconnectAll()
+        val disconnectedSessions = disconnectedIds
+            .mapNotNull { coordinator.getServer(it) }
+            .flatMap { server -> server.terminals.value.values.map { it.session } }
         disconnectedSessions.forEach {
             terminalProgress.remove(it)
             programStatus.remove(it)
         }
+        coordinator.disconnectAll()
         val service = sshService
         service?.disconnectAll()
         synchronized(this) {
@@ -123,19 +137,100 @@ class AppSessionManager private constructor(context: Context) : AppSessionManage
         disconnectedIds.forEach { finishedSessions.emit(it) }
     }
 
-    private fun onServerSessionFinished(serverId: String) {
+    // ── Terminals ────────────────────────────────────────────────────
+
+    override suspend fun openTerminal(serverId: String, tab: Tab.Terminal): Result<TerminalSession> {
+        val server = coordinator.getServer(serverId)
+            ?: return Result.failure(IllegalStateException("Server is not connected"))
+        val existing = server.terminals.value[tab.id]
+        if (existing?.running == true) return Result.success(existing.session)
+        if (existing != null) closeTerminal(serverId, tab, terminate = false)
+
+        // Registered before the body runs (Main dispatch), so later callers share this open.
+        val open = pendingOpens[tab.id] ?: appScope.async {
+            val opened: Result<TerminalSession> = runCatching {
+                serverFactory.openTerminal(server, tab) { onTerminalFinished(serverId, it) }
+            }.fold(
+                onSuccess = { Result.success(it) },
+                onFailure = { error ->
+                    val shellFailure = !server.config.isLocal && error is IOException
+                    val message = "Couldn't open a shell (the server may limit sessions per connection)"
+                    Result.failure(if (shellFailure) IllegalStateException(message, error) else error)
+                },
+            )
+            pendingOpens.remove(tab.id)
+            val cancelledTerminate = cancelledOpens.remove(tab.id)
+            when {
+                coordinator.getServer(serverId) !== server -> {
+                    // Disconnected mid-open: Server.disconnect already ran, so release the late terminal here.
+                    server.removeTerminal(tab.id)?.let { (session, channel) ->
+                        closeTerminalSession(session, channel)
+                        terminalProgress.remove(session)
+                        programStatus.remove(session)
+                        unbindTerminalSession(session)
+                    }
+                    Result.failure(IllegalStateException("Server disconnected while opening"))
+                }
+                cancelledTerminate != null -> {
+                    // Closed while opening: drop the new terminal instead of handing it out.
+                    opened.onSuccess { closeTerminal(serverId, tab, terminate = cancelledTerminate) }
+                    Result.failure(IllegalStateException("Terminal was closed while opening"))
+                }
+                else -> opened
+            }
+        }.also { pendingOpens[tab.id] = it }
+        return open.await()
+    }
+
+    override fun closeTerminal(serverId: String, tab: Tab.Terminal, terminate: Boolean) {
+        if (pendingOpens.containsKey(tab.id)) {
+            cancelledOpens[tab.id] = terminate || cancelledOpens[tab.id] == true
+        }
+        val server = coordinator.getServer(serverId) ?: return
+        server.removeTerminal(tab.id)?.let { (session, channel) ->
+            closeTerminalSession(session, channel)
+            terminalProgress.remove(session)
+            programStatus.remove(session)
+            unbindTerminalSession(session)
+        }
+        val ssh = server.sshSession
+        if (terminate && ssh != null && server.isAlive) {
+            val persistence = server.config.persistence.create()
+            appScope.launch { persistence.terminate(tab) { ssh.execCommand(it) } }
+        }
+    }
+
+    /** A shell or local process exited on its own. Manual closes never reach here. */
+    private fun onTerminalFinished(serverId: String, session: TerminalSession) {
+        val server = coordinator.getServer(serverId) ?: return
+        val tabId = server.tabIdFor(session) ?: return
+        if (server.isAlive) {
+            server.markFinished(tabId, session)
+            return
+        }
+        // The connection is gone, so the server's other terminals end with it.
+        server.terminals.value.values.map { it.session }.filter { it !== session }.forEach {
+            terminalProgress.remove(it)
+            programStatus.remove(it)
+            unbindTerminalSession(it)
+        }
         coordinator.disconnect(serverId)
         finishedSessions.emit(serverId)
     }
 
     // ── Terminal protocol notifications ──────────────────────────────
 
-    fun handleTerminalNotification(title: String?, body: String?, serverId: String? = null) {
+    fun handleTerminalNotification(
+        title: String?,
+        body: String?,
+        serverId: String? = null,
+        tabId: String? = null,
+    ) {
         val host = hostRef?.get()
         if (host != null && host.isAtLeast(Lifecycle.State.RESUMED)) {
-            host.showInAppNotification(title, body, serverId)
+            host.showInAppNotification(title, body, serverId, tabId)
         } else {
-            showSystemNotification(title, body, serverId)
+            showSystemNotification(title, body, serverId, tabId)
         }
     }
 
@@ -149,7 +244,7 @@ class AppSessionManager private constructor(context: Context) : AppSessionManage
         return id
     }
 
-    private fun showSystemNotification(title: String?, body: String?, serverId: String?) {
+    private fun showSystemNotification(title: String?, body: String?, serverId: String?, tabId: String?) {
         val notificationManager =
             com.termux.shared.notification.NotificationUtils.getNotificationManager(appContext) ?: return
 
@@ -167,10 +262,11 @@ class AppSessionManager private constructor(context: Context) : AppSessionManage
 
         val intent = Intent(appContext, com.mrndtvndv.term.MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-            putExtra(EXTRA_NOTIFICATION_TITLE, normalizedTitle)
-            putExtra(EXTRA_NOTIFICATION_BODY, normalizedBody)
             if (serverId != null) {
                 putExtra(EXTRA_NOTIFICATION_SERVER_ID, serverId)
+            }
+            if (tabId != null) {
+                putExtra(EXTRA_NOTIFICATION_TAB_ID, tabId)
             }
         }
         val contentIntent = PendingIntent.getActivity(
@@ -304,8 +400,8 @@ class AppSessionManager private constructor(context: Context) : AppSessionManage
                 title: String?,
                 body: String?,
             ) {
-                val serverId = serverManager.serverIdForSession(session)
-                handleTerminalNotification(title, body, serverId)
+                val location = locateSession(session)
+                handleTerminalNotification(title, body, location?.serverId, location?.tabId)
             }
 
             override fun onTerminalProgressChanged(session: TerminalSession) {
@@ -327,10 +423,8 @@ class AppSessionManager private constructor(context: Context) : AppSessionManage
     companion object {
         /** Intent extra: originating server id for a tapped terminal notification. */
         const val EXTRA_NOTIFICATION_SERVER_ID = "termux.terminal.notification.server_id"
-        /** Intent extra: notification title, for identifying originating agent or command. */
-        const val EXTRA_NOTIFICATION_TITLE = "termux.terminal.notification.title"
-        /** Intent extra: notification body, so the tap handler can re-parse the focus target. */
-        const val EXTRA_NOTIFICATION_BODY = "termux.terminal.notification.body"
+        /** Intent extra: originating tab id for a tapped terminal notification. */
+        const val EXTRA_NOTIFICATION_TAB_ID = "termux.terminal.notification.tab_id"
 
         @Volatile
         private var instance: AppSessionManager? = null

@@ -2,9 +2,12 @@ package com.mrndtvndv.term.server
 
 import com.termux.terminal.compose.session.ProgramStatusState
 import com.mrndtvndv.term.domain.ServerConfig
+import com.mrndtvndv.term.workspace.Tab
 import com.termux.terminal.TerminalSession
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
+
+data class SessionLocation(val serverId: String, val tabId: String)
 
 interface ServerCoordinatorAccess {
     val activeIds: Set<String>
@@ -12,12 +15,6 @@ interface ServerCoordinatorAccess {
     fun getServer(id: String): Server?
 
     fun disconnect(id: String)
-
-    suspend fun refreshWorkspace(serverId: String): ServerCoordinator.WorkspaceChange?
-
-    fun onDirectoryChanged(serverId: String, path: String)
-
-    suspend fun focusHerdr(serverId: String, operation: suspend HerdrWorkspaceResolver.() -> Boolean)
 }
 
 interface ServerRepositoryAccess {
@@ -48,4 +45,19 @@ interface AppSessionManagerAccess {
     fun markProgramStatusSeen(session: TerminalSession)
 
     fun serverIdForSession(session: TerminalSession): String? = null
+
+    /**
+     * Returns the tab's running terminal, or opens one (a new SSH channel / local process).
+     * A finished terminal for the tab is replaced. Concurrent calls for the same tab share one open.
+     * Main thread.
+     */
+    suspend fun openTerminal(serverId: String, tab: Tab.Terminal): Result<TerminalSession>
+
+    /**
+     * Closes the tab's terminal if any. [terminate] = the user closed the tab: also ends the
+     * persistent remote session (TerminalPersistence.terminate). Main thread.
+     */
+    fun closeTerminal(serverId: String, tab: Tab.Terminal, terminate: Boolean)
+
+    fun locateSession(session: TerminalSession): SessionLocation? = null
 }

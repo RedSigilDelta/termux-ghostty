@@ -1,6 +1,5 @@
 package com.mrndtvndv.term.ui.settings
 
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -11,7 +10,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -19,9 +17,7 @@ import androidx.compose.ui.platform.LocalContext
 import android.widget.Toast
 import com.mrndtvndv.term.NativeLogcatLogger
 import com.mrndtvndv.term.data.prefs.AppSettings
-import com.mrndtvndv.term.ui.keyboard.validateExtraKeysJson
-import com.mrndtvndv.term.ui.keyboard.ExtraKeysController
-import com.mrndtvndv.term.ui.keyboard.ExtraKeysToolbar
+import com.mrndtvndv.term.data.prefs.ArrowJoystickMode
 import com.mrndtvndv.term.ui.workspace.CursorTrailEffect
 import com.mrndtvndv.term.ui.workspace.VisualEffectFrameRate
 import com.mrndtvndv.term.ui.workspace.label
@@ -64,129 +60,6 @@ fun SettingsScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Spacer(modifier = Modifier.height(8.dp))
-
-            // Extra Keys Configuration
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
-            ) {
-                Column(
-                    modifier = Modifier
-                        .padding(24.dp)
-                        .fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    Text(
-                        text = "EXTRA KEYS CONFIG",
-                        style = MaterialTheme.typography.headlineSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        textAlign = TextAlign.Center
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text("Enable Extra Keys Toolbar", style = MaterialTheme.typography.bodyLarge)
-                        Switch(
-                            checked = settings.extraKeysEnabled,
-                            onCheckedChange = { enabled -> onUpdate { it.copy(extraKeysEnabled = enabled) } }
-                        )
-                    }
-
-                    if (settings.extraKeysEnabled) {
-                        Text(
-                            text = "Toolbar Preset Layout",
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.align(Alignment.Start)
-                        )
-
-                        val presets = listOf("Double Row", "Tmux", "Single Row", "Arrows Only", "Custom")
-                        var expanded by remember { mutableStateOf(false) }
-
-                        Box(modifier = Modifier.fillMaxWidth()) {
-                            OutlinedButton(
-                                onClick = { expanded = true },
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text(settings.extraKeysPreset)
-                            }
-                            DropdownMenu(
-                                expanded = expanded,
-                                onDismissRequest = { expanded = false },
-                                modifier = Modifier.fillMaxWidth(0.9f)
-                            ) {
-                                presets.forEach { presetName ->
-                                    DropdownMenuItem(
-                                        text = { Text(presetName) },
-                                        onClick = {
-                                            onUpdate { it.copy(extraKeysPreset = presetName) }
-                                            expanded = false
-                                        }
-                                    )
-                                }
-                            }
-                        }
-
-                        if (settings.extraKeysPreset == "Custom") {
-                            var jsonError by remember(settings.extraKeysCustomJson) {
-                                mutableStateOf(validateExtraKeysJson(settings.extraKeysCustomJson))
-                            }
-
-                            OutlinedTextField(
-                                value = settings.extraKeysCustomJson,
-                                onValueChange = { json ->
-                                    onUpdate { it.copy(extraKeysCustomJson = json) }
-                                    jsonError = validateExtraKeysJson(json)
-                                },
-                                label = { Text("Custom Layout JSON") },
-                                isError = jsonError != null,
-                                supportingText = {
-                                    if (jsonError != null) {
-                                        Text(jsonError!!, color = MaterialTheme.colorScheme.error)
-                                    } else {
-                                        Text(
-                                            "Examples:\n" +
-                                            "• Simple key: 'ESC'\n" +
-                                            "• Keyboard toggle: 'KEYBOARD'\n" +
-                                            "• Popup: {key: '-', popup: '|'}\n" +
-                                            "• Macro: 'CTRL b n' or {macro: 'CTRL b n', display: 'tmux →'}"
-                                        )
-                                    }
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                                minLines = 3
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "Interactive Live Preview",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.secondary,
-                            modifier = Modifier.align(Alignment.Start)
-                        )
-
-                        val previewController = remember { ExtraKeysController() }
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp))
-                                .clip(RoundedCornerShape(8.dp))
-                        ) {
-                            ExtraKeysToolbar(
-                                extraKeysController = previewController,
-                                session = null,
-                                extraKeysJson = settings.extraKeysJson
-                            )
-                        }
-                    }
-                }
-            }
 
             // Terminal Font Size Configuration
             Card(
@@ -758,28 +631,6 @@ fun SettingsScreen(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Hide Workspace Tabs", style = MaterialTheme.typography.bodyLarge)
-                            Text(
-                                text = "Hide the tab bar in the terminal workspace. " +
-                                    "Swipe left/right to switch tabs.",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Switch(
-                            checked = settings.hideWorkspaceTabs,
-                            onCheckedChange = { enabled -> onUpdate { it.copy(hideWorkspaceTabs = enabled) } }
-                        )
-                    }
-
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
                             Text("Animations", style = MaterialTheme.typography.bodyLarge)
                             Text(
                                 text = "Animate screen changes, Git and SFTP navigation, and tab switches.",
@@ -790,80 +641,6 @@ fun SettingsScreen(
                         Switch(
                             checked = settings.animationsEnabled,
                             onCheckedChange = { enabled -> onUpdate { it.copy(animationsEnabled = enabled) } }
-                        )
-                    }
-
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Show Keyboard Button", style = MaterialTheme.typography.bodyLarge)
-                            Text(
-                                text = "Show a keyboard toggle button above the agents button " +
-                                    "in the terminal workspace.",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Switch(
-                            checked = settings.showKeyboardFab,
-                            onCheckedChange = { enabled -> onUpdate { it.copy(showKeyboardFab = enabled) } }
-                        )
-                    }
-
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Hide Button While Typing", style = MaterialTheme.typography.bodyLarge)
-                            Text(
-                                text = "Automatically hide the keyboard button " +
-                                    "while the soft keyboard is open.",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Switch(
-                            checked = settings.hideKeyboardFabWhileTyping,
-                            onCheckedChange = { enabled -> onUpdate { it.copy(hideKeyboardFabWhileTyping = enabled) } },
-                            enabled = settings.showKeyboardFab
-                        )
-                    }
-
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("Herdr Agent FAB Opacity", style = MaterialTheme.typography.bodyLarge)
-                                Text(
-                                    text = "Lower the opacity so terminal content remains visible underneath",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                            Text(
-                                text = "${(settings.herdrAgentFabOpacity * 100).toInt()}%",
-                                style = MaterialTheme.typography.bodyLarge,
-                            )
-                        }
-                        val fabOpacityState = remember { SliderState(steps = 14, trackRange = 0.25f..1f) }
-                        fabOpacityState.value = settings.herdrAgentFabOpacity.coerceIn(0.25f, 1f)
-                        Slider(
-                            state = fabOpacityState,
-                            onValueChange = { opacity -> onUpdate { it.copy(herdrAgentFabOpacity = opacity) } },
                         )
                     }
                 }
@@ -962,6 +739,28 @@ fun SettingsScreen(
                             },
                             enabled = settings.autoShowKeyboardOnTap
                         )
+                    }
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Arrow joystick", style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            text = "Swipe moves one arrow per step; Hold repeats while held",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                            ArrowJoystickMode.entries.forEachIndexed { index, mode ->
+                                SegmentedButton(
+                                    selected = settings.arrowJoystickMode == mode,
+                                    onClick = { onUpdate { it.copy(arrowJoystickMode = mode) } },
+                                    shape = SegmentedButtonDefaults.itemShape(index, ArrowJoystickMode.entries.size)
+                                ) {
+                                    Text(if (mode == ArrowJoystickMode.Swipe) "Swipe" else "Hold")
+                                }
+                            }
+                        }
                     }
                 }
             }

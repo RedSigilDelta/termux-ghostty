@@ -3,8 +3,11 @@ package com.mrndtvndv.term.server
 import android.content.Context
 import android.os.Build
 import com.mrndtvndv.term.data.ssh.native.NativeSshSession
+import com.mrndtvndv.term.data.ssh.native.NativeSshShellChannel
 import com.mrndtvndv.term.domain.ServerConfig
 import com.mrndtvndv.term.domain.toDomainAuth
+import com.mrndtvndv.term.workspace.Tab
+import com.mrndtvndv.term.workspace.create
 import com.termux.shared.termux.terminal.TermuxTerminalSessionClientBase
 import com.termux.terminal.TerminalSession
 import kotlinx.coroutines.Dispatchers
@@ -12,22 +15,22 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
- * Orchestrates the creation of a Server from a ServerConfig.
+ * Orchestrates the creation of a Server from a ServerConfig and the terminals it opens.
  * Accepts [context] for resolving local shell paths and building environment.
  */
 class ServerFactory(
     private val context: Context,
-    private val persistence: WorkspacePersistence,
     private val onSessionClientCreated: () -> TermuxTerminalSessionClientBase,
     private val onServiceBind: (TerminalSession) -> Unit,
-    private val onSessionFinished: (serverId: String) -> Unit,
 ) {
     /**
-     * Connect to the server and return a fully wired Server.
+     * Connect to the server and return a Server with no terminals yet.
      * Throws on failure.
      */
     suspend fun create(config: ServerConfig): Server {
-        if (config.isLocal) return createLocal(config)
+        if (config.isLocal) {
+            return Server(config = config, homeDir = context.filesDir.absolutePath)
+        }
 
         // 1. Open TCP socket and init native SSH
         val session = NativeSshSession()
@@ -37,53 +40,61 @@ class ServerFactory(
             session.authenticate(config.toDomainAuth())
         }
 
-        // 2. Open shell channel
-        val channel = withContext(Dispatchers.IO) {
-            session.openShellChannel(
-                termType = config.termType,
-                cols = 80,
-                rows = 24,
-                herdrIntegration = config.herdrEnabled,
-            )
-        }
-
-        // 3. Create TerminalSession with IO bridge
-        val sessionClient = onSessionClientCreated()
-        val sessionIo = TerminalSessionIOBridge(channel = channel)
-        val termSession = TerminalSession(2000, sessionClient, sessionIo)
-        termSession.setSshSessionHandle(session.nativeSessionHandle)
-        val wrappedClient = wrapSessionClient(sessionClient) { onSessionFinished(config.id) }
-        termSession.updateTerminalSessionClient(wrappedClient)
-        onServiceBind(termSession)
-
-        // 4. Open SFTP client
+        // 2. Open SFTP client
         val sftpClient = withContext(Dispatchers.IO) {
             session.openSftpClient()
         }
 
-        // 5. Build workspace state
-        val workspaceState = if (config.herdrEnabled) {
-            val resolver = session.herdrResolver()
-            val tracker = WorkspaceTracker(
-                host = config.host,
-                username = config.username,
-                resolver = resolver,
-                persistence = persistence,
-            )
-            tracker.sync()
-            WorkspaceState.Tracked(tracker)
-        } else {
-            WorkspaceState.Untracked
-        }
+        val homeDir = runCatching { session.execCommand("printf %s \"\$HOME\"").trim() }
+            .getOrNull()
+            ?.takeIf { it.startsWith("/") }
+            ?: "/"
 
         return Server(
             config = config,
             sshSession = session,
-            shellChannel = channel,
             sftpClient = sftpClient,
-            terminalSession = termSession,
-            workspaceState = workspaceState,
+            homeDir = homeDir,
         )
+    }
+
+    /**
+     * Opens a terminal for [tab] on [server]: a new shell channel for SSH, a local process otherwise.
+     * [onFinished] runs when the shell or process exits on its own, not when it is closed.
+     * Call on the main thread.
+     */
+    suspend fun openTerminal(
+        server: Server,
+        tab: Tab.Terminal,
+        onFinished: (TerminalSession) -> Unit,
+    ): TerminalSession {
+        if (server.config.isLocal) return openLocalTerminal(server, tab, onFinished)
+
+        val ssh = checkNotNull(server.sshSession) { "SSH session is not connected" }
+        val command = server.config.persistence.create().startCommand(tab)
+        val channel = withContext(Dispatchers.IO) {
+            ssh.openShellChannel(
+                termType = server.config.termType,
+                cols = 80,
+                rows = 24,
+                command = command,
+            )
+        }
+
+        // Build the TerminalSession on the main thread; close the channel if that fails.
+        val termSession = runCatching {
+            val sessionClient = onSessionClientCreated()
+            val sessionIo = TerminalSessionIOBridge(channel = channel)
+            val built = TerminalSession(2000, sessionClient, sessionIo)
+            built.setSshShellHandle((channel as NativeSshShellChannel).handle)
+            val wrappedClient = wrapSessionClient(sessionClient) { onFinished(built) }
+            built.updateTerminalSessionClient(wrappedClient)
+            onServiceBind(built)
+            built
+        }.onFailure { channel.close() }.getOrThrow()
+
+        server.putTerminal(tab.id, termSession, channel)
+        return termSession
     }
 
     // ── Session client wrapper ───────────────────────────────────────
@@ -287,11 +298,15 @@ class ServerFactory(
 
     // ── Local path ───────────────────────────────────────────────────
 
-    private fun createLocal(config: ServerConfig): Server {
+    private fun openLocalTerminal(
+        server: Server,
+        tab: Tab.Terminal,
+        onFinished: (TerminalSession) -> Unit,
+    ): TerminalSession {
         val shellPath = resolveLocalShell()
             ?: throw IllegalStateException("No shell binary found on device")
 
-        val cwd = "/"
+        val cwd = tab.cwd.takeIf { File(it).isDirectory } ?: server.homeDir
         val args = arrayOf(shellPath, "-l")
         val env = buildLocalEnvironment()
         val transcriptRows = 2000
@@ -302,17 +317,15 @@ class ServerFactory(
         )
         val wrappedClient = wrapLocalSessionClient(
             sessionClient = sessionClient,
-            onFinished = { onSessionFinished(config.id) },
-            startupCommand = config.startupCommand,
+            onFinished = { onFinished(terminalSession) },
+            startupCommand = server.config.startupCommand,
             session = terminalSession,
         )
         terminalSession.updateTerminalSessionClient(wrappedClient)
         onServiceBind(terminalSession)
 
-        return Server(
-            config = config,
-            terminalSession = terminalSession,
-        )
+        server.putTerminal(tab.id, terminalSession, null)
+        return terminalSession
     }
 
     private fun resolveLocalShell(): String? {

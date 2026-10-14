@@ -9,7 +9,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.window.DialogWindowProvider
 
 /**
- * Keeps a bottom sheet above the IME, matching the Herdr sheet. ModalBottomSheet runs in its own
+ * Keeps a bottom sheet above the IME. ModalBottomSheet runs in its own
  * dialog window, so the window needs FLAG_ALT_FOCUSABLE_IM for the keyboard to stay visible
  * under the sheet instead of covering it.
  */

@@ -22,7 +22,8 @@ fun ReviewScreenRoute(
     backStack: NavBackStack<NavKey>,
     onOpenDiff: (ReviewRoute) -> Unit,
     onBack: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    tabsButton: (@Composable () -> Unit)? = null
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -98,7 +99,8 @@ fun ReviewScreenRoute(
                     onFetch = viewModel::fetchRemote,
                     onPull = viewModel::pullBranch,
                     onPush = viewModel::pushBranch,
-                    modifier = modifier
+                    modifier = modifier,
+                    tabsButton = tabsButton
                 )
             }
             entry<ReviewRoute.FileDiff> { key ->
