@@ -17,6 +17,7 @@ import com.termux.app.settings.SoftKeyboardToggleBehaviour
 import com.termux.app.settings.TermuxSettings
 import com.termux.app.settings.VolumeKeysBehaviour
 import com.termux.app.terminal.io.KeyboardShortcut
+import com.termux.app.terminal.io.ModifierKeys
 import com.termux.shared.activities.ReportActivity
 import com.termux.shared.android.AndroidUtils
 import com.termux.shared.data.DataUtils
@@ -31,7 +32,6 @@ import com.termux.shared.termux.TermuxBootstrap
 import com.termux.shared.termux.TermuxConstants
 import com.termux.shared.termux.TermuxUtils
 import com.termux.shared.termux.data.TermuxUrlUtils
-import com.termux.shared.termux.extrakeys.SpecialButton
 import com.termux.shared.termux.settings.preferences.TermuxPreferenceConstants.TERMUX_APP
 import com.termux.shared.termux.terminal.TermuxTerminalClientBase
 import com.termux.shared.view.KeyboardUtils
@@ -220,13 +220,7 @@ class TermuxTerminalViewClient(
         )
     }
 
-    override fun isTerminalViewSelected(): Boolean =
-        mActivity.isTerminalViewSelected() || mActivity.getTerminalView().hasFocus()
-
-    override fun copyModeChanged(copyMode: Boolean) {
-        // Disable drawer while copying.
-        mActivity.getScreenState().setDrawerLocked(copyMode)
-    }
+    override fun isTerminalViewSelected(): Boolean = mActivity.getTerminalView().hasFocus()
 
     @SuppressLint("RtlHardcoded")
     override fun onKeyDown(keyCode: Int, e: KeyEvent, currentSession: TerminalSession): Boolean {
@@ -245,9 +239,9 @@ class TermuxTerminalViewClient(
             } else if (keyCode == KeyEvent.KEYCODE_DPAD_UP || unicodeChar == 'p'.code /* previous */) {
                 mTermuxTerminalSessionActivityClient.switchToSession(false)
             } else if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
-                mActivity.getScreenState().openDrawer()
+                mActivity.showTabsGrid()
             } else if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
-                mActivity.getScreenState().closeDrawer()
+                mActivity.getScreenState().tabsGridVisible = false
             } else if (unicodeChar == 'k'.code/* keyboard */) {
                 onToggleSoftKeyboardRequest()
             } else if (unicodeChar == 'm'.code/* menu */) {
@@ -306,24 +300,18 @@ class TermuxTerminalViewClient(
         return false
     }
 
-    override fun readControlKey(): Boolean = readExtraKeysSpecialButton(SpecialButton.CTRL) || mVirtualControlKeyDown
+    override fun readControlKey(): Boolean = readModifier { it.readCtrl() } || mVirtualControlKeyDown
 
-    override fun readAltKey(): Boolean = readExtraKeysSpecialButton(SpecialButton.ALT)
+    override fun readAltKey(): Boolean = readModifier { it.readAlt() }
 
-    override fun readShiftKey(): Boolean = readExtraKeysSpecialButton(SpecialButton.SHIFT)
+    override fun readShiftKey(): Boolean = false
 
-    override fun readFnKey(): Boolean = readExtraKeysSpecialButton(SpecialButton.FN)
+    override fun readFnKey(): Boolean = false
 
-    fun readExtraKeysSpecialButton(specialButton: SpecialButton): Boolean {
-        val modifiers = mActivity.getTerminalToolbarState().modifiers
-        val pressed = when (specialButton) {
-            SpecialButton.CTRL -> modifiers.readControl()
-            SpecialButton.ALT -> modifiers.readAlt()
-            SpecialButton.SHIFT -> modifiers.readShift()
-            SpecialButton.FN -> modifiers.readFn()
-            else -> return false
-        }
-        modifiers.clearConsumedModifiers()
+    private inline fun readModifier(read: (ModifierKeys) -> Boolean): Boolean {
+        val modifiers = mActivity.getModifierKeys()
+        val pressed = read(modifiers)
+        modifiers.clearConsumed()
         return pressed
     }
 
@@ -383,11 +371,6 @@ class TermuxTerminalViewClient(
                     audio.adjustSuggestedStreamVolume(AudioManager.ADJUST_SAME, AudioManager.USE_DEFAULT_STREAM_TYPE, AudioManager.FLAG_SHOW_UI)
                 }
 
-                // Writing mode:
-                'q'.code, 'k'.code -> {
-                    mActivity.toggleTerminalToolbar()
-                    mVirtualFnKeyDown = false // force disable fn key down to restore keyboard input into terminal view, fixes termux/termux-app#1420
-                }
             }
 
             if (resultingKeyCode != -1) {
@@ -452,8 +435,8 @@ class TermuxTerminalViewClient(
     }
 
     /**
-     * Called when user requests the soft keyboard to be toggled via "KEYBOARD" toggle button in
-     * drawer or extra keys, or with ctrl+alt+k hardware keyboard shortcut.
+     * Called when user requests the soft keyboard to be toggled with the ctrl+alt+k hardware
+     * keyboard shortcut.
      */
     fun onToggleSoftKeyboardRequest() {
         // If soft keyboard toggle behaviour is enable/disabled
@@ -555,11 +538,8 @@ class TermuxTerminalViewClient(
         }
 
         mActivity.getTerminalView().setOnFocusChangeListener { _, hasFocus ->
-            // Force show soft keyboard if TerminalView or toolbar text input view has
-            // focus and close it if they don't
-            val textInputViewHasFocus = mActivity.getTerminalToolbarState().isTextInputSelected()
-
-            if (hasFocus || textInputViewHasFocus) {
+            // Force show soft keyboard if TerminalView has focus and close it if it doesn't
+            if (hasFocus) {
                 if (mShowSoftKeyboardIgnoreOnce) {
                     mShowSoftKeyboardIgnoreOnce = false
                     return@setOnFocusChangeListener
@@ -572,7 +552,7 @@ class TermuxTerminalViewClient(
                     rememberSoftKeyboardState(TERMUX_APP.VALUE_LAST_SOFT_KEYBOARD_STATE_HIDDEN)
             }
 
-            KeyboardUtils.setSoftKeyboardVisibility(getShowSoftKeyboardRunnable(), mActivity, mActivity.getTerminalView(), hasFocus || textInputViewHasFocus)
+            KeyboardUtils.setSoftKeyboardVisibility(getShowSoftKeyboardRunnable(), mActivity, mActivity.getTerminalView(), hasFocus)
         }
 
         // Do not force show soft keyboard if termux-reload-settings command was run with hardware keyboard

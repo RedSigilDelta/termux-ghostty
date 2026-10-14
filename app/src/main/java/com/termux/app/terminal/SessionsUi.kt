@@ -1,205 +1,102 @@
 package com.termux.app.terminal
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontStyle
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextDecoration
-import androidx.compose.ui.text.withStyle
-import androidx.compose.ui.unit.TextUnit
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import com.termux.app.settings.TabBarAlign
-import com.termux.shared.termux.shell.command.runner.terminal.TermuxSession
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
+import com.termux.app.workspace.Tab
+import com.termux.app.workspace.WorkspaceState
+import com.termux.app.workspace.ui.TabCard
+import com.termux.app.workspace.ui.TabKind
+import com.termux.app.workspace.ui.WorkspaceItem
+import com.termux.shared.termux.TermuxConstants
 import com.termux.terminal.TerminalSession
+import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 
-data class SessionItem(
-    val session: TerminalSession,
-    val name: String?,
-    val title: String?,
-    val running: Boolean,
-    val exitStatus: Int,
-)
-
-fun interface SessionListener {
-    fun onSessionEvent(session: TerminalSession, longPress: Boolean)
-}
-
-fun interface NewSessionListener {
-    fun onNewSession(failsafe: Boolean)
-}
-
-class SessionsUiState {
-    var sessions by mutableStateOf<List<SessionItem>>(emptyList())
+class TabsUiState {
+    var workspaces by mutableStateOf<List<WorkspaceItem>>(emptyList())
         private set
-    var currentIndex by mutableIntStateOf(-1)
+    var tabs by mutableStateOf<List<TabCard>>(emptyList())
         private set
-    var backgroundColor by mutableIntStateOf(0)
-    var scrollRequest by mutableIntStateOf(0)
+    var activeTab by mutableStateOf<Tab?>(null)
+        private set
+    var activeRoot by mutableStateOf<String?>(null)
+        private set
+    var processNames by mutableStateOf<Map<String, String>>(emptyMap())  // tabId -> foreground process
+    internal var sessions: Map<String, TerminalSession> = emptyMap()     // tabId -> session, for the poller
         private set
 
-    fun refresh(sessions: List<TermuxSession>, current: TerminalSession?) {
-        this.sessions = sessions.mapNotNull { termuxSession ->
-            termuxSession.terminalSession?.let {
-                SessionItem(it, it.mSessionName, it.title, it.isRunning, it.exitStatus)
+    fun refresh(state: WorkspaceState, sessionFor: (String) -> TerminalSession?) {
+        val active = state.activeWorkspace
+        val activeTabs = active?.tabs.orEmpty()
+        activeTab = active?.let { workspace -> workspace.tabs.firstOrNull { it.id == workspace.activeTabId } }
+        activeRoot = active?.root
+        workspaces = state.workspaces.map {
+            WorkspaceItem(it.id, it.name, it.root, it.tabs.size, active = it.id == state.activeWorkspaceId)
+        }
+        tabs = activeTabs.map { tab ->
+            val current = tab.id == active?.activeTabId
+            when (tab) {
+                is Tab.Terminal -> terminalCard(tab, current, sessionFor(tab.id))
+                is Tab.Files -> fileCard(tab.id, TabKind.FILES, tab.dir, current)
+                is Tab.Viewer -> fileCard(tab.id, TabKind.VIEWER, tab.path, current)
             }
         }
-        currentIndex = sessions.indexOfFirst { current != null && it.terminalSession == current }
+        sessions = activeTabs.filterIsInstance<Tab.Terminal>()
+            .mapNotNull { tab -> sessionFor(tab.id)?.let { tab.id to it } }
+            .toMap()
     }
 
-    fun requestScrollToCurrent() {
-        scrollRequest++
-    }
+    private fun terminalCard(tab: Tab.Terminal, current: Boolean, session: TerminalSession?) = TabCard(
+        id = tab.id,
+        kind = TabKind.TERMINAL,
+        title = session?.mSessionName ?: tab.name ?: processNames[tab.id] ?: "Terminal",
+        subtitle = session?.title?.takeIf { it.isNotBlank() } ?: displayPath(tab.cwd),
+        processName = null,
+        running = session?.isRunning ?: false,
+        exitStatus = session?.exitStatus ?: 0,
+        current = current,
+    )
+
+    private fun fileCard(id: String, kind: TabKind, path: String, current: Boolean) = TabCard(
+        id = id,
+        kind = kind,
+        title = File(path).name,
+        subtitle = File(path).parent,
+        processName = null,
+        running = true,
+        exitStatus = 0,
+        current = current,
+    )
 }
 
+private fun displayPath(path: String): String {
+    val home = TermuxConstants.TERMUX_HOME_DIR_PATH
+    return if (path == home || path.startsWith("$home/")) "~" + path.removePrefix(home) else path
+}
+
+/** Polls each terminal tab's foreground process while the screen is started. */
 @Composable
-fun SessionDrawerList(state: SessionsUiState, listener: SessionListener) {
-    val listState = rememberLazyListState()
-    LaunchedEffect(state.scrollRequest) {
-        if (state.currentIndex in state.sessions.indices) listState.animateScrollToItem(state.currentIndex)
-    }
-    LazyColumn(state = listState) {
-        itemsIndexed(state.sessions) { index, item ->
-            SessionDrawerRow(index, item, index == state.currentIndex, listener)
+fun SessionProcessPoller(state: TabsUiState) {
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val sessions = state.sessions
+    LaunchedEffect(sessions, lifecycle) {
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                state.processNames = withContext(Dispatchers.IO) {
+                    sessions.mapNotNull { (tabId, session) -> session.foregroundProcessName?.let { tabId to it } }.toMap()
+                }
+                delay(PROCESS_POLL_INTERVAL_MS)
+            }
         }
     }
 }
 
-@Composable
-private fun SessionDrawerRow(index: Int, item: SessionItem, selected: Boolean, listener: SessionListener) {
-    val colorScheme = MaterialTheme.colorScheme
-    val name = item.name.orEmpty()
-    val subtitle = item.title
-    val label = buildAnnotatedString {
-        withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append("[${index + 1}] $name") }
-        if (!subtitle.isNullOrEmpty()) {
-            if (name.isNotEmpty()) append("\n")
-            withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(subtitle) }
-        }
-    }
-    Text(
-        text = label,
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(min = 48.dp)
-            .background(if (selected) colorScheme.secondaryContainer else Color.Transparent)
-            .combinedClickable(
-                onClick = { listener.onSessionEvent(item.session, false) },
-                onLongClick = { listener.onSessionEvent(item.session, true) },
-            )
-            .padding(6.dp),
-        color = if (!item.running && item.exitStatus != 0) colorScheme.error else colorScheme.onSurface,
-        fontSize = 14.sp,
-        textDecoration = if (item.running) null else TextDecoration.LineThrough,
-    )
-}
-
-@Composable
-fun SessionTabStrip(
-    state: SessionsUiState,
-    align: TabBarAlign,
-    listener: SessionListener,
-    newListener: NewSessionListener,
-) {
-    val indices = state.sessions.indices.toList()
-    val tabs = if (align == TabBarAlign.RIGHT) indices.reversed() else indices
-    val listState = rememberLazyListState()
-    LaunchedEffect(state.currentIndex) {
-        val position = tabs.indexOf(state.currentIndex)
-        if (position >= 0) listState.animateScrollToItem(position)
-    }
-    LazyRow(
-        state = listState,
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(36.dp)
-            .background(Color(state.backgroundColor)),
-        horizontalArrangement = when (align) {
-            TabBarAlign.LEFT -> Arrangement.Start
-            TabBarAlign.CENTER -> Arrangement.Center
-            TabBarAlign.RIGHT -> Arrangement.End
-        },
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        items(tabs) { index ->
-            SessionTab(index, state.sessions[index], index == state.currentIndex, listener)
-        }
-        item {
-            NewSessionTab(newListener)
-        }
-    }
-}
-
-@Composable
-private fun SessionTab(index: Int, item: SessionItem, selected: Boolean, listener: SessionListener) {
-    val colorScheme = MaterialTheme.colorScheme
-    val name = item.name
-    val label = if (name.isNullOrEmpty()) "[${index + 1}]" else "[${index + 1}] $name"
-    StripTab(
-        text = label,
-        color = when {
-            selected -> colorScheme.onPrimaryContainer
-            !item.running && item.exitStatus != 0 -> colorScheme.error
-            else -> colorScheme.onSurface
-        },
-        background = if (selected) colorScheme.primaryContainer else Color.Transparent,
-        bold = selected,
-        strikeThrough = !item.running,
-        onClick = { listener.onSessionEvent(item.session, false) },
-        onLongClick = { listener.onSessionEvent(item.session, true) },
-    )
-}
-
-@Composable
-private fun NewSessionTab(listener: NewSessionListener) {
-    StripTab(
-        text = "+",
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        background = Color.Transparent,
-        bold = false,
-        strikeThrough = false,
-        fontSize = 15.sp,
-        onClick = { listener.onNewSession(false) },
-        onLongClick = { listener.onNewSession(true) },
-    )
-}
-
-@Composable
-private fun StripTab(
-    text: String,
-    color: Color,
-    background: Color,
-    bold: Boolean,
-    strikeThrough: Boolean,
-    onClick: () -> Unit,
-    onLongClick: () -> Unit,
-    fontSize: TextUnit = 13.sp,
-) {
-    Text(
-        text = text,
-        modifier = Modifier
-            .padding(horizontal = 2.dp)
-            .background(background)
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-        color = color,
-        fontSize = fontSize,
-        fontWeight = if (bold) FontWeight.Bold else null,
-        textDecoration = if (strikeThrough) TextDecoration.LineThrough else null,
-        maxLines = 1,
-    )
-}
+private const val PROCESS_POLL_INTERVAL_MS = 2000L

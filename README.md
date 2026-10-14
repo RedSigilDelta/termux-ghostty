@@ -9,9 +9,8 @@ An experimental Android terminal app using libghostty-vt as the terminal backend
 ## Features
 
 - **Ghostty integration** — Uses Ghostty-backed VT parsing and terminal state management inside the app.
-- **Session tabs** — `use-session-tabs = true` shows horizontal session tabs instead of the navigation drawer.
-- **Tab bar position** — `session-tab-bar-position = "top" | "bottom"` (default `"bottom"`).
-- **Tab bar alignment** — `session-tab-bar-align = "left" | "center" | "right"` (default `"left"`).
+- **Workspaces and tabs** — Each workspace has a root folder and its own tabs: terminals, a file browser, and a Markdown / HTML / text viewer. The tabs grid shows a live preview of every terminal and switches or manages workspaces. Workspaces and tabs are restored after the app is killed, with each shell restarted in its last directory.
+- **Floating key bar** — Esc, Ctrl, Alt (tap to arm, tap again to lock), an arrow joystick and Tab float above the keyboard, next to the button that opens the tabs grid.
 - **Clickable terminal links** — `terminal-onclick-url-open = true` enables tap-to-open links; `terminal-onclick-url-open-when-mouse-tracking-active = true` prefers link taps over terminal mouse tracking.
 - **Remember soft keyboard state** — `remember-soft-keyboard-state = true` restores the last soft keyboard visibility when reopening the app.
 - **Material You theming** — `material-you-theme = "disabled" | "light" | "dark" | "black" | "system"` themes the app chrome and terminal ANSI palette with wallpaper-derived Material 3 colors on Android 12+. `black` uses dynamic accents on pure black. When enabled, `colors.properties` is ignored. Recreates automatically on wallpaper changes.
@@ -21,19 +20,13 @@ An experimental Android terminal app using libghostty-vt as the terminal backend
 Settings are edited in the app and stored with Jetpack DataStore. Any key in `~/.termux/termux.toml` overrides the in-app value; run `termux-reload-settings` after editing it. `allow-external-apps` can only be set in this file.
 
 ```toml
-use-session-tabs = true
-session-tab-bar-position = "top"
 material-you-theme = "system"
 allow-external-apps = true
-extra-keys = [
-  ["ESC", "/", { key = "-", popup = "|" }, "HOME", "UP", "END", "PGUP"],
-  ["TAB", "CTRL", "ALT", "LEFT", "DOWN", "RIGHT", "PGDN"],
-]
 ```
 
 `~/.termux/termux.properties` is no longer read. `colors.properties` and `font.ttf` work as before.
 
-The Customization settings cover the wallpaper, cursor trail, effect frame rate, animations, keyboard button and custom font. Each one is also a `termux.toml` key:
+The Customization settings cover the wallpaper, cursor trail, effect frame rate, animations and custom font. Each one is also a `termux.toml` key:
 
 | Key | Default | Values |
 | --- | --- | --- |
@@ -43,8 +36,6 @@ The Customization settings cover the wallpaper, cursor trail, effect frame rate,
 | `cursor-trail` | `"warp"` | `"none"`, `"warp"`, `"sweep"`, `"tail"` |
 | `visual-effect-frame-rate` | `"vsync"` | `"vsync"`, `"30"`, `"60"`, `"90"`, `"120"` |
 | `animations` | `true` | `true`, `false` |
-| `keyboard-fab` | `false` | `true`, `false` |
-| `keyboard-fab-hide-while-typing` | `true` | `true`, `false` |
 | `custom-font-for-ui` | `false` | `true`, `false` |
 
 Choosing a wallpaper copies the image to `~/.termux/wallpaper`, and choosing a font copies it to `~/.termux/font.ttf`. Removing or resetting either one deletes the file.

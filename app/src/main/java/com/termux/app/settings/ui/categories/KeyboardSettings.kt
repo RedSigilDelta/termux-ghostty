@@ -5,72 +5,11 @@ import androidx.compose.ui.res.stringResource
 import com.termux.R
 import com.termux.app.settings.SoftKeyboardToggleBehaviour
 import com.termux.app.settings.ui.ChoiceRow
-import com.termux.app.settings.ui.NumberRow
 import com.termux.app.settings.ui.SettingsGroup
 import com.termux.app.settings.ui.SettingsState
 import com.termux.app.settings.ui.SwitchRow
-import com.termux.app.settings.ui.TextRow
-import com.termux.shared.termux.extrakeys.ExtraKeysConstants
-import com.termux.shared.termux.extrakeys.ExtraKeysInfo
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
 
 fun LazyListScope.keyboardSettings(state: SettingsState) {
-    item {
-        SettingsGroup(
-            title = stringResource(R.string.settings_group_extra_keys),
-            rows = listOf(
-                { shapes ->
-                    TextRow(
-                        title = stringResource(R.string.settings_extra_keys),
-                        value = state.settings.extraKeys.toString(),
-                        multiline = true,
-                        validate = { validateExtraKeys(it, state.settings.extraKeysStyle, state.context.getString(R.string.settings_invalid_extra_keys)) },
-                        onChange = { value -> state.save { it.copy(extraKeys = Json.parseToJsonElement(value) as JsonArray) } },
-                        shapes = shapes,
-                        locked = state.isLocked("extra-keys"),
-                    )
-                },
-                { shapes ->
-                    ChoiceRow(
-                        title = stringResource(R.string.settings_extra_keys_style),
-                        options = listOf(
-                            "default" to stringResource(R.string.settings_extra_keys_style_default),
-                            "arrows-only" to stringResource(R.string.settings_extra_keys_style_arrows_only),
-                            "arrows-all" to stringResource(R.string.settings_extra_keys_style_arrows_all),
-                            "all" to stringResource(R.string.settings_extra_keys_style_all),
-                            "none" to stringResource(R.string.settings_extra_keys_style_none),
-                        ),
-                        selected = state.settings.extraKeysStyle,
-                        onSelect = { value -> state.save { it.copy(extraKeysStyle = value) } },
-                        shapes = shapes,
-                        locked = state.isLocked("extra-keys-style"),
-                    )
-                },
-                { shapes ->
-                    SwitchRow(
-                        title = stringResource(R.string.settings_extra_keys_all_caps),
-                        checked = state.settings.extraKeysTextAllCaps,
-                        onChange = { checked -> state.save { it.copy(extraKeysTextAllCaps = checked) } },
-                        shapes = shapes,
-                        locked = state.isLocked("extra-keys-text-all-caps"),
-                    )
-                },
-                { shapes ->
-                    NumberRow(
-                        title = stringResource(R.string.settings_toolbar_height),
-                        value = state.settings.terminalToolbarHeight,
-                        range = 0.4f..3f,
-                        isFloat = true,
-                        onChange = { value -> state.save { it.copy(terminalToolbarHeight = value.toFloat()) } },
-                        shapes = shapes,
-                        locked = state.isLocked("terminal-toolbar-height"),
-                    )
-                },
-            ),
-        )
-    }
-
     item {
         SettingsGroup(
             title = stringResource(R.string.settings_group_soft_keyboard),
@@ -158,41 +97,4 @@ fun LazyListScope.keyboardSettings(state: SettingsState) {
             ),
         )
     }
-
-    item {
-        SettingsGroup(
-            title = stringResource(R.string.settings_group_floating_button),
-            rows = listOf(
-                { shapes ->
-                    SwitchRow(
-                        title = stringResource(R.string.settings_keyboard_fab),
-                        checked = state.settings.keyboardFab,
-                        onChange = { checked -> state.save { it.copy(keyboardFab = checked) } },
-                        shapes = shapes,
-                        locked = state.isLocked("keyboard-fab"),
-                    )
-                },
-                { shapes ->
-                    SwitchRow(
-                        title = stringResource(R.string.settings_keyboard_fab_hide_while_typing),
-                        checked = state.settings.keyboardFabHideWhileTyping,
-                        onChange = { checked -> state.save { it.copy(keyboardFabHideWhileTyping = checked) } },
-                        shapes = shapes,
-                        locked = state.isLocked("keyboard-fab-hide-while-typing"),
-                        enabled = state.settings.keyboardFab,
-                    )
-                },
-            ),
-        )
-    }
-}
-
-private fun validateExtraKeys(text: String, style: String, invalid: String): String? {
-    try {
-        if (Json.parseToJsonElement(text) !is JsonArray) return invalid
-        ExtraKeysInfo(text, style, ExtraKeysConstants.CONTROL_CHARS_ALIASES)
-    } catch (e: Exception) {
-        return invalid
-    }
-    return null
 }

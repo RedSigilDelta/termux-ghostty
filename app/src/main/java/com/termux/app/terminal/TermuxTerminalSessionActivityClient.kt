@@ -11,6 +11,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import com.termux.R
 import com.termux.app.TermuxActivity
 import com.termux.app.settings.BellBehaviour
+import com.termux.app.workspace.Tab
 import com.termux.shared.interact.ShareUtils
 import com.termux.shared.logger.Logger
 import com.termux.shared.termux.TermuxConstants
@@ -21,6 +22,7 @@ import com.termux.shared.termux.terminal.io.BellHandler
 import com.termux.shared.termux.theme.TermuxThemeUtils
 import com.termux.terminal.TerminalSession
 import com.termux.terminal.compose.session.TerminalSessionBackend
+import java.io.File
 
 /** The [com.termux.terminal.TerminalSessionClient] implementation that may require an Activity for its interface methods. */
 open class TermuxTerminalSessionActivityClient(private val activity: TermuxActivity?) : TermuxTerminalSessionClientBase() {
@@ -47,7 +49,7 @@ open class TermuxTerminalSessionActivityClient(private val activity: TermuxActiv
      */
     fun onStart() {
         // The service has connected, but data may have changed since we were last in the foreground.
-        // Get the session stored in shared preferences stored by onStop if its valid,
+        // Get the active workspace tab's session if it is still running,
         // otherwise get the last session currently running.
         if (mActivity.getTermuxService() != null) {
             setCurrentSession(getCurrentStoredSessionOrLast())
@@ -73,9 +75,8 @@ open class TermuxTerminalSessionActivityClient(private val activity: TermuxActiv
      * Should be called when mActivity.onStop() is called
      */
     fun onStop() {
-        // Store current session in shared preferences so that it can be restored later in
-        // onStart if needed.
-        setCurrentStoredSession()
+        // Save the tab names and working directories so the tabs can be restored later.
+        refreshWorkspaceTabs()
 
         // Release mBellSoundPool resources, specially to prevent exceptions like the following to be thrown
         // java.util.concurrent.TimeoutException: android.media.SoundPool.finalize() timed out after 10 seconds
@@ -256,28 +257,33 @@ open class TermuxTerminalSessionActivityClient(private val activity: TermuxActiv
         mBellSoundPool = null
     }
 
+    fun backendFor(session: TerminalSession): TerminalSessionBackend {
+        var backend = mSessionBackends[session.mHandle]
+        if (backend == null) {
+            backend = TerminalSessionBackend(session)
+            mSessionBackends[session.mHandle] = backend
+        }
+        return backend
+    }
+
     /** Try switching to session. */
     fun setCurrentSession(session: TerminalSession?) {
         if (session == null) return
 
         if (mActivity.getCurrentSession() !== session) {
-            var backend = mSessionBackends[session.mHandle]
-            if (backend == null) {
-                backend = TerminalSessionBackend(session)
-                mSessionBackends[session.mHandle] = backend
-            }
-            mActivity.getTerminalView().setBackend(backend)
+            mActivity.getTerminalView().setBackend(backendFor(session))
             mActivity.setCurrentSession(session)
             // notify about switched session if not already displaying the session
             notifyOfSessionChange()
         }
 
+        mActivity.getTermuxService()?.getWorkspaces()?.activate(session)
+
         // We call the following even when the session is already being displayed since config may
-        // be stale, like current session not selected or scrolled to.
-        checkAndScrollToSession(session)
+        // be stale, like current session not selected.
+        mActivity.refreshTabsUi()
         updateBackgroundColor()
 
-        // Update tab strip selection (O(1), not full rebuild)
         mActivity.onCurrentSessionChanged()
     }
 
@@ -293,26 +299,23 @@ open class TermuxTerminalSessionActivityClient(private val activity: TermuxActiv
     fun switchToSession(forward: Boolean) {
         val service = mActivity.getTermuxService() ?: return
 
-        val currentTerminalSession = mActivity.getCurrentSession()
-        var index = service.getIndexOfSession(currentTerminalSession)
-        val size = service.getTermuxSessionsSize()
+        val sessions = service.getWorkspaces().activeTerminalSessions()
+        if (sessions.isEmpty()) return
+        var index = sessions.indexOf(mActivity.getCurrentSession())
+        val size = sessions.size
         if (forward) {
             if (++index >= size) index = 0
         } else {
             if (--index < 0) index = size - 1
         }
 
-        val termuxSession = service.getTermuxSession(index)
-        if (termuxSession != null)
-            setCurrentSession(termuxSession.terminalSession)
+        setCurrentSession(sessions[index])
     }
 
     fun switchToSession(index: Int) {
         val service = mActivity.getTermuxService() ?: return
 
-        val termuxSession = service.getTermuxSession(index)
-        if (termuxSession != null)
-            setCurrentSession(termuxSession.terminalSession)
+        setCurrentSession(service.getWorkspaces().activeTerminalSessions().getOrNull(index))
     }
 
     @SuppressLint("InflateParams")
@@ -325,7 +328,7 @@ open class TermuxTerminalSessionActivityClient(private val activity: TermuxActiv
         }, -1, null, -1, null, null)
     }
 
-    private fun renameSession(sessionToRename: TerminalSession?, text: String?) {
+    fun renameSession(sessionToRename: TerminalSession?, text: String?) {
         if (sessionToRename == null) return
         sessionToRename.mSessionName = text
         val service = mActivity.getTermuxService()
@@ -333,67 +336,88 @@ open class TermuxTerminalSessionActivityClient(private val activity: TermuxActiv
             val termuxSession = service.getTermuxSessionForTerminalSession(sessionToRename)
             if (termuxSession != null)
                 termuxSession.executionCommand.shellName = text
+            service.getWorkspaces().refreshTerminalTabs()
         }
     }
 
-    fun addNewSession(isFailSafe: Boolean, sessionName: String?) {
+    fun addNewSession(isFailSafe: Boolean, sessionName: String?, workingDirectory: String? = null) {
         val service = mActivity.getTermuxService() ?: return
 
         if (service.getTermuxSessionsSize() >= MAX_SESSIONS) {
             AlertDialog.Builder(mActivity).setTitle(R.string.title_max_terminals_reached).setMessage(R.string.msg_max_terminals_reached)
                 .setPositiveButton(android.R.string.ok, null).show()
         } else {
+            val workspaces = service.getWorkspaces()
             val currentSession = mActivity.getCurrentSession()
 
-            val workingDirectory = if (currentSession == null) {
-                mActivity.getSettings().resolveDefaultWorkingDirectory()
-            } else {
-                currentSession.cwd
-            }
+            val cwd = workingDirectory
+                ?: currentSession?.takeIf { workspaces.isInActiveWorkspace(it) }?.cwd
+                ?: workspaces.state.value.activeWorkspace?.root
+                ?: mActivity.getSettings().resolveDefaultWorkingDirectory()
 
-            val newTermuxSession = service.createTermuxSession(null, null, null, workingDirectory, isFailSafe, sessionName) ?: return
+            val newTermuxSession = service.createTermuxSession(null, null, null, cwd, isFailSafe, sessionName) ?: return
 
             val newTerminalSession = newTermuxSession.terminalSession
+            workspaces.bindNewSession(newTerminalSession, true)
             setCurrentSession(newTerminalSession)
-
-            mActivity.getScreenState().closeDrawer()
         }
     }
 
-    fun setCurrentStoredSession() {
-        val currentSession = mActivity.getCurrentSession()
-        if (currentSession != null)
-            mActivity.getPreferences().setCurrentSession(currentSession.mHandle)
-        else
-            mActivity.getPreferences().setCurrentSession(null)
+    /** Starts a shell for every terminal tab of the active workspace that has no live session, e.g. after process death. */
+    fun restoreWorkspaceTabs() {
+        val service = mActivity.getTermuxService() ?: return
+        val workspaces = service.getWorkspaces()
+        val root = workspaces.state.value.activeWorkspace?.root
+        for (tab in workspaces.unboundTerminalTabs()) {
+            val cwd = listOf(tab.cwd, root).firstOrNull { it != null && File(it).isDirectory }
+            val termuxSession = service.createTermuxSession(null, null, null, cwd, false, tab.name) ?: continue
+            workspaces.bindRestoredSession(tab.id, termuxSession.terminalSession)
+        }
     }
 
-    /** The current session as stored or the last one if that does not exist. */
-    fun getCurrentStoredSessionOrLast(): TerminalSession? {
-        val stored = getCurrentStoredSession()
+    /** Shows the active workspace: restores its shells and displays its active tab, or a new shell if it has none. */
+    fun showActiveWorkspace() {
+        val service = mActivity.getTermuxService() ?: return
+        restoreWorkspaceTabs()
+        val workspaces = service.getWorkspaces()
+        val active = workspaces.activeTab()
+        when {
+            active is Tab.Terminal -> (workspaces.activeSession() ?: workspaces.activeTerminalSessions().firstOrNull())?.let(::setCurrentSession)
+            active != null -> Unit
+            else -> workspaces.activeTerminalSessions().firstOrNull()?.let(::setCurrentSession) ?: addNewSession(false, null)
+        }
+    }
 
-        if (stored != null) {
-            // If a stored session is in the list of currently running sessions, then return it
-            return stored
+    /** Closes a tab, killing its shell if it is still running. */
+    fun closeTab(tabId: String) {
+        val service = mActivity.getTermuxService() ?: return
+        val workspaces = service.getWorkspaces()
+        val session = workspaces.sessionFor(tabId)
+        if (session != null) {
+            removeFinishedSession(session)
         } else {
-            // Else return the last session currently running
-            val service = mActivity.getTermuxService() ?: return null
-
-            val termuxSession = service.getLastTermuxSession()
-            return if (termuxSession != null) termuxSession.terminalSession else null
+            workspaces.closeTab(tabId)
+            workspaces.activeSession()?.let(::setCurrentSession)
+            if (workspaces.state.value.activeWorkspace?.tabs.isNullOrEmpty()) mActivity.showTabsGrid()
         }
     }
 
-    private fun getCurrentStoredSession(): TerminalSession? {
-        val sessionHandle = mActivity.getPreferences().getCurrentSession()
+    fun refreshWorkspaceTabs() {
+        mActivity.getTermuxService()?.getWorkspaces()?.refreshTerminalTabs()
+    }
 
-        // If no session is stored in shared preferences
-        if (sessionHandle == null) return null
-
-        // Check if the session handle found matches one of the currently running sessions
+    /**
+     * The active tab's session, else the active workspace's last terminal, else the last session.
+     * Null while a Files or Viewer tab is active, so returning to the app keeps that tab shown.
+     */
+    fun getCurrentStoredSessionOrLast(): TerminalSession? {
         val service = mActivity.getTermuxService() ?: return null
-
-        return service.getTerminalSessionForHandle(sessionHandle)
+        val workspaces = service.getWorkspaces()
+        val activeTab = workspaces.activeTab()
+        if (activeTab != null && activeTab !is Tab.Terminal) return null
+        return workspaces.activeSession()
+            ?: workspaces.activeTerminalSessions().lastOrNull()
+            ?: service.getLastTermuxSession()?.terminalSession
     }
 
     open fun removeFinishedSession(finishedSession: TerminalSession?) {
@@ -413,7 +437,7 @@ open class TermuxTerminalSessionActivityClient(private val activity: TermuxActiv
             return
         }
 
-        val removedIndex = service.removeTermuxSession(finishedSession)
+        service.removeTermuxSession(finishedSession)
         finishedSession.close()
 
         if (service.getIndexOfSession(finishedSession) >= 0) {
@@ -425,18 +449,15 @@ open class TermuxTerminalSessionActivityClient(private val activity: TermuxActiv
 
         if (!wasCurrentSession) return
 
-        val replacementIndex = resolveReplacementIndex(removedIndex, service.getTermuxSessionsSize())
-        if (replacementIndex < 0) {
-            // There are no sessions to show, so finish the activity.
-            mActivity.finishActivityIfNotFinishing()
-            return
-        }
-
-        val termuxSession = service.getTermuxSession(replacementIndex)
-        if (termuxSession != null) {
-            setCurrentSession(termuxSession.terminalSession)
-        } else {
-            clearCurrentSession()
+        val replacement = service.getWorkspaces().activeSession()
+        when {
+            replacement != null -> setCurrentSession(replacement)
+            service.getWorkspaces().activeTab() != null -> clearCurrentSession()
+            service.isTermuxSessionsEmpty() -> mActivity.finishActivityIfNotFinishing()
+            else -> {
+                clearCurrentSession()
+                mActivity.showTabsGrid()
+            }
         }
     }
 
@@ -461,15 +482,6 @@ open class TermuxTerminalSessionActivityClient(private val activity: TermuxActiv
 
     fun termuxSessionListNotifyUpdated() {
         mActivity.termuxSessionListNotifyUpdated()
-    }
-
-    fun checkAndScrollToSession(session: TerminalSession?) {
-        if (!mActivity.isVisible()) return
-        val service = mActivity.getTermuxService() ?: return
-
-        if (service.getIndexOfSession(session) < 0) return
-        mActivity.getSessionsUiState().refresh(service.getTermuxSessions(), session)
-        mActivity.getSessionsUiState().requestScrollToCurrent()
     }
 
     private fun toToastTitle(session: TerminalSession?): String? {
@@ -503,8 +515,6 @@ open class TermuxTerminalSessionActivityClient(private val activity: TermuxActiv
 
         val backgroundColor = TermuxTerminalStyling.resolveBackgroundColor(mActivity.getCurrentSession())
         mActivity.getWindow().decorView.setBackgroundColor(backgroundColor)
-        mActivity.getTerminalToolbarState().backgroundColor = backgroundColor
-        mActivity.getSessionsUiState().backgroundColor = backgroundColor
 
         val insetsController = WindowInsetsControllerCompat(mActivity.getWindow(), mActivity.getWindow().decorView)
         val lightSystemBars = ColorUtils.calculateLuminance(backgroundColor) > 0.5
@@ -516,17 +526,5 @@ open class TermuxTerminalSessionActivityClient(private val activity: TermuxActiv
         private const val MAX_SESSIONS = TermuxConstants.TERMUX_APP_MAX_TERMINAL_SESSIONS
 
         private const val LOG_TAG = "TermuxTerminalSessionActivityClient"
-
-        /**
-         * Index of the session to display after the session at [removedIndex] left a list that
-         * now holds [remainingSize] sessions.
-         *
-         * @return -1 when nothing is left to display.
-         */
-        @JvmStatic
-        fun resolveReplacementIndex(removedIndex: Int, remainingSize: Int): Int {
-            if (remainingSize <= 0 || removedIndex < 0) return -1
-            return minOf(removedIndex, remainingSize - 1)
-        }
     }
 }

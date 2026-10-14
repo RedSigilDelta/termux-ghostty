@@ -24,13 +24,16 @@ import android.view.MenuItem
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
+import android.webkit.MimeTypeMap
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.ui.platform.ComposeView
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import com.google.android.material.color.DynamicColors
 import com.termux.R
 import com.termux.app.activities.HelpActivity
@@ -39,11 +42,17 @@ import com.termux.app.api.file.FileReceiverActivity
 import com.termux.app.settings.TermuxFiles
 import com.termux.app.settings.TermuxSettings
 import com.termux.app.settings.TermuxSettingsRepository
-import com.termux.app.terminal.SessionsUiState
+import com.termux.app.terminal.TabThumbnails
+import com.termux.app.terminal.TabsUiState
 import com.termux.app.terminal.TermuxTerminalSessionActivityClient
 import com.termux.app.terminal.TermuxTerminalViewClient
-import com.termux.app.terminal.io.TermuxTerminalExtraKeys
-import com.termux.app.terminal.io.TerminalToolbarState
+import com.termux.app.terminal.io.ModifierKeys
+import com.termux.app.workspace.Tab
+import com.termux.app.workspace.newId
+import com.termux.app.workspace.ui.ViewerKind
+import com.termux.app.workspace.ui.looksBinary
+import com.termux.app.workspace.ui.readHead
+import com.termux.app.workspace.ui.viewerKindFor
 import com.termux.shared.activity.ActivityUtils
 import com.termux.shared.activity.media.AppCompatActivityUtils
 import com.termux.shared.activities.ReportActivity
@@ -51,19 +60,20 @@ import com.termux.shared.android.PermissionUtils
 import com.termux.shared.data.DataUtils
 import com.termux.shared.data.IntentUtils
 import com.termux.shared.logger.Logger
+import com.termux.shared.net.uri.UriUtils
 import com.termux.shared.termux.TermuxConstants
 import com.termux.shared.termux.TermuxConstants.TERMUX_APP.TERMUX_ACTIVITY
 import com.termux.shared.termux.TermuxUtils
 import com.termux.shared.termux.crash.TermuxCrashUtils
 import com.termux.shared.termux.interact.TextInputDialogUtils
 import com.termux.shared.termux.settings.preferences.TermuxAppSharedPreferences
-import com.termux.shared.termux.terminal.TermuxTerminalStyling
 import com.termux.shared.termux.theme.TermuxThemeUtils
 import com.termux.terminal.TerminalSession
 import com.termux.terminal.compose.ModifierKeyReader
 import com.termux.terminal.compose.TerminalComposeView
 import com.termux.terminal.compose.TerminalDiagnostic
 import com.termux.terminal.compose.TerminalWallpaper
+import com.termux.terminal.compose.session.TerminalSessionBackend
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -114,22 +124,22 @@ class TermuxActivity : AppCompatActivity(), ServiceConnection {
     private lateinit var mPreferences: TermuxAppSharedPreferences
 
     /**
-     * The state of the Compose terminal toolbar.
+     * The Ctrl and Alt state shared by the key bar and the terminal view.
      */
-    private lateinit var mTerminalToolbarState: TerminalToolbarState
+    private val mModifierKeys = ModifierKeys()
 
     /**
-     * The client for the terminal toolbar.
+     * The state of the tabs grid and the key bar tab button.
      */
-    private lateinit var mTermuxTerminalExtraKeys: TermuxTerminalExtraKeys
+    private lateinit var mTabsUiState: TabsUiState
 
     /**
-     * The state of the session drawer list and the session tab strip.
+     * The live frames shown on the tab cards while the tabs grid is open.
      */
-    private lateinit var mSessionsUiState: SessionsUiState
+    private val mTabThumbnails = TabThumbnails()
 
     /**
-     * The state of the Compose root: drawer, session tabs and terminal margins.
+     * The state of the Compose root: tabs grid visibility and terminal margins.
      */
     private lateinit var mScreenState: TermuxScreenState
 
@@ -212,18 +222,15 @@ class TermuxActivity : AppCompatActivity(), ServiceConnection {
 
         setTermuxTerminalViewAndClients()
 
-        setTerminalToolbarView(savedInstanceState)
-
-        mSessionsUiState = SessionsUiState()
+        mTabsUiState = TabsUiState()
 
         val settings = getSettings()
-        mScreenState = TermuxScreenState(settings.useSessionTabs, settings.sessionTabBarPosition,
-            settings.sessionTabBarAlign, settings.terminalMarginHorizontal, settings.terminalMarginVertical)
+        mScreenState = TermuxScreenState(settings.terminalMarginHorizontal, settings.terminalMarginVertical)
         mScreenState.fontStamp = TermuxFiles.fontFile.lastModified()
 
         val root = ComposeView(this)
         setContentView(root)
-        bindTermuxScreen(root, mScreenState, mTerminalView, mTerminalToolbarState, mSessionsUiState, ScreenActions())
+        bindTermuxScreen(root, mScreenState, mTerminalView, mModifierKeys, mTabsUiState, mTabThumbnails, ScreenActions())
 
         registerForContextMenu(mTerminalView)
 
@@ -326,6 +333,7 @@ class TermuxActivity : AppCompatActivity(), ServiceConnection {
         if (mIsInvalidState) return
 
         mIsVisible = false
+        mTabThumbnails.stop()
 
         if (::mTermuxTerminalSessionActivityClient.isInitialized)
             mTermuxTerminalSessionActivityClient.onStop()
@@ -334,7 +342,6 @@ class TermuxActivity : AppCompatActivity(), ServiceConnection {
             mTermuxTerminalViewClient.onStop()
 
         unregisterTermuxActivityBroadcastReceiver()
-        mScreenState.closeDrawer()
     }
 
     override fun onDestroy() {
@@ -368,7 +375,6 @@ class TermuxActivity : AppCompatActivity(), ServiceConnection {
         Logger.logVerbose(LOG_TAG, "onSaveInstanceState")
 
         super.onSaveInstanceState(outState)
-        saveTerminalToolbarTextInput(outState)
         outState.putBoolean(ARG_ACTIVITY_RECREATED, true)
     }
 
@@ -383,6 +389,12 @@ class TermuxActivity : AppCompatActivity(), ServiceConnection {
         val termuxService = (service as TermuxService.LocalBinder).service
         mTermuxService = termuxService
 
+        lifecycleScope.launch {
+            lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                termuxService.getWorkspaces().state.collect { refreshTabsUi() }
+            }
+        }
+
         val intent = getIntent()
         setIntent(null)
 
@@ -391,12 +403,18 @@ class TermuxActivity : AppCompatActivity(), ServiceConnection {
                 TermuxInstaller.setupBootstrapIfNeeded(this) {
                     if (mTermuxService == null) return@setupBootstrapIfNeeded // Activity might have been destroyed.
                     try {
+                        mTermuxTerminalSessionActivityClient.restoreWorkspaceTabs()
+
                         var launchFailsafe = false
                         val extras = intent?.extras
                         if (extras != null) {
                             launchFailsafe = extras.getBoolean(TERMUX_ACTIVITY.EXTRA_FAILSAFE_SESSION, false)
                         }
-                        mTermuxTerminalSessionActivityClient.addNewSession(launchFailsafe, null)
+                        if (launchFailsafe) {
+                            mTermuxTerminalSessionActivityClient.addNewSession(true, null)
+                        } else {
+                            mTermuxTerminalSessionActivityClient.showActiveWorkspace()
+                        }
                     } catch (e: WindowManager.BadTokenException) {
                         // Activity finished - ignore.
                     }
@@ -405,8 +423,11 @@ class TermuxActivity : AppCompatActivity(), ServiceConnection {
                 // The service connected while not in foreground - just bail out.
                 finishActivityIfNotFinishing()
             }
-        } else if (!handleLaunchIntent(intent, !mIsActivityRecreated)) {
-            mTermuxTerminalSessionActivityClient.setCurrentSession(mTermuxTerminalSessionActivityClient.getCurrentStoredSessionOrLast())
+        } else {
+            mTermuxTerminalSessionActivityClient.restoreWorkspaceTabs()
+            if (!handleLaunchIntent(intent, !mIsActivityRecreated)) {
+                mTermuxTerminalSessionActivityClient.setCurrentSession(mTermuxTerminalSessionActivityClient.getCurrentStoredSessionOrLast())
+            }
         }
 
         // Update the {@link TerminalSession} clients.
@@ -584,108 +605,137 @@ class TermuxActivity : AppCompatActivity(), ServiceConnection {
             mTermuxTerminalSessionActivityClient.onCreate()
     }
 
-    private fun setTerminalToolbarView(savedInstanceState: Bundle?) {
-        mTermuxTerminalExtraKeys = TermuxTerminalExtraKeys(this, mTerminalView,
-            mTermuxTerminalViewClient, mTermuxTerminalSessionActivityClient)
-
-        mTerminalToolbarState = TerminalToolbarState(mPreferences.shouldShowTerminalToolbar())
-        mTerminalToolbarState.extraKeysInfo = mTermuxTerminalExtraKeys.getExtraKeysInfo()
-        mTerminalToolbarState.textAllCaps = getSettings().extraKeysTextAllCaps
-        mTerminalToolbarState.heightScale = getSettings().terminalToolbarHeight
-        mTerminalToolbarState.backgroundColor = TermuxTerminalStyling.resolveBackgroundColor(getCurrentSession())
-
-        if (savedInstanceState != null) {
-            val savedTextInput = savedInstanceState.getString(ARG_TERMINAL_TOOLBAR_TEXT_INPUT)
-            if (savedTextInput != null) mTerminalToolbarState.textInput = savedTextInput
-        }
-    }
-
-    private fun sendTerminalToolbarText(text: String) {
-        val session = getCurrentSession() ?: return
-
-        if (session.isRunning()) {
-            session.write(if (text.isEmpty()) "\r" else text)
-        } else {
-            mTermuxTerminalSessionActivityClient.removeFinishedSession(session)
-        }
-    }
-
-    fun toggleTerminalToolbar() {
-        if (!::mTerminalToolbarState.isInitialized) return
-
-        val showNow = mPreferences.toogleShowTerminalToolbar()
-        Logger.showToast(this, (if (showNow) getString(R.string.msg_enabling_terminal_toolbar) else getString(R.string.msg_disabling_terminal_toolbar)), true)
-        mTerminalToolbarState.visible = showNow
-        if (showNow && mTerminalToolbarState.isTextInputSelected()) {
-            // Focus the text input view if just revealed.
-            mTerminalToolbarState.requestTextInputFocus()
-        }
-    }
-
-    private fun saveTerminalToolbarTextInput(savedInstanceState: Bundle?) {
-        if (savedInstanceState == null || !::mTerminalToolbarState.isInitialized) return
-
-        val textInput = mTerminalToolbarState.textInput
-        if (textInput.isNotEmpty()) savedInstanceState.putString(ARG_TERMINAL_TOOLBAR_TEXT_INPUT, textInput)
-    }
-
     private inner class ScreenActions : TermuxScreenActions {
 
-        override fun openSettings() {
+        override fun onKey(keyCode: Int) {
+            mTerminalView.submitKey(keyCode, mModifierKeys.metaState())
+        }
+
+        override fun openTabs() {
+            showTabsGrid()
+        }
+
+        override fun onSelectTab(id: String) {
+            val workspaces = mTermuxService?.getWorkspaces()
+            val session = workspaces?.sessionFor(id)
+            if (session != null) {
+                mTermuxTerminalSessionActivityClient.setCurrentSession(session)
+            } else {
+                workspaces?.activateTab(id)
+                leaveTerminal()
+            }
+            mScreenState.tabsGridVisible = false
+        }
+
+        override fun onCloseTab(id: String) {
+            mTermuxTerminalSessionActivityClient.closeTab(id)
+        }
+
+        override fun onRenameTab(id: String, name: String) {
+            mTermuxService?.getWorkspaces()?.sessionFor(id)?.let { mTermuxTerminalSessionActivityClient.renameSession(it, name) }
+        }
+
+        override fun onNewTerminal() {
+            mTermuxTerminalSessionActivityClient.addNewSession(false, null)
+            mScreenState.tabsGridVisible = false
+        }
+
+        override fun onNewFiles() {
+            val workspaces = mTermuxService?.getWorkspaces() ?: return
+            val session = getCurrentSession()?.takeIf { workspaces.isInActiveWorkspace(it) }
+            val dir = session?.cwd ?: workspaces.state.value.activeWorkspace?.root ?: return
+            workspaces.openTab(Tab.Files(newId(), dir))
+            leaveTerminal()
+            mScreenState.tabsGridVisible = false
+        }
+
+        override fun onSelectWorkspace(id: String) {
+            mTermuxService?.getWorkspaces()?.activateWorkspace(id)
+            mTermuxTerminalSessionActivityClient.showActiveWorkspace()
+            mScreenState.tabsGridVisible = false
+        }
+
+        override fun onNewWorkspace(name: String, root: String) {
+            if (!File(root).isDirectory) {
+                showToast(getString(R.string.workspace_folder_missing, root), true)
+                return
+            }
+            mTermuxService?.getWorkspaces()?.createWorkspace(name, root)
+            mTermuxTerminalSessionActivityClient.showActiveWorkspace()
+            mScreenState.tabsGridVisible = false
+        }
+
+        override fun onRenameWorkspace(id: String, name: String) {
+            mTermuxService?.getWorkspaces()?.renameWorkspace(id, name)
+        }
+
+        override fun onDeleteWorkspace(id: String) {
+            val service = mTermuxService ?: return
+            val workspaces = service.getWorkspaces()
+            val sessions = workspaces.workspaceSessions(id)
+            workspaces.deleteWorkspace(id)
+            // Switch away before killing the old shells.
+            mTermuxTerminalSessionActivityClient.showActiveWorkspace()
+            sessions.forEach { mTermuxTerminalSessionActivityClient.removeFinishedSession(it) }
+        }
+
+        override fun onOpenSettings() {
             ActivityUtils.startActivity(this@TermuxActivity, Intent(this@TermuxActivity, SettingsActivity::class.java))
         }
 
-        override fun toggleSoftKeyboard() {
-            mTermuxTerminalViewClient.onToggleSoftKeyboardRequest()
+        override fun onDismiss() {
+            mScreenState.tabsGridVisible = false
         }
 
-        override fun toggleTerminalToolbar() {
-            this@TermuxActivity.toggleTerminalToolbar()
+        override fun backendFor(session: TerminalSession): TerminalSessionBackend =
+            mTermuxTerminalSessionActivityClient.backendFor(session)
+
+        override fun onFilesNavigate(tabId: String, dir: String) {
+            mTermuxService?.getWorkspaces()?.setFilesDir(tabId, dir)
         }
 
-        override fun newSession(failsafe: Boolean) {
-            mTermuxTerminalSessionActivityClient.addNewSession(failsafe, null)
-        }
-
-        override fun showNewNamedSessionDialog() {
-            TextInputDialogUtils.textInput(this@TermuxActivity, R.string.title_create_named_session, null,
-                R.string.action_create_named_session_confirm, { text -> mTermuxTerminalSessionActivityClient.addNewSession(false, text) },
-                R.string.action_new_session_failsafe, { text -> mTermuxTerminalSessionActivityClient.addNewSession(true, text) },
-                -1, null, null)
-        }
-
-        override fun onSessionEvent(session: TerminalSession, longPress: Boolean) {
-            if (longPress) {
-                mTermuxTerminalSessionActivityClient.renameSession(session)
-            } else {
-                mTermuxTerminalSessionActivityClient.setCurrentSession(session)
-                mScreenState.closeDrawer()
+        override fun onOpenFile(path: String) {
+            val kind = viewerKindFor(File(path).name)
+            when {
+                kind == null -> onOpenExternal(path)
+                kind != ViewerKind.TEXT -> openViewer(path)
+                else -> lifecycleScope.launch {
+                    val binary = withContext(Dispatchers.IO) {
+                        runCatching { looksBinary(readHead(File(path))) }.getOrDefault(false)
+                    }
+                    if (binary) onOpenExternal(path) else openViewer(path)
+                }
             }
         }
 
-        override fun currentSession(): TerminalSession? {
-            return getCurrentSession()
+        override fun onOpenExternal(path: String) {
+            val file = File(path)
+            val contentType = MimeTypeMap.getSingleton().getMimeTypeFromExtension(file.extension.lowercase())
+                ?: "application/octet-stream"
+            val uri = UriUtils.getContentUri(TermuxConstants.TERMUX_FILE_SHARE_URI_AUTHORITY, file.absolutePath)
+            val intent = Intent(Intent.ACTION_VIEW)
+                .setDataAndType(uri, contentType)
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            try {
+                startActivity(Intent.createChooser(intent, null))
+            } catch (e: ActivityNotFoundException) {
+                showToast(getString(R.string.viewer_no_app), false)
+            }
         }
 
-        override fun onExtraKey(key: String, ctrl: Boolean, alt: Boolean, shift: Boolean, fn: Boolean) {
-            mTermuxTerminalExtraKeys.onTerminalExtraKeyButtonClick(key, ctrl, alt, shift, fn)
+        override fun onOpenTerminal(dir: String) {
+            mTermuxTerminalSessionActivityClient.addNewSession(false, null, dir)
         }
 
-        override fun sendText(text: String) {
-            sendTerminalToolbarText(text)
-        }
-
-        override fun onKeysPageSelected() {
-            mTerminalView.requestFocus()
+        private fun openViewer(path: String) {
+            mTermuxService?.getWorkspaces()?.openTab(Tab.Viewer(newId(), path))
+            leaveTerminal()
         }
     }
 
     override fun onBackPressed() {
-        if (::mScreenState.isInitialized && mScreenState.isDrawerOpen()) {
-            mScreenState.closeDrawer()
-        } else {
-            finishActivityIfNotFinishing()
-        }
+        // The tabs grid registers a BackHandler while it is shown; let it handle back first.
+        if (onBackPressedDispatcher.hasEnabledCallbacks()) super.onBackPressed() else finishActivityIfNotFinishing()
     }
 
     fun finishActivityIfNotFinishing() {
@@ -893,35 +943,37 @@ class TermuxActivity : AppCompatActivity(), ServiceConnection {
         }
     }
 
-    fun getTermuxTerminalExtraKeys(): TermuxTerminalExtraKeys {
-        return mTermuxTerminalExtraKeys
-    }
-
     fun getScreenState(): TermuxScreenState {
         return mScreenState
     }
 
-    fun getTerminalToolbarState(): TerminalToolbarState {
-        return mTerminalToolbarState
+    fun getModifierKeys(): ModifierKeys {
+        return mModifierKeys
     }
 
-    fun isTerminalViewSelected(): Boolean {
-        return !mTerminalToolbarState.isTextInputSelected()
+    fun showTabsGrid() {
+        mTerminalView.hideSoftKeyboard()
+        mScreenState.tabsGridVisible = true
+    }
+
+    /** Hides the keyboard and drops focus so typing cannot reach a terminal that is no longer shown. */
+    private fun leaveTerminal() {
+        mTerminalView.hideSoftKeyboard()
+        mTerminalView.clearFocus()
+    }
+
+    fun refreshTabsUi() {
+        val service = mTermuxService ?: return
+        mTabsUiState.refresh(service.getWorkspaces().state.value, service.getWorkspaces()::sessionFor)
     }
 
     fun termuxSessionListNotifyUpdated() {
-        val service = mTermuxService ?: return
-        mSessionsUiState.refresh(service.getTermuxSessions(), getCurrentSession())
+        refreshTabsUi()
     }
 
     /** Call when only the current session changes (no structural changes). */
     fun onCurrentSessionChanged() {
-        val service = mTermuxService ?: return
-        mSessionsUiState.refresh(service.getTermuxSessions(), getCurrentSession())
-    }
-
-    fun getSessionsUiState(): SessionsUiState {
-        return mSessionsUiState
+        refreshTabsUi()
     }
 
     fun isVisible(): Boolean {
@@ -1037,19 +1089,11 @@ class TermuxActivity : AppCompatActivity(), ServiceConnection {
         reloadProperties()
         mLastMaterialYouWallpaperId = getMaterialYouWallpaperId()
 
-        mTermuxTerminalExtraKeys.reloadExtraKeys()
-        mTerminalToolbarState.extraKeysInfo = mTermuxTerminalExtraKeys.getExtraKeysInfo()
-        mTerminalToolbarState.textAllCaps = getSettings().extraKeysTextAllCaps
-        mTerminalToolbarState.heightScale = getSettings().terminalToolbarHeight
-
         // Update NightMode.APP_NIGHT_MODE
         TermuxThemeUtils.setAppNightMode(TermuxThemeUtils.getAppNightMode(
             getSettings().nightMode.value, getSettings().materialYouTheme.value))
 
         setMargins()
-        mScreenState.useSessionTabs = getSettings().useSessionTabs
-        mScreenState.tabBarPosition = getSettings().sessionTabBarPosition
-        mScreenState.tabBarAlign = getSettings().sessionTabBarAlign
         mScreenState.fontStamp = TermuxFiles.fontFile.lastModified()
 
         applyTerminalCustomizations()
@@ -1165,7 +1209,6 @@ class TermuxActivity : AppCompatActivity(), ServiceConnection {
         private const val CONTEXT_MENU_SETTINGS_ID = 8
         private const val CONTEXT_MENU_REPORT_ID = 9
 
-        private const val ARG_TERMINAL_TOOLBAR_TEXT_INPUT = "terminal_toolbar_text_input"
         private const val ARG_ACTIVITY_RECREATED = "activity_recreated"
 
         private const val WALLPAPER_DECODE_MAX_DIMENSION = 2048

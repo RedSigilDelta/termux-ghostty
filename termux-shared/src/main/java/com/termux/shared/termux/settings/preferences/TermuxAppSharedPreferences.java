@@ -68,22 +68,6 @@ public class TermuxAppSharedPreferences extends AppSharedPreferences {
 
 
 
-    public boolean shouldShowTerminalToolbar() {
-        return SharedPreferenceUtils.getBoolean(mSharedPreferences, TERMUX_APP.KEY_SHOW_TERMINAL_TOOLBAR, TERMUX_APP.DEFAULT_VALUE_SHOW_TERMINAL_TOOLBAR);
-    }
-
-    public void setShowTerminalToolbar(boolean value) {
-        SharedPreferenceUtils.setBoolean(mSharedPreferences, TERMUX_APP.KEY_SHOW_TERMINAL_TOOLBAR, value, false);
-    }
-
-    public boolean toogleShowTerminalToolbar() {
-        boolean currentValue = shouldShowTerminalToolbar();
-        setShowTerminalToolbar(!currentValue);
-        return !currentValue;
-    }
-
-
-
     public boolean isSoftKeyboardEnabled() {
         return SharedPreferenceUtils.getBoolean(mSharedPreferences, TERMUX_APP.KEY_SOFT_KEYBOARD_ENABLED, TERMUX_APP.DEFAULT_VALUE_KEY_SOFT_KEYBOARD_ENABLED);
     }
@@ -191,16 +175,6 @@ public class TermuxAppSharedPreferences extends AppSharedPreferences {
 
     public int getDefaultFontSize() {
         return DEFAULT_FONTSIZE;
-    }
-
-
-
-    public String getCurrentSession() {
-        return SharedPreferenceUtils.getString(mSharedPreferences, TERMUX_APP.KEY_CURRENT_SESSION, null, true);
-    }
-
-    public void setCurrentSession(String value) {
-        SharedPreferenceUtils.setString(mSharedPreferences, TERMUX_APP.KEY_CURRENT_SESSION, value, false);
     }
 
 

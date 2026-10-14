@@ -92,13 +92,6 @@ public final class TermuxPreferenceConstants {
     public static final class TERMUX_APP {
 
         /**
-         * Defines the key for whether to show terminal toolbar containing extra keys and text input field.
-         */
-        public static final String KEY_SHOW_TERMINAL_TOOLBAR = "show_extra_keys";
-        public static final boolean DEFAULT_VALUE_SHOW_TERMINAL_TOOLBAR = true;
-
-
-        /**
          * Defines the key for whether the soft keyboard will be enabled, for cases where users want
          * to use a hardware keyboard instead.
          */
@@ -132,12 +125,6 @@ public final class TermuxPreferenceConstants {
          * Defines the key for font size of termux terminal view.
          */
         public static final String KEY_FONTSIZE = "fontsize";
-
-
-        /**
-         * Defines the key for current termux terminal session.
-         */
-        public static final String KEY_CURRENT_SESSION = "current_session";
 
 
         /**

@@ -9,8 +9,6 @@ import com.termux.terminal.compose.WallpaperScaling
 import java.io.File
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
 
 @Serializable
 enum class BellBehaviour {
@@ -94,27 +92,6 @@ enum class MaterialYouTheme(val value: String) {
 }
 
 @Serializable
-enum class TabBarPosition {
-    @SerialName("top")
-    TOP,
-
-    @SerialName("bottom")
-    BOTTOM,
-}
-
-@Serializable
-enum class TabBarAlign {
-    @SerialName("left")
-    LEFT,
-
-    @SerialName("center")
-    CENTER,
-
-    @SerialName("right")
-    RIGHT,
-}
-
-@Serializable
 enum class WallpaperScalingSetting(val scaling: WallpaperScaling) {
     @SerialName("center-crop")
     CENTER_CROP(WallpaperScaling.CENTER_CROP),
@@ -162,10 +139,6 @@ enum class EffectFrameRate(val framesPerSecond: Float?) {
     FPS_120(120f),
 }
 
-private val DEFAULT_EXTRA_KEYS: JsonArray =Json.parseToJsonElement(
-    """[["ESC","/",{"key":"-","popup":"|"},"HOME","UP","END","PGUP"],["TAB","CTRL","ALT","LEFT","DOWN","RIGHT","PGDN"]]""",
-) as JsonArray
-
 private const val TAG = "TermuxSettings"
 
 /** Out-of-range values are rejected so they fall back to the stored value instead of being clamped. */
@@ -177,7 +150,6 @@ data class TermuxSettings(
     @SerialName("disable-hardware-keyboard-shortcuts") val disableHardwareKeyboardShortcuts: Boolean = false,
     @SerialName("disable-terminal-session-change-toast") val disableTerminalSessionChangeToast: Boolean = false,
     @SerialName("enforce-char-based-input") val enforceCharBasedInput: Boolean = false,
-    @SerialName("extra-keys-text-all-caps") val extraKeysTextAllCaps: Boolean = true,
     @SerialName("hide-soft-keyboard-on-startup") val hideSoftKeyboardOnStartup: Boolean = false,
     @SerialName("remember-soft-keyboard-state") val rememberSoftKeyboardState: Boolean = false,
     @SerialName("run-termux-am-socket-server") val runTermuxAmSocketServer: Boolean = true,
@@ -187,7 +159,6 @@ data class TermuxSettings(
     @SerialName("unconditional-soft-keyboard-on-tap") val unconditionalSoftKeyboardOnTap: Boolean = true,
     @SerialName("ctrl-space-workaround") val ctrlSpaceWorkaround: Boolean = false,
     @SerialName("fullscreen") val fullscreen: Boolean = false,
-    @SerialName("use-session-tabs") val useSessionTabs: Boolean = false,
     @SerialName("bell-character") val bellBehaviour: BellBehaviour = BellBehaviour.VIBRATE,
     @SerialName("delete-tmpdir-files-older-than-x-days-on-exit") val deleteTmpdirFilesOlderThanXDaysOnExit: Int = 3,
     /** 0 disables blinking. */
@@ -196,7 +167,6 @@ data class TermuxSettings(
     @SerialName("terminal-margin-horizontal") val terminalMarginHorizontal: Int = 3,
     @SerialName("terminal-margin-vertical") val terminalMarginVertical: Int = 0,
     @SerialName("terminal-transcript-rows") val terminalTranscriptRows: Int = TerminalConstants.DEFAULT_TERMINAL_TRANSCRIPT_ROWS,
-    @SerialName("terminal-toolbar-height") val terminalToolbarHeight: Float = 1f,
     /** `ctrl+<key>` shortcuts, null when unset. */
     @SerialName("shortcut-create-session") val shortcutCreateSession: String? = null,
     @SerialName("shortcut-next-session") val shortcutNextSession: String? = null,
@@ -204,15 +174,11 @@ data class TermuxSettings(
     @SerialName("shortcut-rename-session") val shortcutRenameSession: String? = null,
     @SerialName("back-key") val backKey: BackKeyBehaviour = BackKeyBehaviour.BACK,
     @SerialName("default-working-directory") val defaultWorkingDirectory: String = TermuxConstants.TERMUX_HOME_DIR_PATH,
-    @SerialName("extra-keys") val extraKeys: JsonArray = DEFAULT_EXTRA_KEYS,
-    @SerialName("extra-keys-style") val extraKeysStyle: String = "default",
     @SerialName("night-mode") val nightMode: NightModeSetting = NightModeSetting.SYSTEM,
     @SerialName("material-you-theme") val materialYouTheme: MaterialYouTheme = MaterialYouTheme.DISABLED,
     @SerialName("soft-keyboard-toggle-behaviour")
     val softKeyboardToggleBehaviour: SoftKeyboardToggleBehaviour = SoftKeyboardToggleBehaviour.SHOW_HIDE,
     @SerialName("volume-keys") val volumeKeys: VolumeKeysBehaviour = VolumeKeysBehaviour.VIRTUAL,
-    @SerialName("session-tab-bar-position") val sessionTabBarPosition: TabBarPosition = TabBarPosition.BOTTOM,
-    @SerialName("session-tab-bar-align") val sessionTabBarAlign: TabBarAlign = TabBarAlign.LEFT,
     @SerialName("wallpaper") val wallpaper: Boolean = true,
     @SerialName("wallpaper-background-opacity")
     val wallpaperBackgroundOpacity: Float = TerminalWallpaperConfig.DefaultBackgroundOpacity,
@@ -220,8 +186,6 @@ data class TermuxSettings(
     @SerialName("cursor-trail") val cursorTrail: CursorTrail = CursorTrail.WARP,
     @SerialName("visual-effect-frame-rate") val visualEffectFrameRate: EffectFrameRate = EffectFrameRate.VSYNC,
     @SerialName("animations") val animations: Boolean = true,
-    @SerialName("keyboard-fab") val keyboardFab: Boolean = false,
-    @SerialName("keyboard-fab-hide-while-typing") val keyboardFabHideWhileTyping: Boolean = true,
     @SerialName("custom-font-for-ui") val customFontForUi: Boolean = false,
 ) {
     init {
@@ -235,7 +199,6 @@ data class TermuxSettings(
         require(
             terminalTranscriptRows in TerminalConstants.TERMINAL_TRANSCRIPT_ROWS_MIN..TerminalConstants.TERMINAL_TRANSCRIPT_ROWS_MAX,
         ) { "terminal-transcript-rows" }
-        require(terminalToolbarHeight in 0.4f..3f) { "terminal-toolbar-height" }
         require(wallpaperBackgroundOpacity in 0f..1f) { "wallpaper-background-opacity" }
     }
 

@@ -24,6 +24,7 @@ import com.termux.app.settings.TermuxSettingsRepository;
 import com.termux.app.terminal.TermuxTerminalSessionActivityClient;
 import com.termux.app.terminal.TermuxTerminalSessionClientDispatcher;
 import com.termux.app.terminal.TermuxTerminalSessionServiceClient;
+import com.termux.app.workspace.WorkspaceRepository;
 import com.termux.shared.termux.plugins.TermuxPluginUtils;
 import com.termux.shared.data.IntentUtils;
 import com.termux.shared.net.uri.UriUtils;
@@ -97,6 +98,9 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
      */
     private TermuxShellManager mShellManager;
 
+    /** Workspaces and their terminal tabs, persisted across app restarts. */
+    private WorkspaceRepository mWorkspaces;
+
     /** The wake lock and wifi lock are always acquired and released together. */
     private PowerManager.WakeLock mWakeLock;
     private WifiManager.WifiLock mWifiLock;
@@ -111,6 +115,8 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
         Logger.logVerbose(LOG_TAG, "onCreate");
 
         mShellManager = TermuxShellManager.getShellManager();
+        mWorkspaces = WorkspaceRepository.create(getFilesDir());
+        mWorkspaces.ensureDefaultWorkspace(TermuxSettingsRepository.get().current().resolveDefaultWorkingDirectory());
 
         runStartForeground();
 
@@ -171,6 +177,7 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
             killAllTermuxExecutionCommands();
 
         TermuxShellManager.onAppExit(this);
+        mWorkspaces.close();
 
         SystemEventReceiver.unregisterPackageUpdateEvents(this);
 
@@ -274,6 +281,7 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
             if (!processResult) {
                 // Dropped from the list without result processing, so dispose it here. Leaving
                 // it owned would strand a killed session in the list with a dead terminal.
+                mWorkspaces.onSessionRemoved(termuxSession.getTerminalSession(), false);
                 mShellManager.mTermuxSessions.remove(termuxSession);
                 termuxSession.getTerminalSession().close();
             }
@@ -551,6 +559,7 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
         if (newTermuxSession == null)
             newTermuxSession = createTermuxSession(executionCommand);
         if (newTermuxSession == null) return;
+        mWorkspaces.bindNewSession(newTermuxSession.getTerminalSession(), false);
 
         handleSessionAction(DataUtils.getIntFromString(executionCommand.sessionAction,
             TERMUX_SERVICE.VALUE_EXTRA_SESSION_ACTION_SWITCH_TO_NEW_SESSION_AND_OPEN_ACTIVITY),
@@ -639,6 +648,7 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
         int index = getIndexOfSession(sessionToRemove);
 
         if (index < 0) return -1;
+        mWorkspaces.onSessionRemoved(sessionToRemove, true);
 
         // Processes plugin results and, on the normal path, removes and closes the session
         // through onTermuxSessionExited().
@@ -667,6 +677,7 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
             if (executionCommand != null && executionCommand.isPluginExecutionCommand)
                 TermuxPluginUtils.processPluginExecutionCommandResult(this, LOG_TAG, executionCommand);
 
+            mWorkspaces.onSessionRemoved(termuxSession.getTerminalSession(), !mWantsToStop);
             mShellManager.mTermuxSessions.remove(termuxSession);
             termuxSession.getTerminalSession().close();
 
@@ -785,6 +796,7 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
     public synchronized void unsetTermuxTerminalSessionClient() {
         mTermuxTerminalSessionClientDispatcher.unregisterClient(mTermuxTerminalSessionActivityClient);
         mTermuxTerminalSessionActivityClient = null;
+        updateNotification();
     }
 
     public synchronized void finishTermuxActivityIfPresent() {
@@ -816,6 +828,10 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
         int sessionCount = getTermuxSessionsSize();
         int taskCount = mShellManager.mTermuxTasks.size();
         String notificationText = sessionCount + " session" + (sessionCount == 1 ? "" : "s");
+        int workspaceCount = mWorkspaces.getState().getValue().getWorkspaces().size();
+        if (workspaceCount > 1) {
+            notificationText += " in " + workspaceCount + " workspaces";
+        }
         if (taskCount > 0) {
             notificationText += ", " + taskCount + " task" + (taskCount == 1 ? "" : "s");
         }
@@ -879,8 +895,13 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
 
     /** Update the shown foreground service notification after making any changes that affect it. */
     private synchronized void updateNotification() {
-        if (mWakeLock == null && mShellManager.mTermuxSessions.isEmpty() && mShellManager.mTermuxTasks.isEmpty()) {
+        // Stopping already took the service out of the foreground; don't post the notification again.
+        if (mWantsToStop) return;
+        if (mWakeLock == null && mShellManager.mTermuxSessions.isEmpty() && mShellManager.mTermuxTasks.isEmpty()
+            && mTermuxTerminalSessionActivityClient == null) {
             // Exit if we are updating after the user disabled all locks with no sessions or tasks running.
+            // An open activity may still show files or viewer tabs and start a shell from them, so stay
+            // started until it goes away.
             requestStopService();
         } else {
             ((NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE)).notify(TermuxConstants.TERMUX_APP_NOTIFICATION_ID, buildNotification());
@@ -894,9 +915,7 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
     private void setCurrentStoredTerminalSession(TerminalSession terminalSession) {
         if (terminalSession == null) return;
         // Make the newly created session the current one to be displayed
-        TermuxAppSharedPreferences preferences = TermuxAppSharedPreferences.build(this);
-        if (preferences == null) return;
-        preferences.setCurrentSession(terminalSession.mHandle);
+        mWorkspaces.activate(terminalSession);
     }
 
     public synchronized boolean isTermuxSessionsEmpty() {
@@ -909,6 +928,10 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
 
     public synchronized List<TermuxSession> getTermuxSessions() {
         return mShellManager.mTermuxSessions;
+    }
+
+    public WorkspaceRepository getWorkspaces() {
+        return mWorkspaces;
     }
 
     @Nullable

@@ -49,14 +49,8 @@
 
     <string name="title_rename_session">Set session name</string>
     <string name="action_rename_session_confirm">Set</string>
-    <string name="title_create_named_session">New named session</string>
-    <string name="action_create_named_session_confirm">Create</string>
-
-    <string name="action_toggle_soft_keyboard">Keyboard</string>
+    <string name="action_open_tabs">Tabs</string>
     <string name="label_terminal_session_shell">shell</string>
-
-    <string name="msg_enabling_terminal_toolbar">Enabling Terminal Toolbar</string>
-    <string name="msg_disabling_terminal_toolbar">Disabling Terminal Toolbar</string>
 
 
 
@@ -215,11 +209,6 @@
 
     <!-- Ghostty Fork Settings -->
 
-    <string name="termux_ghostty_use_session_tabs_title">Use Session Tabs</string>
-    <string name="termux_ghostty_use_session_tabs_summary">Show horizontal session tabs above the terminal instead of using the drawer sidebar</string>
-    <string name="termux_ghostty_session_tab_bar_position_title">Tab Bar Position</string>
-    <string name="termux_ghostty_session_tab_bar_align_title">Tab Bar Alignment</string>
-
     <string name="termux_ghostty_material_you_theme_title">Material You Theme</string>
     <string name="termux_ghostty_remember_soft_keyboard_state_title">Remember Soft Keyboard State</string>
     <string name="termux_ghostty_remember_soft_keyboard_state_summary">Restore the last soft keyboard visibility state when reopening the app</string>
@@ -243,7 +232,6 @@
     <string name="settings_only_in_config_file">Only settable in termux.toml</string>
     <string name="settings_invalid_value">Invalid value for %1$s</string>
     <string name="settings_number_range">Enter %1$s to %2$s</string>
-    <string name="settings_invalid_extra_keys">Extra keys must be a JSON array of key rows</string>
     <string name="settings_invalid_shortcut">Use the form ctrl+x</string>
 
     <string name="settings_section_appearance">Appearance</string>
@@ -261,9 +249,9 @@
     <string name="settings_category_terminal">Terminal</string>
     <string name="settings_category_terminal_summary">Cursor, font, scrollback, bell</string>
     <string name="settings_category_sessions">Sessions &amp; tabs</string>
-    <string name="settings_category_sessions_summary">Session tabs and tab bar</string>
+    <string name="settings_category_sessions_summary">Session change toast</string>
     <string name="settings_category_keyboard">Keyboard</string>
-    <string name="settings_category_keyboard_summary">Extra keys, soft keyboard, floating button</string>
+    <string name="settings_category_keyboard_summary">Soft keyboard behaviour</string>
     <string name="settings_category_shortcuts">Keys &amp; shortcuts</string>
     <string name="settings_category_shortcuts_summary">Back and volume keys, session shortcuts</string>
     <string name="settings_category_links">Links</string>
@@ -275,9 +263,7 @@
     <string name="settings_category_about">About</string>
     <string name="settings_category_about_summary">Version info and donate</string>
 
-    <string name="settings_group_extra_keys">Extra keys</string>
     <string name="settings_group_soft_keyboard">Soft keyboard</string>
-    <string name="settings_group_floating_button">Floating button</string>
 
     <string name="settings_night_mode">Night mode</string>
     <string name="settings_option_on">On</string>
@@ -296,11 +282,6 @@
     <string name="settings_margin_vertical">Vertical margin</string>
     <string name="settings_fullscreen">Fullscreen</string>
 
-    <string name="settings_tab_bar_bottom">Bottom</string>
-    <string name="settings_tab_bar_top">Top</string>
-    <string name="settings_tab_align_left">Left</string>
-    <string name="settings_tab_align_center">Center</string>
-    <string name="settings_tab_align_right">Right</string>
     <string name="settings_default_working_directory">Default working directory</string>
     <string name="settings_transcript_rows">Transcript rows</string>
     <string name="settings_disable_session_change_toast">Disable session change toast</string>
@@ -309,15 +290,6 @@
     <string name="settings_bell_beep">Beep</string>
     <string name="settings_bell_ignore">Ignore</string>
 
-    <string name="settings_extra_keys">Extra keys</string>
-    <string name="settings_extra_keys_style">Extra keys style</string>
-    <string name="settings_extra_keys_style_default">Default</string>
-    <string name="settings_extra_keys_style_arrows_only">Arrows only</string>
-    <string name="settings_extra_keys_style_arrows_all">Arrows all</string>
-    <string name="settings_extra_keys_style_all">All</string>
-    <string name="settings_extra_keys_style_none">None</string>
-    <string name="settings_extra_keys_all_caps">Extra keys text all caps</string>
-    <string name="settings_toolbar_height">Toolbar height</string>
     <string name="settings_hide_keyboard_on_startup">Hide soft keyboard on startup</string>
     <string name="settings_soft_keyboard_toggle">Soft keyboard toggle behaviour</string>
     <string name="settings_toggle_show_hide">Show/hide</string>
@@ -365,14 +337,51 @@
     <string name="settings_frame_rate_90">90 FPS</string>
     <string name="settings_frame_rate_120">120 FPS</string>
     <string name="settings_animations">Animations</string>
-    <string name="settings_keyboard_fab">Keyboard button</string>
-    <string name="settings_keyboard_fab_hide_while_typing">Hide keyboard button while typing</string>
     <string name="settings_choose_font">Choose font</string>
     <string name="settings_reset_font">Reset font</string>
     <string name="settings_custom_font_for_ui">Use custom font for the whole app</string>
     <string name="settings_wallpaper_set_toast">Wallpaper set</string>
     <string name="settings_font_set_toast">Font set</string>
     <string name="settings_file_copy_failed">Could not copy the file</string>
+
+    <!-- Tabs grid and workspace switcher -->
+    <string name="tabs_grid_name">Name</string>
+    <string name="tabs_grid_new_terminal">New terminal</string>
+    <string name="tabs_grid_new_files">Files</string>
+    <string name="tabs_grid_rename_tab">Rename tab</string>
+    <string name="tabs_grid_close_tab">Close tab</string>
+    <string name="workspace_new">New workspace</string>
+    <string name="workspace_rename">Rename workspace</string>
+    <string name="workspace_delete">Delete workspace</string>
+    <string name="workspace_delete_message">Delete workspace \"%1$s\"? Its terminal sessions will be closed.</string>
+    <string name="workspace_delete_confirm">Delete</string>
+    <string name="workspace_folder">Folder</string>
+    <string name="workspace_folder_missing">Folder %1$s does not exist</string>
+
+    <!-- Viewer tab -->
+    <string name="viewer_reload">Reload</string>
+    <string name="viewer_open_with">Open with…</string>
+    <string name="viewer_too_large">File is too large to preview</string>
+    <string name="viewer_binary">This file can\'t be previewed</string>
+    <string name="viewer_unreadable">Can\'t read this file</string>
+    <string name="viewer_no_app">No app can open this file</string>
+
+    <!-- Files tab -->
+    <string name="files_up">Up</string>
+    <string name="files_new_folder">New folder</string>
+    <string name="files_open_terminal_here">Open terminal here</string>
+    <string name="files_rename">Rename</string>
+    <string name="files_delete">Delete</string>
+    <string name="files_delete_message">Delete \"%1$s\"?</string>
+    <string name="files_name">Name</string>
+    <string name="files_unreadable">Can\'t read this folder</string>
+    <string name="files_rename_failed">Couldn\'t rename</string>
+    <string name="files_delete_failed">Couldn\'t delete</string>
+    <string name="files_create_failed">Couldn\'t create folder</string>
+    <plurals name="files_item_count">
+        <item quantity="one">%1$d item</item>
+        <item quantity="other">%1$d items</item>
+    </plurals>
 
 </resources>
 

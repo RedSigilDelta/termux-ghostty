@@ -6,7 +6,7 @@ The `app` module is the local Termux host: the bootstrap, `TermuxService`, plugi
 
 | Layer | Language | Notes |
 |---|---|---|
-| UI: `TermuxActivity`, `TermuxScreen`, toolbar, sessions UI, settings | Kotlin + Compose | Rewritten in the Compose port. |
+| UI: `TermuxActivity`, `TermuxScreen`, key bar, tabs grid, settings | Kotlin + Compose | Rewritten in the Compose port. |
 | Terminal clients: `TermuxTerminalViewClient`, `TermuxTerminalSessionActivityClient` | Kotlin | Straight ports of the Java clients. |
 | Backend: `TermuxService`, `TermuxInstaller`, `RunCommandService`, receivers, `TermuxDocumentsProvider` | Java | Unchanged; converted only when touched for another reason. |
 | `termux-shared` | Java | Shared with the plugin ecosystem; keep its contracts stable. |
@@ -15,14 +15,15 @@ The `app` module is the local Termux host: the bootstrap, `TermuxService`, plugi
 
 `TermuxActivity` sets a single `ComposeView` as its content and binds `TermuxScreen` (`TermuxScreen.kt`):
 
-- `ModalNavigationDrawer`: settings button, `SessionDrawerList`, and the Keyboard / New session buttons (long-press: toggle toolbar / named session). Opens from a 20dp left-edge swipe or the `DRAWER` extra key; locked in copy mode.
-- Content column with `WindowInsets.safeDrawing` padding (edge-to-edge, `adjustResize`) plus the `terminal-margin-*` settings:
-  - optional `SessionTabStrip` (top or bottom)
-  - the terminal: the existing `TerminalComposeView` hosted in `AndroidView`
-  - `TerminalToolbar`: a two-page pager with the extra keys and a text input field
-- Optional keyboard FAB and the `termux.toml` errors dialog.
+- The terminal: the existing `TerminalComposeView` hosted in `AndroidView`, inset by the `terminal-margin-*` settings and `WindowInsets.safeDrawing`.
+- `KeyBar` floats over the bottom of the terminal: Esc, Ctrl and Alt (tap to arm, tap again to lock), an arrow joystick, Tab, and a tab button. The button's badge shows the tab count and its icon shows the current tab's process.
+- `TabsGrid` (`workspace/ui/TabsGrid.kt`) is a full-screen overlay opened from the tab button or Ctrl+Alt+Right. It lists the active workspace's tabs with a live preview of each terminal (`TerminalThumbnail`), lets you rename, close or add tabs (terminal or files), and switches or manages workspaces from a dropdown.
+- `FilesTab` and `ViewerTab` (`workspace/ui/`) cover the terminal while their tab is active and bring their own floating bar. Files browses the filesystem from the workspace root; Markdown, HTML and text files open in a Viewer tab, anything else in another app through the Termux file provider.
+- The `termux.toml` errors dialog.
 
-Java/Kotlin code never calls composables directly. It talks to small state holders on the main thread: `TermuxScreenState` (drawer, tabs, margins, IME visibility, font stamp), `TerminalToolbarState` (extra keys, modifiers, text input) and `SessionsUiState` (an immutable session snapshot refreshed where the old list adapters were notified).
+A workspace (`workspace/`) groups terminal, files and viewer tabs under a root folder. `WorkspaceRepository` persists the list to `workspaces.json` and owns the live `TerminalSession` for each terminal tab; closing a tab kills its shell.
+
+Java/Kotlin code never calls composables directly. It talks to small state holders on the main thread: `TermuxScreenState` (tabs grid visibility, margins, IME visibility, font stamp), `ModifierKeys` (key bar Ctrl / Alt state) and `TabsUiState` (an immutable snapshot of the workspaces and tabs, refreshed whenever the workspace state changes).
 
 ## Settings
 
