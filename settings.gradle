@@ -1,1 +1,1 @@
-include ':app', ':termux-shared', ':terminal-emulator', ':compose-app', ':terminal-compose-view', ':terminal-compose-session'
+include ':app', ':termux-shared', ':terminal-emulator', ':compose-app', ':terminal-compose-view', ':terminal-compose-session', ':process-icons'

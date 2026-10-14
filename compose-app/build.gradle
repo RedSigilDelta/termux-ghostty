@@ -153,6 +153,7 @@ dependencies {
     implementation project(':terminal-compose-session')
     implementation project(':terminal-emulator')
     implementation project(':termux-shared')
+    implementation project(':process-icons')
     implementation 'com.google.android.material:material:1.14.0'
 
     // Compose & Activity-Compose
