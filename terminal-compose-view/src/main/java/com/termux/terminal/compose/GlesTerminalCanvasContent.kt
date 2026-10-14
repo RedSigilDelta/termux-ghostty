@@ -51,7 +51,8 @@ internal fun glesTerminalCanvasContent(
                     visual = GlesTerminalVisualConfig(
                         typeface = config.typeface,
                         fontSizePx = fontSizePx,
-                        wallpaper = config.wallpaper
+                        wallpaper = config.wallpaper,
+                        blurRegions = config.blurRegions
                     )
                 )
             }
@@ -81,6 +82,7 @@ internal fun glesTerminalCanvasContent(
         fontSizePx,
         config.typeface,
         config.wallpaper,
+        config.blurRegions,
         config.cursorEffect
     ) {
         currentPublisher()

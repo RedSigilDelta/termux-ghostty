@@ -1,5 +1,7 @@
 package com.termux.terminal.compose.gpu
 
+import androidx.compose.ui.geometry.Rect
+import com.termux.terminal.compose.TerminalBlurRegion
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -54,6 +56,26 @@ class GlesPresentationTest {
         assertFalse(
             glesPresentationDecision(
                 snapshot = moved,
+                presentedSnapshot = settled,
+                animationTime = 1f,
+                lastAnimationTime = 1f,
+                atlasReset = false
+            ).redundant
+        )
+    }
+
+    @Test
+    fun blurRegionChangeIsNotRedundant() {
+        val settled = testSnapshot(1L)
+        val blurred = settled.copy(
+            visual = settled.visual.copy(
+                blurRegions = listOf(TerminalBlurRegion(Rect(0f, 0f, 10f, 10f), 4f))
+            )
+        )
+
+        assertFalse(
+            glesPresentationDecision(
+                snapshot = blurred,
                 presentedSnapshot = settled,
                 animationTime = 1f,
                 lastAnimationTime = 1f,

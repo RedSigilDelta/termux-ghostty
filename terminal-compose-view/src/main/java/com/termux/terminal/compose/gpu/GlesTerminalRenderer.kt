@@ -273,6 +273,13 @@ internal class GlesTerminalRenderer(
                     reverseVideo = snapshot.frame.reverseVideo
                 )
             }
+            traceSection("EctoGles.backdrop-blur") {
+                currentResources.backdropBlur.draw(
+                    regions = snapshot.visual.blurRegions,
+                    surfaceWidth = viewportWidth,
+                    surfaceHeight = viewportHeight
+                )
+            }
             if (checkGlError("frame")) {
                 throw GlesResourceException("frame reported a GLES error")
             }
@@ -344,6 +351,7 @@ internal class GlesTerminalRenderer(
                 imageProgram = imageProgram,
                 cursorEffects = cursorEffects,
                 wallpaper = GlesWallpaperResources(wallpaperProgram, GlesWallpaperTexture()),
+                backdropBlur = GlesBackdropBlur(this::reportError),
                 dirtyBuffers = GlesDirtyInstanceStore(),
                 glyphRows = GlesGlyphRowBuffer(),
                 atlas = GlesGlyphAtlas(limits),
@@ -836,6 +844,7 @@ internal class GlesTerminalRenderer(
         val imageProgram: GlesImageProgram?,
         val cursorEffects: GlesCursorEffectRenderer,
         val wallpaper: GlesWallpaperResources,
+        val backdropBlur: GlesBackdropBlur,
         val dirtyBuffers: GlesDirtyInstanceStore,
         val glyphRows: GlesGlyphRowBuffer,
         val atlas: GlesGlyphAtlas,
@@ -863,7 +872,11 @@ internal class GlesTerminalRenderer(
                                     try {
                                         wallpaper.release()
                                     } finally {
-                                        program.release()
+                                        try {
+                                            backdropBlur.release()
+                                        } finally {
+                                            program.release()
+                                        }
                                     }
                                 }
                             }

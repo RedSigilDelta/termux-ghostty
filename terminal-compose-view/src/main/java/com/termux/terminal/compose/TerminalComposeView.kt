@@ -90,6 +90,7 @@ class TerminalComposeView @JvmOverloads constructor(
     private var cursorEffectState by mutableStateOf<CursorEffect?>(null)
     private var preferredFrameRateState by mutableStateOf<Float?>(null)
     private var wallpaperState by mutableStateOf(TerminalWallpaperConfig())
+    private var blurRegionsState by mutableStateOf<List<TerminalBlurRegion>>(emptyList())
     private var contentTopInsetPxState by mutableIntStateOf(0)
     private var contentBottomInsetPxState by mutableIntStateOf(0)
     private var accessibilityEnabledState by mutableStateOf(false)
@@ -167,6 +168,7 @@ class TerminalComposeView @JvmOverloads constructor(
                     typeface = typefaceState,
                     cursorEffect = cursorEffectState,
                     wallpaper = wallpaperState,
+                    blurRegions = blurRegionsState,
                     contentTopInsetPx = contentTopInsetPxState,
                     contentBottomInsetPx = contentBottomInsetPxState,
                     preferredFrameRate = preferredFrameRateState,
@@ -271,6 +273,11 @@ class TerminalComposeView @JvmOverloads constructor(
 
     fun setWallpaperBackgroundOpacity(opacity: Float) {
         wallpaperState = wallpaperState.copy(backgroundOpacity = opacity)
+    }
+
+    /** Replaces the regions whose backdrop the renderer blurs for host overlays. */
+    fun setBlurRegions(regions: List<TerminalBlurRegion>) {
+        blurRegionsState = regions
     }
 
     fun setContentTopInset(px: Int) {

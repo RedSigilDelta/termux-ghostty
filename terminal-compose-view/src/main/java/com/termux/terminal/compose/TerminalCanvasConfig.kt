@@ -23,6 +23,8 @@ data class TerminalCanvasConfig(
     val cursorEffect: CursorEffect? = null,
     /** Optional wallpaper drawn behind default-background cells. */
     val wallpaper: TerminalWallpaperConfig = TerminalWallpaperConfig(),
+    /** Regions the renderer blurs as a backdrop for host overlays. */
+    val blurRegions: List<TerminalBlurRegion> = emptyList(),
     val scrollbar: TerminalScrollbarConfig = TerminalScrollbarConfig(),
     /** Rows start this many pixels below the top; background and wallpaper still fill them. */
     val contentTopInsetPx: Int = 0,

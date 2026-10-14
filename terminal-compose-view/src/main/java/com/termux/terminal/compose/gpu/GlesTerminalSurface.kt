@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import com.termux.terminal.compose.CursorEffectSnapshot
+import com.termux.terminal.compose.TerminalBlurRegion
 import com.termux.terminal.compose.TerminalFrame
 import com.termux.terminal.compose.TerminalMetrics
 import com.termux.terminal.compose.TerminalSelection
@@ -31,7 +32,9 @@ data class GlesTerminalVisualConfig(
     val typeface: android.graphics.Typeface? = null,
     val fontSizePx: Float = 14f,
     /** Presentation-only wallpaper. It never invalidates retained row plans. */
-    val wallpaper: TerminalWallpaperConfig = TerminalWallpaperConfig()
+    val wallpaper: TerminalWallpaperConfig = TerminalWallpaperConfig(),
+    /** Presentation-only backdrop blur regions. They never invalidate retained row plans. */
+    val blurRegions: List<TerminalBlurRegion> = emptyList()
 ) {
     init {
         require(fontSizePx > 0f) { "fontSizePx must be positive" }
