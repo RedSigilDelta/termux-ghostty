@@ -1,5 +1,7 @@
 package com.mrndtvndv.term.server
 
+import com.termux.terminal.compose.session.ProgramStatusStore
+import com.termux.terminal.compose.session.ProgramStatusState
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.ComponentName

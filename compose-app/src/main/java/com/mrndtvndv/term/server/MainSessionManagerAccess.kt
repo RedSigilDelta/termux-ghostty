@@ -1,5 +1,6 @@
 package com.mrndtvndv.term.server
 
+import com.termux.terminal.compose.session.ProgramStatusState
 import com.mrndtvndv.term.domain.ServerConfig
 import com.termux.terminal.TerminalSession
 import kotlinx.coroutines.flow.Flow

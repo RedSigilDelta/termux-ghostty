@@ -51,6 +51,8 @@ data class GlesTerminalSnapshot(
     val metrics: TerminalMetrics,
     val selection: TerminalSelection = TerminalSelection.EMPTY,
     val visualOffsetPx: Float = 0f,
+    /** Pixels from the top of the surface to the first row. Clear and wallpaper are never shifted. */
+    val contentOffsetYPx: Float = 0f,
     val cursorEffect: CursorEffectSnapshot? = null,
     val viewportWidthPx: Int = metrics.viewportWidthPx,
     val viewportHeightPx: Int = metrics.viewportHeightPx,
@@ -62,6 +64,7 @@ data class GlesTerminalSnapshot(
 ) {
     init {
         require(visualOffsetPx.isFinite()) { "visualOffsetPx must be finite" }
+        require(contentOffsetYPx.isFinite()) { "contentOffsetYPx must be finite" }
         require(viewportWidthPx > 0) { "viewportWidthPx must be positive" }
         require(viewportHeightPx > 0) { "viewportHeightPx must be positive" }
         require(frame.rows.size == frame.rowsVisible) {
@@ -224,6 +227,7 @@ class GlesTerminalSurface(
         metrics: TerminalMetrics,
         selection: TerminalSelection = TerminalSelection.EMPTY,
         visualOffsetPx: Float = 0f,
+        contentOffsetYPx: Float = 0f,
         cursorEffect: CursorEffectSnapshot? = null,
         contentRevision: Long = frame.sequence,
         presentationRevision: Long = contentRevision,
@@ -237,6 +241,7 @@ class GlesTerminalSurface(
             cursorEffect = cursorEffect,
             selection = selection,
             visualOffsetPx = visualOffsetPx,
+            contentOffsetYPx = contentOffsetYPx,
             contentRevision = contentRevision,
             presentationRevision = presentationRevision,
             visual = visual

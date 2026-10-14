@@ -363,6 +363,8 @@ private fun handleTap(
     context: TapContext
 ) {
     context.controller.settleVisualScrollOffset()
+    // Canvas-local y starts at the first row; hosts receive the tap in view coordinates.
+    event.offsetLocation(0f, context.config.contentTopInsetPx.toFloat())
     try {
         if (context.selectionState.isSelecting) {
             context.selectionState.clear()

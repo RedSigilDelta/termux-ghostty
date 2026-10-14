@@ -100,7 +100,7 @@ internal class TerminalSelectionActionMode(
             val viewLocation = IntArray(2)
             view.getLocationInWindow(viewLocation)
             val originX = canvasPositionInWindow.x.roundToInt() - viewLocation[0]
-            val originY = canvasPositionInWindow.y.roundToInt() - viewLocation[1]
+            val originY = canvasPositionInWindow.y.roundToInt() + config.contentTopInsetPx - viewLocation[1]
             val left = currentMetrics.columnToX(firstColumn).roundToInt() + originX
             val right = currentMetrics.columnToX(lastColumn + 1).roundToInt() + originX
 

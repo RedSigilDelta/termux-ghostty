@@ -39,12 +39,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.mrndtvndv.processicons.agentIconResource
-import com.mrndtvndv.term.server.ProgramBlockKind
-import com.mrndtvndv.term.server.ProgramState
-import com.mrndtvndv.term.server.ProgramStatusItem
-import com.mrndtvndv.term.server.ProgramStatusState
-import java.util.Locale
+import com.mrndtvndv.processicons.programIconResource
+import com.termux.terminal.compose.session.ProgramBlockKind
+import com.termux.terminal.compose.session.ProgramState
+import com.termux.terminal.compose.session.ProgramStatusItem
+import com.termux.terminal.compose.session.ProgramStatusState
 import kotlinx.coroutines.launch
 
 /**
@@ -170,7 +169,7 @@ private fun ProgramStatusRowView(row: ProgramStatusRow, onClick: () -> Unit) {
 /** Brand mark for the record's app, from the same set the Herdr rows use. */
 @Composable
 private fun ProgramAgentIcon(app: String?, tint: Color, modifier: Modifier) {
-    val iconResource = app?.let { agentIconResource(agentIconKey(it)) }
+    val iconResource = programIconResource(app)
     if (iconResource != null) {
         Icon(
             painter = painterResource(iconResource),
@@ -185,16 +184,6 @@ private fun ProgramAgentIcon(app: String?, tint: Color, modifier: Modifier) {
             tint = tint,
             modifier = modifier,
         )
-    }
-}
-
-/** Maps OSC app names such as `claude-code` onto the Herdr agent names that have brand marks. */
-private fun agentIconKey(app: String): String {
-    val name = app.lowercase(Locale.ROOT)
-    return when {
-        name.startsWith("claude") -> "claude"
-        name.startsWith("codex") -> "codex"
-        else -> name
     }
 }
 

@@ -24,6 +24,8 @@ data class TerminalCanvasConfig(
     /** Optional wallpaper drawn behind default-background cells. */
     val wallpaper: TerminalWallpaperConfig = TerminalWallpaperConfig(),
     val scrollbar: TerminalScrollbarConfig = TerminalScrollbarConfig(),
+    /** Rows start this many pixels below the top; background and wallpaper still fill them. */
+    val contentTopInsetPx: Int = 0,
     /** Rows are laid out above this many pixels at the bottom; background and wallpaper still fill them. */
     val contentBottomInsetPx: Int = 0,
     /** Neutral frame-rate request in frames per second; null means display rate. */

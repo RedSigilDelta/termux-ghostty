@@ -1,12 +1,10 @@
-package com.mrndtvndv.term.server
+package com.termux.terminal.compose.session
 
-import android.util.Log
 import com.termux.terminal.ProgramStatusRecord
 import com.termux.terminal.TerminalSession
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-
-private const val OscLogTag = "OSC7501"
+import kotlinx.coroutines.flow.asStateFlow
 
 /** Program states from OSC 7501. */
 enum class ProgramState { Idle, Working, Done, Error, Blocked }
@@ -45,22 +43,22 @@ data class ProgramStatusState(
 }
 
 /**
- * Process-scoped bridge from the terminal's OSC 7501 records to the Compose UI, modeled on
- * [TerminalProgressStore]. Updates arrive on the main thread from the session callback.
+ * Process-scoped bridge from the terminal's OSC 7501 records to the Compose UI.
+ * Updates arrive on the main thread from the session callback.
  */
 class ProgramStatusStore {
     private val statesBySession = mutableMapOf<String, MutableStateFlow<ProgramStatusState>>()
+    private val _all = MutableStateFlow<Map<String, ProgramStatusState>>(emptyMap())
+
+    /** Every session handle with published state, for the agents button. */
+    val all: StateFlow<Map<String, ProgramStatusState>> = _all.asStateFlow()
 
     @Synchronized
     fun observe(sessionHandle: String): StateFlow<ProgramStatusState> =
-        statesBySession.getOrPut(sessionHandle) {
-            Log.d(OscLogTag, "store create handle=$sessionHandle")
-            MutableStateFlow(ProgramStatusState())
-        }
+        statesBySession.getOrPut(sessionHandle) { MutableStateFlow(ProgramStatusState()) }
 
     fun update(session: TerminalSession) {
         val items = session.programStatusRecords.map { it.toItem() }
-        Log.d(OscLogTag, "store update handle=${session.mHandle} records=${items.size}")
         publish(session.mHandle) { current -> current.copy(items = items) }
     }
 
@@ -68,7 +66,6 @@ class ProgramStatusStore {
     fun markSeen(sessionHandle: String) {
         publish(sessionHandle) { current ->
             val seenThrough = current.items.maxOfOrNull { it.updated } ?: current.seenThrough
-            Log.d(OscLogTag, "store markSeen handle=$sessionHandle seenThrough=$seenThrough")
             current.copy(seenThrough = seenThrough)
         }
     }
@@ -79,14 +76,15 @@ class ProgramStatusStore {
 
     @Synchronized
     fun remove(sessionHandle: String) {
-        Log.d(OscLogTag, "store remove handle=$sessionHandle")
         statesBySession.remove(sessionHandle)?.value = ProgramStatusState()
+        _all.value = _all.value - sessionHandle
     }
 
     @Synchronized
     private fun publish(sessionHandle: String, transform: (ProgramStatusState) -> ProgramStatusState) {
         val flow = statesBySession.getOrPut(sessionHandle) { MutableStateFlow(ProgramStatusState()) }
         flow.value = transform(flow.value)
+        _all.value = _all.value + (sessionHandle to flow.value)
     }
 }
 

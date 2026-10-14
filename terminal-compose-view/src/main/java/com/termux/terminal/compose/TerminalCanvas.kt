@@ -221,6 +221,7 @@ private fun TerminalCanvasLayout(
     var magnifierEndpoint by remember { mutableStateOf<SelectionHandleEndpoint?>(null) }
     val selection = state.selectionState.selection
     val density = LocalDensity.current
+    val topInset = with(density) { state.config.contentTopInsetPx.toDp() }
 
     Box(
         modifier = modifier
@@ -235,6 +236,7 @@ private fun TerminalCanvasLayout(
     ) {
         val inputModifier = Modifier
             .fillMaxSize()
+            .padding(top = topInset)
             .terminalSemantics(state.visibleText, state.config.accessibilityEnabled)
             .terminalGestures(
                 state.controller,
@@ -272,12 +274,16 @@ private fun TerminalCanvasLayout(
             config = state.config.scrollbar,
             modifier = Modifier
                 .align(Alignment.CenterEnd)
-                .padding(bottom = with(density) { state.config.contentBottomInsetPx.toDp() })
+                .padding(
+                    top = topInset,
+                    bottom = with(density) { state.config.contentBottomInsetPx.toDp() }
+                )
                 .zIndex(ScrollbarLayerZIndex)
         )
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .padding(top = topInset)
                 .zIndex(SelectionLayerZIndex)
         ) {
             TerminalSelectionUi(
@@ -305,7 +311,8 @@ private fun TerminalSelectionUi(
         selection = selection,
         controller = state.controller,
         contentVersion = state.contentVersionState.intValue,
-        metrics = state.metrics
+        metrics = state.metrics,
+        contentTopInsetPx = state.config.contentTopInsetPx
     )
     val selectionActionMode = remember(hostView) { TerminalSelectionActionMode(hostView) }
     val selectionHandleColor = rememberSelectionHandleColor(state.config.selectionHandleColor)
@@ -357,9 +364,10 @@ private fun GlesSelectionMagnifierEffect(
     selection: TerminalSelection,
     controller: TerminalController,
     contentVersion: Int,
-    metrics: TerminalMetrics
+    metrics: TerminalMetrics,
+    contentTopInsetPx: Int
 ) {
-    LaunchedEffect(gpuSurface, endpoint, selection, contentVersion, metrics) {
+    LaunchedEffect(gpuSurface, endpoint, selection, contentVersion, metrics, contentTopInsetPx) {
         if (gpuSurface == null || endpoint == null || selection.isEmpty) {
             gpuSurface?.dismissSelectionMagnifier()
             return@LaunchedEffect
@@ -375,7 +383,8 @@ private fun GlesSelectionMagnifierEffect(
             topRow = frame.topRow,
             metrics = metrics
         )
-        gpuSurface.showSelectionMagnifier(source.x, source.y)
+        // The GL surface fills the whole canvas, so content y maps to surface y only after the top inset.
+        gpuSurface.showSelectionMagnifier(source.x, source.y + contentTopInsetPx)
     }
 }
 
@@ -480,18 +489,28 @@ private fun rememberCanvasMetrics(
     fontSizeState: MutableIntState,
     config: TerminalCanvasConfig,
     viewportSizePx: IntSize
-): TerminalMetrics = remember(fontSizeState.intValue, config.typeface, viewportSizePx, config.contentBottomInsetPx) {
+): TerminalMetrics = remember(
+    fontSizeState.intValue,
+    config.typeface,
+    viewportSizePx,
+    config.contentTopInsetPx,
+    config.contentBottomInsetPx
+) {
     TerminalMetrics.from(
         fontSizePx = fontSizeState.intValue.toFloat(),
         typeface = config.typeface,
         viewportWidthPx = viewportSizePx.width,
-        viewportHeightPx = contentViewportHeight(viewportSizePx.height, config.contentBottomInsetPx)
+        viewportHeightPx = contentViewportHeight(
+            viewportSizePx.height,
+            config.contentTopInsetPx,
+            config.contentBottomInsetPx
+        )
     )
 }
 
-/** Grid height in pixels once the bottom content inset is reserved for host overlays. */
-internal fun contentViewportHeight(viewportHeightPx: Int, bottomInsetPx: Int): Int =
-    (viewportHeightPx - bottomInsetPx.coerceAtLeast(0)).coerceAtLeast(0)
+/** Grid height in pixels once the top and bottom content insets are reserved for host overlays. */
+internal fun contentViewportHeight(viewportHeightPx: Int, topInsetPx: Int, bottomInsetPx: Int): Int =
+    (viewportHeightPx - topInsetPx.coerceAtLeast(0) - bottomInsetPx.coerceAtLeast(0)).coerceAtLeast(0)
 
 /** Reports selection geometry changes to the consumer. */
 @Composable

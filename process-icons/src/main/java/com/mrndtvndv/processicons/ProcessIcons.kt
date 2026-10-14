@@ -74,3 +74,15 @@ fun processIconResource(processName: String?): Int? = when (
 /** Icon for a process or agent name, checking process marks first. */
 @DrawableRes
 fun commandIconResource(name: String?): Int? = processIconResource(name) ?: agentIconResource(name)
+
+/** Icon for an OSC 7501 program `app` name; maps names such as `claude-code` onto the agent marks. */
+@DrawableRes
+fun programIconResource(app: String?): Int? {
+    val name = app?.lowercase(Locale.ROOT) ?: return null
+    val key = when {
+        name.startsWith("claude") -> "claude"
+        name.startsWith("codex") -> "codex"
+        else -> name
+    }
+    return agentIconResource(key) ?: processIconResource(key)
+}

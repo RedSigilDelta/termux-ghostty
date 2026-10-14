@@ -25,7 +25,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.mrndtvndv.term.data.prefs.AppSettings
 import com.mrndtvndv.term.server.HerdrWorkspaceResolver
-import com.mrndtvndv.term.server.ProgramStatusState
+import com.termux.terminal.compose.session.ProgramStatusState
 import com.mrndtvndv.term.server.TerminalProgress
 import com.mrndtvndv.term.ui.keyboard.ExtraKeysController
 import com.mrndtvndv.term.ui.keyboard.ExtraKeysToolbar

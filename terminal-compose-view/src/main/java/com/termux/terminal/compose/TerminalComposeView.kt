@@ -90,6 +90,7 @@ class TerminalComposeView @JvmOverloads constructor(
     private var cursorEffectState by mutableStateOf<CursorEffect?>(null)
     private var preferredFrameRateState by mutableStateOf<Float?>(null)
     private var wallpaperState by mutableStateOf(TerminalWallpaperConfig())
+    private var contentTopInsetPxState by mutableIntStateOf(0)
     private var contentBottomInsetPxState by mutableIntStateOf(0)
     private var accessibilityEnabledState by mutableStateOf(false)
     private var unconditionalKeyboardOnTapState by mutableStateOf(true)
@@ -166,6 +167,7 @@ class TerminalComposeView @JvmOverloads constructor(
                     typeface = typefaceState,
                     cursorEffect = cursorEffectState,
                     wallpaper = wallpaperState,
+                    contentTopInsetPx = contentTopInsetPxState,
                     contentBottomInsetPx = contentBottomInsetPxState,
                     preferredFrameRate = preferredFrameRateState,
                     unconditionalKeyboardOnTap = unconditionalKeyboardOnTapState,
@@ -271,6 +273,10 @@ class TerminalComposeView @JvmOverloads constructor(
         wallpaperState = wallpaperState.copy(backgroundOpacity = opacity)
     }
 
+    fun setContentTopInset(px: Int) {
+        contentTopInsetPxState = px
+    }
+
     fun setContentBottomInset(px: Int) {
         contentBottomInsetPxState = px
     }
@@ -357,7 +363,7 @@ class TerminalComposeView @JvmOverloads constructor(
             viewportWidthPx = width,
             viewportHeightPx = height
         )
-        val row = metrics.yToRow(event.y, frame.topRow)
+        val row = metrics.yToRow(event.y - contentTopInsetPxState, frame.topRow)
         val column = metrics.xToColumn(event.x)
         return frame.linkLayout?.findAt(row, column)?.url
     }

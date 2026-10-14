@@ -41,6 +41,7 @@ internal fun glesTerminalCanvasContent(
                     metrics = metrics,
                     selection = selection,
                     visualOffsetPx = controller.visualScrollOffsetPx,
+                    contentOffsetYPx = config.contentTopInsetPx.toFloat(),
                     cursorEffect = controller.captureCursorEffectSnapshot(
                         frame = completeFrame,
                         timeSeconds = timeSeconds
@@ -76,6 +77,7 @@ internal fun glesTerminalCanvasContent(
         controller,
         selection,
         metrics,
+        config.contentTopInsetPx,
         fontSizePx,
         config.typeface,
         config.wallpaper,

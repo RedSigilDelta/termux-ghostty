@@ -5,22 +5,34 @@ import org.junit.Test
 
 class TerminalContentInsetTest {
     @Test
-    fun `zero inset leaves the viewport height unchanged`() {
-        assertEquals(200, contentViewportHeight(200, 0))
+    fun `zero insets leave the viewport height unchanged`() {
+        assertEquals(200, contentViewportHeight(200, 0, 0))
     }
 
     @Test
-    fun `inset is subtracted from the viewport height`() {
-        assertEquals(150, contentViewportHeight(200, 50))
+    fun `bottom inset is subtracted from the viewport height`() {
+        assertEquals(150, contentViewportHeight(200, 0, 50))
     }
 
     @Test
-    fun `negative inset is ignored`() {
-        assertEquals(200, contentViewportHeight(200, -30))
+    fun `top inset is subtracted from the viewport height`() {
+        assertEquals(170, contentViewportHeight(200, 30, 0))
     }
 
     @Test
-    fun `inset larger than the viewport yields zero height`() {
-        assertEquals(0, contentViewportHeight(200, 250))
+    fun `top and bottom insets are both subtracted`() {
+        assertEquals(120, contentViewportHeight(200, 30, 50))
+    }
+
+    @Test
+    fun `negative insets are ignored`() {
+        assertEquals(200, contentViewportHeight(200, -30, 0))
+        assertEquals(200, contentViewportHeight(200, 0, -30))
+    }
+
+    @Test
+    fun `insets larger than the viewport yield zero height`() {
+        assertEquals(0, contentViewportHeight(200, 0, 250))
+        assertEquals(0, contentViewportHeight(200, 150, 100))
     }
 }

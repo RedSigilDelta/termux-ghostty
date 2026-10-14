@@ -38,6 +38,7 @@ internal fun glesPresentationDecision(
     val redundant = !atlasReset &&
         presentedSnapshot === snapshot &&
         presentedSnapshot.visualOffsetPx == snapshot.visualOffsetPx &&
+        presentedSnapshot.contentOffsetYPx == snapshot.contentOffsetYPx &&
         animationTime == lastAnimationTime
     return GlesPresentationDecision(
         requiresCompleteFramebuffer = true,
@@ -154,6 +155,7 @@ internal class GlesTerminalRenderer(
             return
         }
         val imageProgram = currentResources.imageProgram
+        val contentOffsetY = snapshot.visualOffsetPx + snapshot.contentOffsetYPx
 
         val animationTime = surface.animationTimeSeconds()
         val atlasReset = surface.consumeAtlasReset()
@@ -198,7 +200,7 @@ internal class GlesTerminalRenderer(
                     rows = plan.rows,
                     rowStride = snapshot.frame.columns + 1,
                     rowHeight = snapshot.metrics.cellHeightPx,
-                    offsetY = snapshot.visualOffsetPx,
+                    offsetY = contentOffsetY,
                     rowOrigin = plan.rowOrigin,
                     styleBackground = true,
                     reverseVideo = snapshot.frame.reverseVideo
@@ -212,7 +214,7 @@ internal class GlesTerminalRenderer(
                         viewportWidth = viewportWidth,
                         viewportHeight = viewportHeight,
                         imageProgram = imageProgram,
-                        offsetY = snapshot.visualOffsetPx,
+                        offsetY = contentOffsetY,
                         filter = { it.zIndex < 0 }
                     )
                 }
@@ -224,7 +226,7 @@ internal class GlesTerminalRenderer(
                     rows = plan.rows,
                     rowStride = snapshot.frame.columns,
                     rowHeight = snapshot.metrics.cellHeightPx,
-                    offsetY = snapshot.visualOffsetPx,
+                    offsetY = contentOffsetY,
                     rowOrigin = plan.rowOrigin,
                     reverseVideo = snapshot.frame.reverseVideo
                 )
@@ -242,7 +244,7 @@ internal class GlesTerminalRenderer(
                         plan = cursorEffectPlan,
                         viewportWidth = viewportWidth,
                         viewportHeight = viewportHeight,
-                        offsetY = snapshot.visualOffsetPx
+                        offsetY = contentOffsetY
                     )
                 }
             }
@@ -254,7 +256,7 @@ internal class GlesTerminalRenderer(
                         viewportWidth = viewportWidth,
                         viewportHeight = viewportHeight,
                         imageProgram = imageProgram,
-                        offsetY = snapshot.visualOffsetPx,
+                        offsetY = contentOffsetY,
                         filter = { it.zIndex >= 0 }
                     )
                 }
@@ -265,7 +267,7 @@ internal class GlesTerminalRenderer(
                     rows = plan.rows,
                     rowStride = snapshot.frame.columns,
                     rowHeight = snapshot.metrics.cellHeightPx,
-                    offsetY = snapshot.visualOffsetPx,
+                    offsetY = contentOffsetY,
                     rowOrigin = plan.rowOrigin,
                     styleBackground = false,
                     reverseVideo = snapshot.frame.reverseVideo
