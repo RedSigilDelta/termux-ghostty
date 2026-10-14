@@ -474,6 +474,31 @@ pub export fn Java_com_termux_terminal_GhosttyNative_nativeConsumeNotificationBo
     return newJStringFromUtf8(jni, owned_slice);
 }
 
+pub export fn Java_com_termux_terminal_GhosttyNative_nativeProgramStatusSnapshot(
+    env: ?*c.JNIEnv,
+    clazz: c.jclass,
+    native_handle: jlong,
+) c.jstring {
+    _ = clazz;
+
+    const jni = env orelse return null;
+    const owned_ptr = core.termux_ghostty_session_program_status_snapshot(sessionFromHandle(native_handle)) orelse return null;
+    const owned_slice = std.mem.span(owned_ptr);
+    const owned_sentinel_slice = owned_ptr[0..owned_slice.len :0];
+    defer native_allocator.free(owned_sentinel_slice);
+    return newJStringFromUtf8(jni, owned_slice);
+}
+
+pub export fn Java_com_termux_terminal_GhosttyNative_nativeProgramStatusProcessEnded(
+    env: ?*c.JNIEnv,
+    clazz: c.jclass,
+    native_handle: jlong,
+) void {
+    _ = env;
+    _ = clazz;
+    core.termux_ghostty_session_program_status_process_ended(sessionFromHandle(native_handle));
+}
+
 pub export fn Java_com_termux_terminal_GhosttyNative_nativeGetProgressState(
     env: ?*c.JNIEnv,
     clazz: c.jclass,

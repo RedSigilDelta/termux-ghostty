@@ -266,6 +266,20 @@ public final class GhosttyTerminalContent implements TerminalContent, AutoClosea
         GhosttyNative.nativeClearProgress(mNativeHandle);
     }
 
+    public synchronized String getProgramStatusSnapshot() {
+        if (mNativeHandle == 0) {
+            return null;
+        }
+        return GhosttyNative.nativeProgramStatusSnapshot(mNativeHandle);
+    }
+
+    public synchronized void onProgramStatusProcessEnded() {
+        if (mNativeHandle == 0) {
+            return;
+        }
+        GhosttyNative.nativeProgramStatusProcessEnded(mNativeHandle);
+    }
+
     public synchronized boolean isCursorKeysApplicationMode() {
         return (getModeBits() & GhosttyNative.MODE_CURSOR_KEYS_APPLICATION) != 0;
     }

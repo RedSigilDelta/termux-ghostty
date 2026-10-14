@@ -9,6 +9,7 @@ import android.view.KeyEvent;
 
 import androidx.annotation.NonNull;
 
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -47,6 +48,7 @@ final class GhosttySessionWorker extends Thread {
     private static final int MSG_COMPRESS_SCROLLBACK = 16;
     private static final int MSG_CAPTURE_STATE_SNAPSHOT = 17;
     private static final int MSG_RESTORE_STATE_SNAPSHOT = 18;
+    private static final int MSG_PROGRAM_STATUS_PROCESS_ENDED = 19;
     static final int SCROLL_ROUTE_VIEWPORT = 0;
     static final int SCROLL_ROUTE_KEYS = 1;
     static final int SCROLL_ROUTE_MOUSE = 2;
@@ -453,6 +455,7 @@ final class GhosttySessionWorker extends Thread {
         mContent.requestFullSnapshotRefresh();
         updateCachedState();
         handleProgressUpdate();
+        handleProgramStatusUpdate();
         mFramePublicationGate.markSnapshotDirty();
         buildAndPublishSnapshot();
         mMainThreadHandler.post(mSession::onColorsChanged);
@@ -606,6 +609,9 @@ final class GhosttySessionWorker extends Thread {
         if ((result & GhosttyNative.APPEND_RESULT_PROGRESS) != 0) {
             handleProgressUpdate();
         }
+        if ((result & GhosttyNative.APPEND_RESULT_PROGRAM_STATUS) != 0) {
+            handleProgramStatusUpdate();
+        }
     }
 
     private void handleDesktopNotification() {
@@ -616,6 +622,25 @@ final class GhosttySessionWorker extends Thread {
         }
 
         mMainThreadHandler.post(() -> mSession.onTerminalProtocolNotification(title, body));
+    }
+
+    private void handleProgramStatusUpdate() {
+        List<ProgramStatusRecord> records = ProgramStatusRecord.parseSnapshot(mContent.getProgramStatusSnapshot());
+        GhosttyLog.debug("OSC7501 java publish session=" + mSession.mHandle + " records=" + records.size());
+        mSession.updateProgramStatusRecords(records);
+        mMainThreadHandler.post(mSession::dispatchProgramStatusChanged);
+    }
+
+    void onProcessEnded() {
+        // Non-blocking: teardown can reach here before the worker starts, and then there are no records.
+        Handler handler;
+        synchronized (this) {
+            handler = mWorkerHandler;
+        }
+        GhosttyLog.debug("OSC7501 java processEnded session=" + mSession.mHandle + " workerReady=" + (handler != null));
+        if (handler != null) {
+            handler.sendEmptyMessage(MSG_PROGRAM_STATUS_PROCESS_ENDED);
+        }
     }
 
     private void handleProgressUpdate() {
@@ -954,6 +979,10 @@ final class GhosttySessionWorker extends Thread {
                     break;
                 case MSG_RESTORE_STATE_SNAPSHOT:
                     handleRestoreStateSnapshot((StateSnapshotRestore) msg.obj);
+                    break;
+                case MSG_PROGRAM_STATUS_PROCESS_ENDED:
+                    mContent.onProgramStatusProcessEnded();
+                    handleProgramStatusUpdate();
                     break;
                 case MSG_SHUTDOWN:
                     cancelProgressTimeout();

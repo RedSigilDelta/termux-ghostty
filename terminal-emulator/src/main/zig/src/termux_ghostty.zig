@@ -20,6 +20,7 @@ pub const append_result_colors_changed: u32 = 1 << 5;
 pub const append_result_reply_bytes_available: u32 = 1 << 6;
 pub const append_result_desktop_notification: u32 = 1 << 7;
 pub const append_result_progress: u32 = 1 << 8;
+pub const append_result_program_status: u32 = 1 << 9;
 
 pub const mode_cursor_keys_application: u32 = 1 << 0;
 pub const mode_keypad_application: u32 = 1 << 1;
@@ -35,6 +36,34 @@ const ProgressState = enum(i32) {
     indeterminate = 3,
     pause = 4,
 };
+
+const max_program_records: usize = 256;
+// Control characters are rejected from msg, title, id, and app, so these
+// bytes can never appear inside a field and the snapshot stays unambiguous.
+const program_record_separator: u8 = 0x1e;
+const program_field_separator: u8 = 0x1f;
+
+const ProgramRecord = struct {
+    id: []u8,
+    state: ghostty.osc.program_status.State,
+    kind: ?ghostty.osc.program_status.Kind = null,
+    progress: ?u8 = null,
+    app: ?[]u8 = null,
+    title: ?[]u8 = null,
+    msg: ?[]u8 = null,
+    updated: u64 = 0,
+};
+
+fn freeOptionalText(alloc: std.mem.Allocator, text: ?[]u8) void {
+    if (text) |value| alloc.free(value);
+}
+
+fn programIdIsWithin(candidate: []const u8, target: []const u8) bool {
+    if (std.mem.eql(u8, candidate, target)) return true;
+    return candidate.len > target.len and
+        std.mem.startsWith(u8, candidate, target) and
+        candidate[target.len] == '/';
+}
 
 const text_style_bold: u16 = 1 << 0;
 const text_style_italic: u16 = 1 << 1;
@@ -257,6 +286,9 @@ pub const Session = struct {
     progress_value: i32 = -1,
     progress_generation: u64 = 0,
     progress_changed: bool = false,
+    program_records: std.ArrayListUnmanaged(ProgramRecord) = .empty,
+    program_tick: u64 = 0,
+    program_changed: bool = false,
     viewport_top_row: i32 = 0,
     render_state_needs_update: bool = true,
     serialized_metadata_valid: bool = false,
@@ -298,6 +330,8 @@ pub const Session = struct {
         self.scratch_kitty_placements.deinit(self.alloc);
         self.scratch_kitty_pixel_data.deinit(self.alloc);
         self.kitty_pinned_grid_spans.deinit(self.alloc);
+        self.clearProgramRecords(null);
+        self.program_records.deinit(self.alloc);
     }
 
     fn resetTransientState(self: *Session) void {
@@ -1272,6 +1306,167 @@ pub const Session = struct {
         ghostty_log.debug("core progress cleared generation={}", .{ self.progress_generation });
     }
 
+    fn programStatusReport(self: *Session, report: ghostty.osc.program_status.Report) !void {
+        const id = report.readOption(.id) orelse "";
+        if (report.state == .clear) {
+            self.clearProgramRecords(if (id.len == 0) null else id);
+            return;
+        }
+
+        const app = if (report.readOption(.app)) |value| try self.alloc.dupe(u8, value) else null;
+        errdefer freeOptionalText(self.alloc, app);
+        const title = try self.programStatusText(report, .title);
+        errdefer freeOptionalText(self.alloc, title);
+        const msg = try self.programStatusText(report, .msg);
+        errdefer freeOptionalText(self.alloc, msg);
+
+        // Each report replaces its record completely, so absent keys are cleared.
+        const index = try self.programRecordIndexForUpdate(id);
+        const record = &self.program_records.items[index];
+        freeOptionalText(self.alloc, record.app);
+        freeOptionalText(self.alloc, record.title);
+        freeOptionalText(self.alloc, record.msg);
+        record.state = report.state;
+        record.kind = report.readOption(.kind);
+        record.progress = report.readOption(.progress);
+        record.app = app;
+        record.title = title;
+        record.msg = msg;
+        self.program_tick +%= 1;
+        record.updated = self.program_tick;
+        self.program_changed = true;
+        ghostty_log.debug("OSC7501 native report session=0x{x} id={s} state={s} records={}", .{ @intFromPtr(self), id, @tagName(report.state), self.program_records.items.len });
+    }
+
+    fn programStatusText(
+        self: *Session,
+        report: ghostty.osc.program_status.Report,
+        comptime option: ghostty.osc.program_status.Option,
+    ) !?[]u8 {
+        if (report.readOption(option) == null) return null;
+        var buffer: [ghostty.osc.program_status.max_msg_bytes]u8 = undefined;
+        var writer: std.Io.Writer = .fixed(&buffer);
+        try report.writeText(option, &writer);
+        return try self.alloc.dupe(u8, writer.buffered());
+    }
+
+    fn programRecordIndex(self: *const Session, id: []const u8) ?usize {
+        for (self.program_records.items, 0..) |record, index| {
+            if (std.mem.eql(u8, record.id, id)) return index;
+        }
+        return null;
+    }
+
+    fn programRecordIndexForUpdate(self: *Session, id: []const u8) !usize {
+        if (self.programRecordIndex(id)) |index| return index;
+        if (self.program_records.items.len >= max_program_records) {
+            var oldest: usize = 0;
+            for (self.program_records.items, 0..) |record, index| {
+                if (record.updated < self.program_records.items[oldest].updated) oldest = index;
+            }
+            self.freeProgramRecord(oldest);
+        }
+
+        const owned_id = try self.alloc.dupe(u8, id);
+        errdefer self.alloc.free(owned_id);
+        try self.program_records.append(self.alloc, .{ .id = owned_id, .state = .idle });
+        return self.program_records.items.len - 1;
+    }
+
+    fn freeProgramRecord(self: *Session, index: usize) void {
+        const record = self.program_records.swapRemove(index);
+        self.alloc.free(record.id);
+        freeOptionalText(self.alloc, record.app);
+        freeOptionalText(self.alloc, record.title);
+        freeOptionalText(self.alloc, record.msg);
+    }
+
+    /// Removes the addressed record and every record beneath it, or every record when `id` is null.
+    fn clearProgramRecords(self: *Session, id: ?[]const u8) void {
+        var removed: usize = 0;
+        var index = self.program_records.items.len;
+        while (index > 0) {
+            index -= 1;
+            if (id) |target| {
+                if (!programIdIsWithin(self.program_records.items[index].id, target)) continue;
+            }
+            self.freeProgramRecord(index);
+            self.program_changed = true;
+            removed += 1;
+        }
+        ghostty_log.debug("OSC7501 native clear session=0x{x} id={s} removed={} records={}", .{ @intFromPtr(self), id orelse "*", removed, self.program_records.items.len });
+    }
+
+    /// Lifetime rules: a new shell prompt drops working and blocked records. Process exit also
+    /// drops idle records, since no program is left to report them. Done and error survive both.
+    fn dropProgramRecords(self: *Session, include_idle: bool) void {
+        var removed: usize = 0;
+        var index = self.program_records.items.len;
+        while (index > 0) {
+            index -= 1;
+            const drop = switch (self.program_records.items[index].state) {
+                .working, .blocked => true,
+                .idle => include_idle,
+                .done, .@"error", .clear => false,
+            };
+            if (!drop) continue;
+            self.freeProgramRecord(index);
+            self.program_changed = true;
+            removed += 1;
+        }
+        ghostty_log.debug("OSC7501 native drop session=0x{x} includeIdle={} removed={} records={}", .{ @intFromPtr(self), include_idle, removed, self.program_records.items.len });
+    }
+
+    /// A child without `app` shows the nearest ancestor's app, as the spec requires.
+    fn inheritedProgramApp(self: *const Session, index: usize) ?[]const u8 {
+        const record = self.program_records.items[index];
+        if (record.app) |app| return app;
+        var candidate = record.id;
+        while (std.mem.lastIndexOfScalar(u8, candidate, '/')) |slash| {
+            candidate = candidate[0..slash];
+            for (self.program_records.items) |parent| {
+                if (!std.mem.eql(u8, parent.id, candidate)) continue;
+                if (parent.app) |app| return app;
+                break;
+            }
+        }
+        return null;
+    }
+
+    /// Records as separator-delimited text: state, kind, progress, updated, id, app, title, msg.
+    fn programStatusSnapshot(self: *Session) ![:0]u8 {
+        var out: std.ArrayListUnmanaged(u8) = .empty;
+        defer out.deinit(self.alloc);
+
+        for (self.program_records.items, 0..) |record, index| {
+            if (index > 0) try out.append(self.alloc, program_record_separator);
+            try out.appendSlice(self.alloc, @tagName(record.state));
+            try out.append(self.alloc, program_field_separator);
+            if (record.kind) |kind| try out.appendSlice(self.alloc, @tagName(kind));
+            try out.append(self.alloc, program_field_separator);
+            if (record.progress) |progress| {
+                var digits: [3]u8 = undefined;
+                try out.appendSlice(self.alloc, try std.fmt.bufPrint(&digits, "{d}", .{progress}));
+            }
+            try out.append(self.alloc, program_field_separator);
+            var updated_digits: [20]u8 = undefined;
+            try out.appendSlice(self.alloc, try std.fmt.bufPrint(&updated_digits, "{d}", .{record.updated}));
+            try out.append(self.alloc, program_field_separator);
+            try out.appendSlice(self.alloc, record.id);
+            try out.append(self.alloc, program_field_separator);
+            if (self.inheritedProgramApp(index)) |app| try out.appendSlice(self.alloc, app);
+            try out.append(self.alloc, program_field_separator);
+            if (record.title) |title| try out.appendSlice(self.alloc, title);
+            try out.append(self.alloc, program_field_separator);
+            if (record.msg) |msg| try out.appendSlice(self.alloc, msg);
+        }
+
+        const owned = try self.alloc.allocSentinel(u8, out.items.len, 0);
+        @memcpy(owned[0..out.items.len], out.items);
+        ghostty_log.debug("OSC7501 native snapshot session=0x{x} records={} bytes={}", .{ @intFromPtr(self), self.program_records.items.len, out.items.len });
+        return owned;
+    }
+
     fn consumeOwnedUtf8(buffer: *std.ArrayListUnmanaged(u8), alloc: std.mem.Allocator) ?[:0]u8 {
         if (buffer.items.len == 0) {
             return null;
@@ -1530,7 +1725,10 @@ const Handler = struct {
                 self.session.terminal.carriageReturn();
             },
             .reverse_index => self.session.terminal.reverseIndex(),
-            .full_reset => self.session.terminal.fullReset(),
+            .full_reset => {
+                self.session.terminal.fullReset();
+                self.session.clearProgramRecords(null);
+            },
             .set_mode => try self.setMode(value.mode, true),
             .reset_mode => try self.setMode(value.mode, false),
             .save_mode => self.session.terminal.modes.save(value.mode),
@@ -1576,9 +1774,10 @@ const Handler = struct {
             .decaln => try self.session.terminal.decaln(),
             .window_title => try self.session.replacePendingTitle(value.title),
             .report_pwd => {},
-            .resize_window, .osc_unknown, .request_xt_checksum, .xt_checksum_extension, .program_status => {},
+            .resize_window, .osc_unknown, .request_xt_checksum, .xt_checksum_extension => {},
             .show_desktop_notification => try self.session.replacePendingNotification(value.title, value.body),
             .progress_report => self.progressReport(value),
+            .program_status => try self.programStatus(value),
             .start_hyperlink => try self.session.terminal.screens.active.startHyperlink(value.uri, value.id),
             .clipboard_contents => try self.clipboardContents(value.kind, value.data),
             .mouse_shape => self.session.terminal.mouse_shape = value,
@@ -1590,7 +1789,10 @@ const Handler = struct {
             },
             .kitty_color_report, .kitty_clipboard, .kitty_dnd => {},
             .color_operation => try self.colorOperation(value.op, &value.requests, value.terminator),
-            .semantic_prompt => try self.session.terminal.semanticPrompt(value),
+            .semantic_prompt => {
+                if (value.action == .fresh_line_new_prompt) self.session.dropProgramRecords(false);
+                try self.session.terminal.semanticPrompt(value);
+            },
             .title_push, .title_pop => {},
         }
     }
@@ -1825,6 +2027,17 @@ const Handler = struct {
         try self.session.replacePendingClipboard(decoded);
     }
 
+    fn programStatus(self: *Handler, value: ghostty.osc.Command.ProgramStatus) !void {
+        switch (value) {
+            .query => |terminator| {
+                ghostty_log.debug("OSC7501 native query session=0x{x}", .{@intFromPtr(self.session)});
+                try self.session.appendPendingOutput("\x1b]7501;?");
+                try self.session.appendPendingOutput(terminator.string());
+            },
+            .report => |report| try self.session.programStatusReport(report),
+        }
+    }
+
     fn progressReport(self: *Handler, value: ghostty.osc.Command.ProgressReport) void {
         switch (value.state) {
             .remove => self.session.clearProgress(),
@@ -2027,6 +2240,9 @@ pub export fn termux_ghostty_session_create(
     session.progress_value = -1;
     session.progress_generation = 0;
     session.progress_changed = false;
+    session.program_records = .empty;
+    session.program_tick = 0;
+    session.program_changed = false;
     session.viewport_top_row = 0;
     session.render_state_needs_update = true;
     session.serialized_metadata_valid = false;
@@ -2076,9 +2292,22 @@ pub export fn termux_ghostty_session_reset(session: ?*Session) void {
     const handle = session orelse return;
     ghostty_log.debug("core reset session=0x{x}", .{ @intFromPtr(handle) });
     handle.terminal.fullReset();
+    handle.clearProgramRecords(null);
     handle.viewport_top_row = 0;
     handle.markRenderStateDirty();
     handle.resetTransientState();
+}
+
+pub export fn termux_ghostty_session_program_status_snapshot(session: ?*Session) ?[*:0]u8 {
+    const handle = session orelse return null;
+    const owned = handle.programStatusSnapshot() catch return null;
+    return owned.ptr;
+}
+
+pub export fn termux_ghostty_session_program_status_process_ended(session: ?*Session) void {
+    const handle = session orelse return;
+    ghostty_log.debug("OSC7501 native processEnded session=0x{x}", .{@intFromPtr(handle)});
+    handle.dropProgramRecords(true);
 }
 
 pub export fn termux_ghostty_session_set_color_scheme(
@@ -2275,6 +2504,7 @@ pub export fn termux_ghostty_session_append(
     handle.colors_changed = false;
     handle.bell_pending = false;
     handle.progress_changed = false;
+    handle.program_changed = false;
 
     handle.stream.nextSlice(bytes[0..len]);
     handle.markRenderStateDirty();
@@ -2314,6 +2544,9 @@ pub export fn termux_ghostty_session_append(
     }
     if (handle.progress_changed) {
         result |= append_result_progress;
+    }
+    if (handle.program_changed) {
+        result |= append_result_program_status;
     }
     if (handle.pending_output.items.len > 0) {
         result |= append_result_reply_bytes_available;

@@ -37,6 +37,9 @@ public interface TerminalSessionClient {
 
     void onTerminalProgressChanged(@NonNull TerminalSession session);
 
+    /** OSC 7501 program status records changed. Clients that do not show them may ignore this. */
+    default void onTerminalProgramStatusChanged(@NonNull TerminalSession session) {}
+
     void onTerminalCursorStateChange(boolean state);
 
     void setTerminalShellPid(@NonNull TerminalSession session, int pid);

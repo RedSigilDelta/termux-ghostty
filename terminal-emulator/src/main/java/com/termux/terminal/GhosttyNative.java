@@ -15,6 +15,7 @@ public final class GhosttyNative {
     static final int APPEND_RESULT_REPLY_BYTES_AVAILABLE = 1 << 6;
     static final int APPEND_RESULT_DESKTOP_NOTIFICATION = 1 << 7;
     static final int APPEND_RESULT_PROGRESS = 1 << 8;
+    static final int APPEND_RESULT_PROGRAM_STATUS = 1 << 9;
 
     static final int MODE_CURSOR_KEYS_APPLICATION = 1;
     static final int MODE_KEYPAD_APPLICATION = 1 << 1;
@@ -130,6 +131,10 @@ public final class GhosttyNative {
     static native long nativeGetProgressGeneration(long nativeHandle);
 
     static native void nativeClearProgress(long nativeHandle);
+
+    static native String nativeProgramStatusSnapshot(long nativeHandle);
+
+    static native void nativeProgramStatusProcessEnded(long nativeHandle);
 
     static native int nativeGetColumns(long nativeHandle);
 

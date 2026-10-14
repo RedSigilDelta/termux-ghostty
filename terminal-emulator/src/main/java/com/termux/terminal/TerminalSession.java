@@ -18,6 +18,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
+import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -133,6 +134,7 @@ public final class TerminalSession extends TerminalOutput implements AutoCloseab
     volatile int mGhosttyProgressState = GHOSTTY_PROGRESS_STATE_NONE;
     volatile int mGhosttyProgressValue = -1;
     volatile long mGhosttyProgressGeneration;
+    volatile List<ProgramStatusRecord> mProgramStatusRecords = Collections.emptyList();
     volatile boolean mGhosttyCursorBlinkingEnabled;
     volatile boolean mGhosttyCursorBlinkState = true;
     volatile int mColumns;
@@ -307,6 +309,11 @@ public final class TerminalSession extends TerminalOutput implements AutoCloseab
     @Nullable
     public String getTitle() {
         return mTitle;
+    }
+
+    /** OSC 7501 program status records for this terminal, most recent snapshot, immutable. */
+    public List<ProgramStatusRecord> getProgramStatusRecords() {
+        return mProgramStatusRecords;
     }
 
     public int getGhosttyProgressState() {
@@ -715,6 +722,15 @@ public final class TerminalSession extends TerminalOutput implements AutoCloseab
         mClient.onTerminalProgressChanged(this);
     }
 
+    void updateProgramStatusRecords(List<ProgramStatusRecord> records) {
+        mProgramStatusRecords = records;
+    }
+
+    void dispatchProgramStatusChanged() {
+        GhosttyLog.debug("OSC7501 java dispatch session=" + mHandle + " records=" + mProgramStatusRecords.size());
+        mClient.onTerminalProgramStatusChanged(this);
+    }
+
     void onTerminalProtocolNotification(@Nullable String title, @Nullable String body) {
         mGhosttyProtocolNotificationTitle = title;
         mGhosttyProtocolNotificationBody = body;
@@ -775,6 +791,10 @@ public final class TerminalSession extends TerminalOutput implements AutoCloseab
             mTerminalFileDescriptor = -1;
         }
 
+        GhosttySessionWorker worker = mGhosttySessionWorker;
+        if (worker != null) {
+            worker.onProcessEnded();
+        }
         mTerminalToProcessIOQueue.close();
         mProcessToTerminalIOQueue.close();
 
@@ -929,6 +949,22 @@ public final class TerminalSession extends TerminalOutput implements AutoCloseab
 
     public synchronized boolean isRunning() {
         return mShellPid != -1;
+    }
+
+    /**
+     * Command name of the process in the foreground of this session's terminal, such as "vim", or the
+     * shell's name when it is idle. Null for sessions without a local shell. Reads /proc, so call it
+     * off the main thread.
+     */
+    @Nullable
+    public String getForegroundProcessName() {
+        int pid;
+        synchronized (this) {
+            pid = mShellPid;
+        }
+        // Custom IO sessions use a dummy pid of 1.
+        if (pid <= 1) return null;
+        return ForegroundProcess.name(pid);
     }
 
     /** Only valid if not {@link #isRunning()}. */
