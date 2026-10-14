@@ -1,3 +1,5 @@
+> **Superseded.** For the `compose-app` path, use [`docs/fork/terminal-architecture.md`](fork/terminal-architecture.md). This document describes the older View-oriented backend and may not match the current code.
+
 # Ghostty Backend Walkthrough
 
 This document explains how the Ghostty backend in this repo works, file by file, and how data moves through the system.

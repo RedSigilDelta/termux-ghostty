@@ -1,3 +1,5 @@
+> **Historical — not current.** Moved here from the repo root. This describes planned milestones and a proposed contiguous snapshot layout. The layout actually in use is defined by `terminal-emulator/src/main/java/com/termux/terminal/ScreenSnapshot.java` and the native serializer; verify there before relying on anything below.
+
 # Project: termux-ghostty Snapshot Deserialization Pipeline Optimization
 
 ## Architecture
