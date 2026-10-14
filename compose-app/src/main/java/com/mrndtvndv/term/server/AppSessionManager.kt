@@ -57,6 +57,7 @@ class AppSessionManager private constructor(context: Context) : AppSessionManage
     /** Emits a server id whenever one of its sessions finished on its own. */
     override val sessionFinished = finishedSessions.flow
     private val terminalProgress = TerminalProgressStore()
+    private val programStatus = ProgramStatusStore()
 
     private var hostRef: WeakReference<SessionHost>? = null
 
@@ -68,6 +69,13 @@ class AppSessionManager private constructor(context: Context) : AppSessionManage
 
     override fun observeTerminalProgress(session: TerminalSession): StateFlow<TerminalProgress?> =
         terminalProgress.observe(session)
+
+    override fun observeProgramStatus(session: TerminalSession): StateFlow<ProgramStatusState> =
+        programStatus.observe(session.mHandle)
+
+    override fun markProgramStatusSeen(session: TerminalSession) {
+        programStatus.markSeen(session.mHandle)
+    }
 
     override fun serverIdForSession(session: TerminalSession): String? =
         serverManager.serverIdForSession(session)
@@ -86,6 +94,7 @@ class AppSessionManager private constructor(context: Context) : AppSessionManage
         coordinator.disconnect(id)
         if (terminalSession != null) {
             terminalProgress.remove(terminalSession)
+            programStatus.remove(terminalSession)
             unbindTerminalSession(terminalSession)
         }
     }
@@ -94,7 +103,10 @@ class AppSessionManager private constructor(context: Context) : AppSessionManage
         val disconnectedIds = coordinator.activeIds.toList()
         val disconnectedSessions = disconnectedIds.mapNotNull { coordinator.getServer(it)?.terminalSession }
         coordinator.disconnectAll()
-        disconnectedSessions.forEach { terminalProgress.remove(it) }
+        disconnectedSessions.forEach {
+            terminalProgress.remove(it)
+            programStatus.remove(it)
+        }
         val service = sshService
         service?.disconnectAll()
         synchronized(this) {
@@ -298,8 +310,13 @@ class AppSessionManager private constructor(context: Context) : AppSessionManage
                 terminalProgress.update(session)
             }
 
+            override fun onTerminalProgramStatusChanged(session: TerminalSession) {
+                programStatus.update(session)
+            }
+
             override fun onSessionFinished(finishedSession: TerminalSession) {
                 terminalProgress.remove(finishedSession)
+                programStatus.remove(finishedSession)
                 unbindTerminalSession(finishedSession)
             }
         }

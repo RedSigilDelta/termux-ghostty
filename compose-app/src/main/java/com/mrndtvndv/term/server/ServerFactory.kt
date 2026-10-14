@@ -141,6 +141,10 @@ class ServerFactory(
                 sessionClient.onTerminalProgressChanged(session)
             }
 
+            override fun onTerminalProgramStatusChanged(session: TerminalSession) {
+                sessionClient.onTerminalProgramStatusChanged(session)
+            }
+
             override fun onTerminalCursorStateChange(state: Boolean) {
                 sessionClient.onTerminalCursorStateChange(state)
             }
@@ -233,6 +237,10 @@ class ServerFactory(
 
             override fun onTerminalProgressChanged(session: TerminalSession) {
                 original.onTerminalProgressChanged(session)
+            }
+
+            override fun onTerminalProgramStatusChanged(session: TerminalSession) {
+                original.onTerminalProgramStatusChanged(session)
             }
 
             override fun onTerminalCursorStateChange(state: Boolean) {

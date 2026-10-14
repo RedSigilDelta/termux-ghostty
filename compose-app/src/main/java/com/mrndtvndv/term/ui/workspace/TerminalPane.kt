@@ -25,6 +25,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.mrndtvndv.term.data.prefs.AppSettings
 import com.mrndtvndv.term.server.HerdrWorkspaceResolver
+import com.mrndtvndv.term.server.ProgramStatusState
 import com.mrndtvndv.term.server.TerminalProgress
 import com.mrndtvndv.term.ui.keyboard.ExtraKeysController
 import com.mrndtvndv.term.ui.keyboard.ExtraKeysToolbar
@@ -58,6 +59,7 @@ class HerdrBinding(
     val onToggleWorkspace: (String) -> Unit,
 )
 
+@Suppress("LongParameterList")
 @Composable
 fun TerminalPane(
     session: TerminalSession,
@@ -66,6 +68,8 @@ fun TerminalPane(
     appearance: TerminalAppearance,
     isActive: Boolean,
     herdr: HerdrBinding?,
+    programStatus: ProgramStatusState,
+    onProgramStatusOpened: () -> Unit,
     callbacks: TerminalPaneCallbacks,
 ) {
     val extraKeysController = remember { ExtraKeysController() }
@@ -97,10 +101,12 @@ fun TerminalPane(
                 imeController = imeController,
                 wallpaperConfig = appearance.wallpaper,
             )
-            if (settings.showKeyboardFab || herdr != null) {
+            if (settings.showKeyboardFab || herdr != null || programStatus.items.isNotEmpty()) {
                 TerminalFabs(
                     settings = settings,
                     herdr = herdr,
+                    programStatus = programStatus,
+                    onProgramStatusOpened = onProgramStatusOpened,
                     imeController = imeController,
                     modifier = Modifier.align(Alignment.BottomEnd),
                 )
@@ -121,6 +127,8 @@ fun TerminalPane(
 private fun TerminalFabs(
     settings: AppSettings,
     herdr: HerdrBinding?,
+    programStatus: ProgramStatusState,
+    onProgramStatusOpened: () -> Unit,
     imeController: TerminalImeController,
     modifier: Modifier = Modifier,
 ) {
@@ -156,6 +164,13 @@ private fun TerminalFabs(
                 collapsedWorkspaceIds = herdr.state.collapsedWorkspaceIds,
                 onToggleWorkspace = herdr.onToggleWorkspace,
                 fabOpacity = settings.herdrAgentFabOpacity
+            )
+        }
+        if (herdr == null && programStatus.items.isNotEmpty()) {
+            ProgramStatusButton(
+                state = programStatus,
+                fabOpacity = settings.herdrAgentFabOpacity,
+                onOpened = onProgramStatusOpened,
             )
         }
     }

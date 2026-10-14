@@ -42,5 +42,9 @@ interface AppSessionManagerAccess {
 
     fun observeTerminalProgress(session: TerminalSession): StateFlow<TerminalProgress?>
 
+    fun observeProgramStatus(session: TerminalSession): StateFlow<ProgramStatusState>
+
+    fun markProgramStatusSeen(session: TerminalSession)
+
     fun serverIdForSession(session: TerminalSession): String? = null
 }

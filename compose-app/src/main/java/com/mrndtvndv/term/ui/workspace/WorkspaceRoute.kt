@@ -41,6 +41,7 @@ class TerminalHostCallbacks(
     val onOpenUrl: (String) -> Unit,
 )
 
+@Suppress("LongMethod")
 @Composable
 fun WorkspaceRoute(
     serverId: String,
@@ -74,6 +75,14 @@ fun WorkspaceRoute(
 
     val session = server.terminalSession
     val progress by workspaceViewModel.observeTerminalProgress(session).collectAsStateWithLifecycle()
+    val programStatus by workspaceViewModel.observeProgramStatus(session).collectAsStateWithLifecycle()
+    androidx.compose.runtime.LaunchedEffect(session.mHandle, server.config.herdrEnabled, programStatus.items.size) {
+        android.util.Log.d(
+            "OSC7501",
+            "ui route handle=${session.mHandle} herdrEnabled=${server.config.herdrEnabled} " +
+                "records=${programStatus.items.size} seenThrough=${programStatus.seenThrough}",
+        )
+    }
     val herdrState by workspaceViewModel.herdrState.collectAsStateWithLifecycle()
     val herdr = if (server.config.herdrEnabled) workspaceViewModel.herdrBinding(herdrState) else null
 
@@ -95,6 +104,8 @@ fun WorkspaceRoute(
                 appearance = appearance,
                 isActive = isActive,
                 herdr = herdr,
+                programStatus = programStatus,
+                onProgramStatusOpened = { workspaceViewModel.markProgramStatusSeen(session) },
                 callbacks = host.paneCallbacks(session, container.preferences::update),
             )
             WorkspaceTab.Review -> reviewViewModel?.let {
