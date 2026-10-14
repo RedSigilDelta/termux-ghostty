@@ -22,16 +22,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.HorizontalDivider
@@ -113,6 +109,7 @@ fun SftpDirectory(
     onRefresh: () -> Unit,
     onOpenFolder: (String) -> Unit,
     onOpenFile: (SftpFile) -> Unit,
+    onDownload: (SftpFile) -> Unit,
     onRename: (SftpFile) -> Unit,
     onDelete: (SftpFile) -> Unit,
     modifier: Modifier = Modifier,
@@ -154,6 +151,7 @@ fun SftpDirectory(
                 onToggleFolder = onToggleFolder,
                 onOpenFolder = onOpenFolder,
                 onOpenFile = onOpenFile,
+                onDownload = onDownload,
                 onRename = onRename,
                 onDelete = onDelete
             )
@@ -186,6 +184,7 @@ private fun SftpFileList(
     onToggleFolder: (SftpFile) -> Unit,
     onOpenFolder: (String) -> Unit,
     onOpenFile: (SftpFile) -> Unit,
+    onDownload: (SftpFile) -> Unit,
     onRename: (SftpFile) -> Unit,
     onDelete: (SftpFile) -> Unit
 ) {
@@ -217,6 +216,7 @@ private fun SftpFileList(
             onToggleFolder = onToggleFolder,
             onOpenFolder = onOpenFolder,
             onOpenFile = onOpenFile,
+            onDownload = onDownload,
             onRename = onRename,
             onDelete = onDelete
         )
@@ -280,6 +280,7 @@ private fun SftpFileItems(
     onToggleFolder: (SftpFile) -> Unit,
     onOpenFolder: (String) -> Unit,
     onOpenFile: (SftpFile) -> Unit,
+    onDownload: (SftpFile) -> Unit,
     onRename: (SftpFile) -> Unit,
     onDelete: (SftpFile) -> Unit
 ) {
@@ -309,6 +310,7 @@ private fun SftpFileItems(
                     }
                 },
                 onOpenFolder = { onOpenFolder(file.path) },
+                onDownload = { onDownload(file) },
                 onRename = { onRename(file) },
                 onDelete = { onDelete(file) }
             )
@@ -330,6 +332,7 @@ private fun SftpFileRow(
     onMenuExpandedChange: (Boolean) -> Unit,
     onClick: () -> Unit,
     onOpenFolder: () -> Unit,
+    onDownload: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -369,6 +372,7 @@ private fun SftpFileRow(
                     expanded = menuExpanded,
                     onDismiss = { onMenuExpandedChange(false) },
                     onOpenFolder = onOpenFolder.takeIf { showTree && file.isDirectory },
+                    onDownload = onDownload.takeIf { !file.isDirectory },
                     onRename = onRename,
                     onDelete = onDelete
                 )
@@ -376,63 +380,6 @@ private fun SftpFileRow(
         },
         modifier = Modifier.clickable(onClick = onClick)
     )
-}
-
-@Composable
-private fun SftpFileMenu(
-    expanded: Boolean,
-    onDismiss: () -> Unit,
-    onOpenFolder: (() -> Unit)?,
-    onRename: () -> Unit,
-    onDelete: () -> Unit
-) {
-    DropdownMenu(
-        expanded = expanded,
-        onDismissRequest = onDismiss
-    ) {
-        if (onOpenFolder != null) {
-            DropdownMenuItem(
-                text = { Text("Open folder") },
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Default.FolderOpen,
-                        contentDescription = null
-                    )
-                },
-                onClick = {
-                    onDismiss()
-                    onOpenFolder()
-                }
-            )
-        }
-        DropdownMenuItem(
-            text = { Text("Rename") },
-            leadingIcon = {
-                Icon(
-                    imageVector = Icons.Default.Edit,
-                    contentDescription = null
-                )
-            },
-            onClick = {
-                onDismiss()
-                onRename()
-            }
-        )
-        DropdownMenuItem(
-            text = { Text("Delete") },
-            leadingIcon = {
-                Icon(
-                    imageVector = Icons.Default.Delete,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.error
-                )
-            },
-            onClick = {
-                onDismiss()
-                onDelete()
-            }
-        )
-    }
 }
 
 @Composable

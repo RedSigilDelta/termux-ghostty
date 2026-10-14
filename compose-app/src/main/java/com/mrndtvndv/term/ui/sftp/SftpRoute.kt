@@ -211,6 +211,27 @@ fun SftpScreenRoute(
                                         onError = onOpenFileError
                                     )
                                 },
+                                onDownload = { file ->
+                                    viewModel.downloadAndOpenFile(
+                                        file = file,
+                                        cacheDir = context.cacheDir,
+                                        onFileReady = { staged ->
+                                            scope.launch {
+                                                val result = runCatching {
+                                                    withContext(Dispatchers.IO) { saveToDownloads(context, staged) }
+                                                }
+                                                showMessage(
+                                                    if (result.isSuccess) {
+                                                        "Saved ${file.name} to Downloads"
+                                                    } else {
+                                                        "Failed to save ${file.name}"
+                                                    }
+                                                )
+                                            }
+                                        },
+                                        onError = ::showMessage
+                                    )
+                                },
                                 onRename = { dialog = SftpDialog.Rename(it) },
                                 onDelete = { dialog = SftpDialog.Delete(it) },
                                 searchQuery = searchQuery,
