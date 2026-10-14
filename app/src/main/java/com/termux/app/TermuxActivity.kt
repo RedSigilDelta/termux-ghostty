@@ -42,6 +42,7 @@ import com.termux.app.api.file.FileReceiverActivity
 import com.termux.app.settings.TermuxFiles
 import com.termux.app.settings.TermuxSettings
 import com.termux.app.settings.TermuxSettingsRepository
+import com.termux.app.terminal.AgentsUiState
 import com.termux.app.terminal.TabThumbnails
 import com.termux.app.terminal.TabsUiState
 import com.termux.app.terminal.TermuxTerminalSessionActivityClient
@@ -77,6 +78,7 @@ import com.termux.terminal.compose.session.TerminalSessionBackend
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -132,6 +134,11 @@ class TermuxActivity : AppCompatActivity(), ServiceConnection {
      * The state of the tabs grid and the key bar tab button.
      */
     private lateinit var mTabsUiState: TabsUiState
+
+    /**
+     * The agent records shown by the key bar agents button and the agents sheet.
+     */
+    private lateinit var mAgentsUiState: AgentsUiState
 
     /**
      * The live frames shown on the tab cards while the tabs grid is open.
@@ -223,6 +230,7 @@ class TermuxActivity : AppCompatActivity(), ServiceConnection {
         setTermuxTerminalViewAndClients()
 
         mTabsUiState = TabsUiState()
+        mAgentsUiState = AgentsUiState()
 
         val settings = getSettings()
         mScreenState = TermuxScreenState(settings.terminalMarginHorizontal, settings.terminalMarginVertical)
@@ -230,7 +238,7 @@ class TermuxActivity : AppCompatActivity(), ServiceConnection {
 
         val root = ComposeView(this)
         setContentView(root)
-        bindTermuxScreen(root, mScreenState, mTerminalView, mModifierKeys, mTabsUiState, mTabThumbnails, ScreenActions())
+        bindTermuxScreen(root, mScreenState, mTerminalView, mModifierKeys, mTabsUiState, mTabThumbnails, mAgentsUiState, ScreenActions())
 
         registerForContextMenu(mTerminalView)
 
@@ -392,6 +400,13 @@ class TermuxActivity : AppCompatActivity(), ServiceConnection {
         lifecycleScope.launch {
             lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 termuxService.getWorkspaces().state.collect { refreshTabsUi() }
+            }
+        }
+
+        lifecycleScope.launch {
+            lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                combine(termuxService.getWorkspaces().state, termuxService.programStatus.all) { _, statuses -> statuses }
+                    .collect { statuses -> mAgentsUiState.refresh(termuxService.getWorkspaces().liveTerminals(), statuses) }
             }
         }
 
@@ -613,6 +628,25 @@ class TermuxActivity : AppCompatActivity(), ServiceConnection {
 
         override fun openTabs() {
             showTabsGrid()
+        }
+
+        override fun openAgents() {
+            mTerminalView.hideSoftKeyboard()
+            mTermuxService?.programStatus?.let { store ->
+                mAgentsUiState.entries.map { it.sessionHandle }.distinct().forEach(store::markSeen)
+            }
+            mAgentsUiState.sheetVisible = true
+        }
+
+        override fun onSelectAgent(workspaceId: String, tabId: String) {
+            val workspaces = mTermuxService?.getWorkspaces() ?: return
+            if (workspaces.state.value.activeWorkspace?.id != workspaceId) {
+                workspaces.activateWorkspace(workspaceId)
+                mTermuxTerminalSessionActivityClient.showActiveWorkspace()
+            }
+            workspaces.sessionFor(tabId)?.let(mTermuxTerminalSessionActivityClient::setCurrentSession)
+            mAgentsUiState.sheetVisible = false
+            mScreenState.tabsGridVisible = false
         }
 
         override fun onSelectTab(id: String) {
@@ -965,6 +999,7 @@ class TermuxActivity : AppCompatActivity(), ServiceConnection {
     fun refreshTabsUi() {
         val service = mTermuxService ?: return
         mTabsUiState.refresh(service.getWorkspaces().state.value, service.getWorkspaces()::sessionFor)
+        mAgentsUiState.refresh(service.getWorkspaces().liveTerminals(), service.programStatus.all.value)
     }
 
     fun termuxSessionListNotifyUpdated() {

@@ -49,6 +49,7 @@ import com.termux.shared.shell.command.ExecutionCommand.Runner;
 import com.termux.shared.shell.command.ExecutionCommand.ShellCreateMode;
 import com.termux.terminal.TerminalSession;
 import com.termux.terminal.TerminalSessionClient;
+import com.termux.terminal.compose.session.ProgramStatusStore;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -93,6 +94,14 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
     private final TermuxTerminalSessionClientDispatcher mTermuxTerminalSessionClientDispatcher =
         new TermuxTerminalSessionClientDispatcher(mTermuxTerminalSessionServiceClient);
 
+    /** Feeds the OSC 7501 program status of every session into {@link #mProgramStatus}. */
+    private final TermuxTerminalSessionClientBase mProgramStatusClient = new TermuxTerminalSessionClientBase() {
+        @Override
+        public void onTerminalProgramStatusChanged(@NonNull TerminalSession session) {
+            mProgramStatus.update(session);
+        }
+    };
+
     /**
      * Termux app shell manager
      */
@@ -100,6 +109,9 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
 
     /** Workspaces and their terminal tabs, persisted across app restarts. */
     private WorkspaceRepository mWorkspaces;
+
+    /** Agent status reported by each session, shown by the agents button. */
+    private final ProgramStatusStore mProgramStatus = new ProgramStatusStore();
 
     /** The wake lock and wifi lock are always acquired and released together. */
     private PowerManager.WakeLock mWakeLock;
@@ -117,6 +129,7 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
         mShellManager = TermuxShellManager.getShellManager();
         mWorkspaces = WorkspaceRepository.create(getFilesDir());
         mWorkspaces.ensureDefaultWorkspace(TermuxSettingsRepository.get().current().resolveDefaultWorkingDirectory());
+        registerTerminalSessionClient(mProgramStatusClient);
 
         runStartForeground();
 
@@ -284,6 +297,7 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
                 mWorkspaces.onSessionRemoved(termuxSession.getTerminalSession(), false);
                 mShellManager.mTermuxSessions.remove(termuxSession);
                 termuxSession.getTerminalSession().close();
+                mProgramStatus.remove(termuxSession.getTerminalSession());
             }
         }
 
@@ -657,6 +671,7 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
 
         mShellManager.mTermuxSessions.remove(index);
         sessionToRemove.close();
+        mProgramStatus.remove(sessionToRemove);
 
         Logger.logVerbose(LOG_TAG, "Removed session " + sessionToRemove.mHandle + " without result processing");
         if (mTermuxTerminalSessionActivityClient != null)
@@ -680,6 +695,7 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
             mWorkspaces.onSessionRemoved(termuxSession.getTerminalSession(), !mWantsToStop);
             mShellManager.mTermuxSessions.remove(termuxSession);
             termuxSession.getTerminalSession().close();
+            mProgramStatus.remove(termuxSession.getTerminalSession());
 
             // Notify the sessions list that it has been updated if
             // activity is in foreground
@@ -932,6 +948,10 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
 
     public WorkspaceRepository getWorkspaces() {
         return mWorkspaces;
+    }
+
+    public ProgramStatusStore getProgramStatus() {
+        return mProgramStatus;
     }
 
     @Nullable

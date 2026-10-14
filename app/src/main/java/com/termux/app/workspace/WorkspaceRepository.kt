@@ -14,6 +14,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+data class LiveTerminal(val workspace: Workspace, val tab: Tab.Terminal, val session: TerminalSession)
+
 /** Main-thread only: state updates, session binding and close() must run on the main thread. */
 class WorkspaceRepository(private val file: WorkspaceFile, private val scope: CoroutineScope) {
     private val _state = MutableStateFlow(file.read())
@@ -93,6 +95,14 @@ class WorkspaceRepository(private val file: WorkspaceFile, private val scope: Co
         _state.value.activeWorkspace?.tabs.orEmpty()
             .filterIsInstance<Tab.Terminal>()
             .mapNotNull { sessionFor(it.id) }
+
+    /** Every terminal tab with a running shell, across all workspaces, in workspace and tab order. */
+    fun liveTerminals(): List<LiveTerminal> =
+        _state.value.workspaces.flatMap { workspace ->
+            workspace.tabs.filterIsInstance<Tab.Terminal>().mapNotNull { tab ->
+                sessionFor(tab.id)?.takeIf { it.isRunning }?.let { LiveTerminal(workspace, tab, it) }
+            }
+        }
 
     fun workspaceSessions(workspaceId: String): List<TerminalSession> =
         _state.value.workspaces.firstOrNull { it.id == workspaceId }?.tabs.orEmpty()

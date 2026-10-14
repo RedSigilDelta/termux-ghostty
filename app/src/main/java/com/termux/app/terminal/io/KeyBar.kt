@@ -16,12 +16,14 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.SmartToy
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.FloatingToolbarDefaults
-import androidx.compose.material3.HorizontalFloatingToolbar
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -40,6 +42,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.termux.R
+import com.termux.terminal.compose.session.ProgramState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -113,8 +116,8 @@ enum class ArrowDirection(val keyCode: Int) {
     RIGHT(KeyEvent.KEYCODE_DPAD_RIGHT),
 }
 
-private val JoystickTrackSize = 48.dp
-private val JoystickKnobSize = 22.dp
+private val JoystickTrackSize = 40.dp
+private val JoystickKnobSize = 18.dp
 private const val JoystickDeadZoneFraction = 0.35f
 private const val FirstRepeatDelayMillis = 350L
 private const val RepeatDelayMillis = 120.0
@@ -200,42 +203,64 @@ fun ArrowJoystick(onArrow: (ArrowDirection) -> Unit, modifier: Modifier = Modifi
     }
 }
 
-/** Floating toolbar shared by every tab type: the tab supplies its actions, the screen supplies [tabsButton]. */
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+private val BarHeight = 48.dp
+
+/** Floating bar shared by every tab type: the tab supplies its actions, the screen supplies [tabsButton]. */
 @Composable
 fun FloatingBar(
     tabsButton: @Composable () -> Unit,
     modifier: Modifier = Modifier,
     content: @Composable RowScope.() -> Unit,
 ) {
-    HorizontalFloatingToolbar(
-        expanded = true,
+    Row(
         modifier = modifier,
-        floatingActionButton = tabsButton,
-        content = content,
-    )
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Surface(
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.surfaceContainer,
+            shadowElevation = 3.dp,
+        ) {
+            Row(
+                modifier = Modifier.height(BarHeight).padding(horizontal = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                content = content,
+            )
+        }
+        tabsButton()
+    }
 }
 
 /** Opens the tabs grid; shows the current tab's icon and the tab count. */
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun TabsButton(tabCount: Int, tabIcon: @Composable () -> Unit, onOpenTabs: () -> Unit) {
     val tabsDescription = stringResource(R.string.action_open_tabs)
-    FloatingToolbarDefaults.VibrantFloatingActionButton(
+    Surface(
         onClick = onOpenTabs,
-        modifier = Modifier.semantics { contentDescription = tabsDescription },
+        modifier = Modifier.size(BarHeight).semantics { contentDescription = tabsDescription },
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.tertiaryContainer,
+        contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+        shadowElevation = 3.dp,
     ) {
-        BadgedBox(badge = { Badge { Text(tabCount.toString()) } }) {
-            tabIcon()
+        Box(contentAlignment = Alignment.Center) {
+            BadgedBox(badge = { Badge { Text(tabCount.toString()) } }) {
+                tabIcon()
+            }
         }
     }
 }
+
+/** [state] is the most urgent agent state, or null when no agent needs attention. */
+data class AgentsButtonState(val state: ProgramState?, val onClick: () -> Unit)
 
 @Composable
 fun KeyBar(
     modifiers: ModifierKeys,
     onKey: (keyCode: Int) -> Unit,
     tabsButton: @Composable () -> Unit,
+    agents: AgentsButtonState?,
     modifier: Modifier = Modifier,
 ) {
     FloatingBar(tabsButton = tabsButton, modifier = modifier) {
@@ -244,6 +269,36 @@ fun KeyBar(
         ModifierKeyButton(label = "Alt", state = modifiers.alt, onClick = modifiers::tapAlt)
         ArrowJoystick(onArrow = { onKey(it.keyCode) })
         KeyButton(label = "Tab", onClick = { onKey(KeyEvent.KEYCODE_TAB) })
+        agents?.let { AgentsButton(state = it.state, onClick = it.onClick) }
+    }
+}
+
+@Composable
+private fun AgentsButton(state: ProgramState?, onClick: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    val iconTint = if (state == ProgramState.Blocked || state == ProgramState.Error) colors.error else colors.onSurface
+    val dotColor = when (state) {
+        ProgramState.Blocked -> colors.error
+        ProgramState.Done -> colors.primary
+        else -> null
+    }
+    val description = stringResource(R.string.action_open_agents)
+    Box(
+        Modifier
+            .focusProperties { canFocus = false }
+            .size(36.dp)
+            .semantics { contentDescription = description }
+            .clip(CircleShape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (state == ProgramState.Working) {
+            CircularProgressIndicator(modifier = Modifier.size(30.dp), strokeWidth = 2.dp)
+        }
+        Icon(imageVector = Icons.Rounded.SmartToy, contentDescription = null, tint = iconTint)
+        dotColor?.let { color ->
+            Box(Modifier.align(Alignment.TopEnd).size(8.dp).background(color, CircleShape))
+        }
     }
 }
 
@@ -284,7 +339,7 @@ private fun KeyButton(
                 indication = LocalIndication.current,
                 onClick = onClick,
             )
-            .defaultMinSize(minWidth = 44.dp, minHeight = 40.dp)
+            .defaultMinSize(minWidth = 44.dp, minHeight = 36.dp)
             .padding(horizontal = 10.dp),
         contentAlignment = Alignment.Center,
     ) {

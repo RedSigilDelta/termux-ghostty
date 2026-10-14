@@ -50,6 +50,7 @@
     <string name="title_rename_session">Set session name</string>
     <string name="action_rename_session_confirm">Set</string>
     <string name="action_open_tabs">Tabs</string>
+    <string name="action_open_agents">Agents</string>
     <string name="label_terminal_session_shell">shell</string>
 
 

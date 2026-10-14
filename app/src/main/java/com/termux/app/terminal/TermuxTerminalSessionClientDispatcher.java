@@ -111,6 +111,12 @@ public final class TermuxTerminalSessionClientDispatcher extends TermuxTerminalS
     }
 
     @Override
+    public void onTerminalProgramStatusChanged(@NonNull TerminalSession session) {
+        for (TerminalSessionClient client : getRegisteredClientsSnapshot())
+            client.onTerminalProgramStatusChanged(session);
+    }
+
+    @Override
     public void onTerminalCursorStateChange(boolean state) {
         for (TerminalSessionClient client : getRegisteredClientsSnapshot())
             client.onTerminalCursorStateChange(state);
