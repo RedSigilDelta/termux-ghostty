@@ -261,12 +261,8 @@ private fun HerdrTabGroup(
     onClosePane: (HerdrPane) -> Unit,
 ) {
     val panes = snapshot.panesIn(tab.id)
-    val displayPane = panes.firstOrNull { it.agent != null } ?: panes.firstOrNull()
-    val visiblePanes = listOfNotNull(displayPane) + panes.filter {
-        it.id != displayPane?.id && (displayPane?.agent == null || it.agent != null)
-    }
     val shape = RoundedCornerShape(12.dp)
-    val groupModifier = if (visiblePanes.size > 1) {
+    val groupModifier = if (panes.size > 1) {
         Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)
             .clip(shape)
             .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f), shape)
@@ -274,12 +270,12 @@ private fun HerdrTabGroup(
         Modifier.fillMaxWidth()
     }
     Column(modifier = groupModifier) {
-        if (visiblePanes.isEmpty()) Text(
+        if (panes.isEmpty()) Text(
             tab.label.ifBlank { "Terminal" },
             modifier = Modifier.fillMaxWidth().clickable(onClick = onFocusTab)
                 .padding(horizontal = 16.dp, vertical = 8.dp),
         )
-        visiblePanes.forEach { pane ->
+        panes.forEach { pane ->
             val agent = snapshot.agents.firstOrNull { it.terminalId == pane.terminalId }
             HerdrAgentRow(
                 pane = pane,
