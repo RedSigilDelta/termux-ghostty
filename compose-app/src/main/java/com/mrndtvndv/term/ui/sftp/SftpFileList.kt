@@ -41,9 +41,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
-import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
-import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -115,8 +112,6 @@ private fun flattenTree(files: List<SftpFile>, tree: SftpTreeState, depth: Int =
 fun SftpDirectory(
     state: SftpUiState,
     folder: String,
-    isRefreshing: Boolean,
-    onRefresh: () -> Unit,
     onOpenFolder: (String) -> Unit,
     onOpenFile: (SftpFile) -> Unit,
     onDownload: (SftpFile) -> Unit,
@@ -132,18 +127,7 @@ fun SftpDirectory(
     initialScrollOffset: Int = 0,
     onScrollChanged: (Int, Int) -> Unit = { _, _ -> }
 ) {
-    val pullToRefreshState = rememberPullToRefreshState()
-    PullToRefreshBox(
-        isRefreshing = isRefreshing,
-        state = pullToRefreshState,
-        indicator = {
-            PullToRefreshDefaults.LoadingIndicator(
-                state = pullToRefreshState,
-                isRefreshing = isRefreshing,
-                modifier = Modifier.align(Alignment.TopCenter),
-            )
-        },
-        onRefresh = onRefresh,
+    Box(
         modifier = modifier.fillMaxSize()
     ) {
         when (state) {

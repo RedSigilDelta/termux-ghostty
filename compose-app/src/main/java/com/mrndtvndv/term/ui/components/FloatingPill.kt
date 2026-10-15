@@ -21,6 +21,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.LoadingIndicator
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -33,6 +37,8 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import dev.chrisbanes.haze.HazeInput
@@ -147,6 +153,22 @@ fun PillIconButton(
 ) {
     IconButton(onClick = onClick, modifier = modifier.size(44.dp)) {
         Icon(imageVector = icon, contentDescription = contentDescription, tint = tint)
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+fun PillRefreshButton(isRefreshing: Boolean, onRefresh: () -> Unit) {
+    IconButton(
+        onClick = onRefresh,
+        enabled = !isRefreshing,
+        modifier = Modifier.size(44.dp).semantics { contentDescription = "Refresh" },
+    ) {
+        if (isRefreshing) {
+            LoadingIndicator(modifier = Modifier.size(24.dp))
+        } else {
+            Icon(Icons.Default.Refresh, contentDescription = null)
+        }
     }
 }
 

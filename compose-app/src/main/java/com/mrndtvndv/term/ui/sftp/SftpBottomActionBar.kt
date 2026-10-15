@@ -36,15 +36,18 @@ import com.mrndtvndv.term.ui.components.FloatingPill
 import com.mrndtvndv.term.ui.components.PillActions
 import com.mrndtvndv.term.ui.components.PillDivider
 import com.mrndtvndv.term.ui.components.PillIconButton
+import com.mrndtvndv.term.ui.components.PillRefreshButton
 import dev.chrisbanes.haze.HazeState
 
-/** SFTP pill: search, tree toggle and upload actions that morph into an inline search field. */
+/** SFTP pill: search, tree, upload and refresh actions that morph into an inline search field. */
 @Suppress("LongParameterList")
 @Composable
 fun SftpBottomActionBar(
     isSearchActive: Boolean,
     searchQuery: String,
     treeMode: Boolean,
+    isRefreshing: Boolean,
+    onRefresh: () -> Unit,
     onSearchClick: () -> Unit,
     onCloseSearch: () -> Unit,
     onSearchQueryChange: (String) -> Unit,
@@ -87,6 +90,8 @@ fun SftpBottomActionBar(
                 )
                 PillDivider()
                 PillIconButton(Icons.Default.FileUpload, "Upload file", onUploadClick)
+                PillDivider()
+                PillRefreshButton(isRefreshing, onRefresh)
             }
         }
     }

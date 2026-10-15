@@ -62,9 +62,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
-import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
-import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -205,18 +202,7 @@ internal fun FileChangesList(
 
     val hazeState = rememberHazeState()
     Box(modifier = modifier.fillMaxSize()) {
-        val pullToRefreshState = rememberPullToRefreshState()
-            PullToRefreshBox(
-                isRefreshing = state.isRefreshing,
-                state = pullToRefreshState,
-                indicator = {
-                    PullToRefreshDefaults.LoadingIndicator(
-                        state = pullToRefreshState,
-                        isRefreshing = state.isRefreshing,
-                        modifier = Modifier.align(Alignment.TopCenter),
-                    )
-                },
-                onRefresh = onRefresh,
+            Box(
                 modifier = Modifier.fillMaxSize()
             ) {
                 when (content) {
@@ -230,7 +216,12 @@ internal fun FileChangesList(
                             modifier = Modifier.fillMaxSize().padding(16.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text(text = content.message, color = MaterialTheme.colorScheme.error)
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(text = content.message, color = MaterialTheme.colorScheme.error)
+                                TextButton(onClick = onRefresh, enabled = !state.isRefreshing) {
+                                    Text("Retry")
+                                }
+                            }
                         }
                     }
                     is ReviewUiState.Success -> {
@@ -315,6 +306,8 @@ internal fun FileChangesList(
                     canCommit = stagedFiles.isNotEmpty(),
                     isCommitInProgress = state.isCommitInProgress,
                     isSyncInProgress = state.isSyncInProgress,
+                    isRefreshing = state.isRefreshing,
+                    onRefresh = onRefresh,
                     selectedStagedCount = selectedStaged.size,
                     selectedUnstagedCount = selectedUnstaged.size,
                     onFetch = onFetch,

@@ -37,6 +37,7 @@ import com.mrndtvndv.term.ui.components.FloatingPill
 import com.mrndtvndv.term.ui.components.PillActions
 import com.mrndtvndv.term.ui.components.PillDivider
 import com.mrndtvndv.term.ui.components.PillIconButton
+import com.mrndtvndv.term.ui.components.PillRefreshButton
 import dev.chrisbanes.haze.HazeState
 
 private enum class GitBarMode { Sync, Commit, Selection }
@@ -52,6 +53,8 @@ internal fun GitActionBar(
     canCommit: Boolean,
     isCommitInProgress: Boolean,
     isSyncInProgress: Boolean,
+    isRefreshing: Boolean,
+    onRefresh: () -> Unit,
     selectedStagedCount: Int,
     selectedUnstagedCount: Int,
     onBranchClick: () -> Unit,
@@ -104,7 +107,10 @@ internal fun GitActionBar(
                 PillIconButton(Icons.Default.SelectAll, "Select all", onSelectAll)
                 PillIconButton(Icons.Default.Close, "Clear selection", onClearSelection)
             } else {
-                BranchChip(currentBranch, aheadCount, behindCount, onBranchClick)
+                BranchChip(
+                    currentBranch, aheadCount, behindCount, onBranchClick,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
                 PillDivider()
                 SyncButtons(isSyncInProgress, onFetch, onPull, onPush)
                 if (target == GitBarMode.Commit) {
@@ -112,6 +118,8 @@ internal fun GitActionBar(
                     CommitButton(isCommitInProgress, onCommit)
                 }
             }
+            PillDivider()
+            PillRefreshButton(isRefreshing, onRefresh)
         }
     }
 }
@@ -121,10 +129,11 @@ private fun BranchChip(
     branch: String,
     aheadCount: Int,
     behindCount: Int,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Row(
-        modifier = Modifier
+        modifier = modifier
             .height(44.dp)
             .clip(RoundedCornerShape(22.dp))
             .clickable(onClick = onClick)
@@ -143,7 +152,7 @@ private fun BranchChip(
             style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.widthIn(max = 120.dp)
+            modifier = Modifier.weight(1f, fill = false).widthIn(max = 120.dp)
         )
         if (aheadCount > 0) {
             SyncCount("↑$aheadCount", MaterialTheme.colorScheme.primary)

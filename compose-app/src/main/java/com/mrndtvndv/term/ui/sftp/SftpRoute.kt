@@ -210,8 +210,6 @@ fun SftpScreenRoute(
                             SftpDirectory(
                                 state = uiState,
                                 folder = currentPath,
-                                isRefreshing = isRefreshing,
-                                onRefresh = viewModel::refresh,
                                 onOpenFolder = { path ->
                                     isSearchActive = false
                                     searchQuery = ""
@@ -262,6 +260,8 @@ fun SftpScreenRoute(
 
                         val hasBottomBanner = innerPadding.calculateBottomPadding() > 0.dp
                         SftpBottomActionBar(
+                            isRefreshing = isRefreshing,
+                            onRefresh = viewModel::refresh,
                             isSearchActive = isSearchActive,
                             searchQuery = searchQuery,
                             treeMode = treeMode,
