@@ -7,13 +7,13 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
@@ -22,6 +22,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.luminance
@@ -85,6 +86,8 @@ internal fun SftpMarkdownViewer(markdown: String, bottomPadding: Dp) {
         )
     }
 
+    val scrollState = rememberSaveable(saver = ScrollState.Saver) { ScrollState(0) }
+
     CompositionLocalProvider(LocalUriHandler provides webLinksOnly) {
         SelectionContainer {
             Markdown(
@@ -99,9 +102,11 @@ internal fun SftpMarkdownViewer(markdown: String, bottomPadding: Dp) {
                 ),
                 modifier = Modifier
                     .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
+                    .verticalScroll(scrollState)
                     .padding(bottom = bottomPadding)
                     .padding(16.dp),
+                // Keeps the restored scroll offset from being clamped to 0 by the empty loading placeholder.
+                loading = { },
             )
         }
     }

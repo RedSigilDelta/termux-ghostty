@@ -41,6 +41,38 @@ class WorkspaceFileTest {
     }
 
     @Test
+    fun roundTripsSftpRestoreState() {
+        val sftp = Tab.Sftp(
+            id = "f2",
+            dir = "/home/src",
+            back = listOf("/home", "/home/src/app"),
+            expanded = listOf("/home/src/app/ui"),
+            scrollIndex = 42,
+            scrollOffset = 17,
+            treeMode = true,
+        )
+        val withSftp = state.copy(workspaces = listOf(state.workspaces.single().copy(tabs = listOf(sftp))))
+        WorkspaceFile(File(tmp.root, "workspaces.json")).write(withSftp)
+
+        assertEquals(withSftp, WorkspaceFile(File(tmp.root, "workspaces.json")).read())
+    }
+
+    @Test
+    fun decodesSftpTabWithoutRestoreStateAsDefaults() {
+        val file = File(tmp.root, "workspaces.json")
+        file.writeText(
+            """
+            {"workspaces":[{"id":"w1","serverId":"s1","name":"home","root":"/home",
+            "tabs":[{"type":"sftp","id":"f1","dir":"/home/src"}],"activeTabId":"f1"}],"activeWorkspaceId":"w1"}
+            """.trimIndent()
+        )
+
+        val tab = WorkspaceFile(file).read().workspaces.single().tabs.single()
+
+        assertEquals(Tab.Sftp(id = "f1", dir = "/home/src"), tab)
+    }
+
+    @Test
     fun writesTabTypeDiscriminator() {
         WorkspaceFile(File(tmp.root, "workspaces.json")).write(state)
 

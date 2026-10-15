@@ -117,7 +117,15 @@ class WorkspaceRepository(private val file: WorkspaceFile, private val scope: Co
     }
 
     fun setSftpDir(tabId: String, dir: String) {
-        _state.update { it.updateTab(tabId) { tab -> if (tab is Tab.Sftp) tab.copy(dir = dir) else tab } }
+        // Expansion and scroll belong to the folder they were taken in, so a new folder starts clean.
+        updateSftp(tabId) {
+            if (it.dir == dir) it else it.copy(dir = dir, expanded = emptyList(), scrollIndex = 0, scrollOffset = 0)
+        }
+    }
+
+    /** Applies [transform] to the Sftp tab [tabId]. Other tabs are left alone. */
+    fun updateSftp(tabId: String, transform: (Tab.Sftp) -> Tab.Sftp) {
+        _state.update { it.updateTab(tabId) { tab -> if (tab is Tab.Sftp) transform(tab) else tab } }
     }
 
     fun setTerminalCwd(tabId: String, cwd: String) {

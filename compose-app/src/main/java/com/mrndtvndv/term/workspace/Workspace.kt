@@ -151,8 +151,18 @@ sealed interface Tab {
         val herdrTerminal: HerdrTerminalRef? = null,
     ) : Tab
 
+    /** [back] holds the folders below the top of the nav stack, bottom first. The top is always [dir]. */
     @Serializable @SerialName("sftp")
-    data class Sftp(override val id: String, val dir: String) : Tab
+    data class Sftp(
+        override val id: String,
+        val dir: String,
+        val back: List<String> = emptyList(),
+        /** Expanded tree-mode folders of [dir]. Cleared when [dir] changes. */
+        val expanded: List<String> = emptyList(),
+        val scrollIndex: Int = 0,
+        val scrollOffset: Int = 0,
+        val treeMode: Boolean = false,
+    ) : Tab
 
     @Serializable @SerialName("git")
     data class Git(override val id: String, val repoDir: String) : Tab

@@ -437,6 +437,28 @@ class AppViewModel(
         repository.setSftpDir(tabId, dir)
     }
 
+    fun setSftpBack(tabId: String, back: List<String>) {
+        repository.updateSftp(tabId) { if (it.back == back) it else it.copy(back = back) }
+    }
+
+    fun setSftpExpanded(tabId: String, expanded: List<String>) {
+        repository.updateSftp(tabId) { if (it.expanded == expanded) it else it.copy(expanded = expanded) }
+    }
+
+    fun setSftpScroll(tabId: String, index: Int, offset: Int) {
+        repository.updateSftp(tabId) {
+            if (it.scrollIndex == index && it.scrollOffset == offset) {
+                it
+            } else {
+                it.copy(scrollIndex = index, scrollOffset = offset)
+            }
+        }
+    }
+
+    fun setSftpTreeMode(tabId: String, enabled: Boolean) {
+        repository.updateSftp(tabId) { if (it.treeMode == enabled) it else it.copy(treeMode = enabled) }
+    }
+
     suspend fun openTerminal(serverId: String, tab: Tab.Terminal): Result<TerminalSession> =
         sessionManager.openTerminal(serverId, tab)
 
@@ -556,28 +578,6 @@ class AppViewModel(
             client.request("pane.close", buildJsonObject { put("pane_id", paneId) })
         }
 
-    @Suppress("TooGenericExceptionCaught")
-    private suspend fun runHerdrAction(
-        serverId: String,
-        title: String,
-        action: suspend (HerdrControlClient) -> Unit,
-    ): Boolean {
-        val client = coordinator.getServer(serverId)?.herdr
-        if (client == null) {
-            notificationState.post(title, "Herdr is not connected")
-            return false
-        }
-        return try {
-            action(client)
-            client.refresh()
-            true
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: Exception) {
-            notificationState.post(title, error.message ?: "Herdr request failed")
-            false
-        }
-    }
     suspend fun createHerdrTab(serverId: String, workspaceId: String): Boolean =
         runHerdrAction(serverId, "Couldn't create tab") { client ->
             client.request("tab.create", buildJsonObject {
@@ -603,6 +603,28 @@ class AppViewModel(
             })
         }
 
+    @Suppress("TooGenericExceptionCaught")
+    private suspend fun runHerdrAction(
+        serverId: String,
+        title: String,
+        action: suspend (HerdrControlClient) -> Unit,
+    ): Boolean {
+        val client = coordinator.getServer(serverId)?.herdr
+        if (client == null) {
+            notificationState.post(title, "Herdr is not connected")
+            return false
+        }
+        return try {
+            action(client)
+            client.refresh()
+            true
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            notificationState.post(title, error.message ?: "Herdr request failed")
+            false
+        }
+    }
 
     /** Restarts the control client after a failure. Only the user's explicit Retry calls this. */
     fun retryHerdr(serverId: String) {

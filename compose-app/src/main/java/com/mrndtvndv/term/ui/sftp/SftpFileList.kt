@@ -17,7 +17,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
@@ -43,10 +45,13 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -59,8 +64,12 @@ import java.util.Locale
 import java.util.TimeZone
 import kotlin.math.log10
 import kotlin.math.pow
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 
 private val TREE_INDENT = 16.dp
+private const val ScrollSaveDelayMs = 500L
 
 private data class SftpRow(
     val file: SftpFile,
@@ -105,6 +114,7 @@ private fun flattenTree(files: List<SftpFile>, tree: SftpTreeState, depth: Int =
 @Composable
 fun SftpDirectory(
     state: SftpUiState,
+    folder: String,
     isRefreshing: Boolean,
     onRefresh: () -> Unit,
     onOpenFolder: (String) -> Unit,
@@ -117,7 +127,10 @@ fun SftpDirectory(
     tree: SftpTreeState = SftpTreeState(),
     onToggleFolder: (SftpFile) -> Unit = {},
     searchQuery: String = "",
-    onClearSearch: () -> Unit = {}
+    onClearSearch: () -> Unit = {},
+    initialScrollIndex: Int = 0,
+    initialScrollOffset: Int = 0,
+    onScrollChanged: (Int, Int) -> Unit = { _, _ -> }
 ) {
     val pullToRefreshState = rememberPullToRefreshState()
     PullToRefreshBox(
@@ -144,6 +157,7 @@ fun SftpDirectory(
             }
             is SftpUiState.Success -> SftpFileList(
                 state = state,
+                folder = folder,
                 treeMode = treeMode,
                 tree = tree,
                 searchQuery = searchQuery,
@@ -153,7 +167,10 @@ fun SftpDirectory(
                 onOpenFile = onOpenFile,
                 onDownload = onDownload,
                 onRename = onRename,
-                onDelete = onDelete
+                onDelete = onDelete,
+                initialScrollIndex = initialScrollIndex,
+                initialScrollOffset = initialScrollOffset,
+                onScrollChanged = onScrollChanged
             )
             is SftpUiState.Error -> {
                 Box(
@@ -177,6 +194,7 @@ fun SftpDirectory(
 @Composable
 private fun SftpFileList(
     state: SftpUiState.Success,
+    folder: String,
     treeMode: Boolean,
     tree: SftpTreeState,
     searchQuery: String,
@@ -186,7 +204,10 @@ private fun SftpFileList(
     onOpenFile: (SftpFile) -> Unit,
     onDownload: (SftpFile) -> Unit,
     onRename: (SftpFile) -> Unit,
-    onDelete: (SftpFile) -> Unit
+    onDelete: (SftpFile) -> Unit,
+    initialScrollIndex: Int,
+    initialScrollOffset: Int,
+    onScrollChanged: (Int, Int) -> Unit
 ) {
     val filteredFiles = remember(state.files, searchQuery) {
         if (searchQuery.isBlank()) {
@@ -201,6 +222,8 @@ private fun SftpFileList(
     val rows = remember(filteredFiles, tree, showTree) {
         if (showTree) flattenTree(filteredFiles, tree) else filteredFiles.map { SftpRow(it) }
     }
+    // Held here rather than in the list, so an empty result (a search with no matches) keeps the position.
+    val listState = key(folder) { rememberLazyListState(initialScrollIndex, initialScrollOffset) }
 
     if (rows.isEmpty()) {
         SftpEmptyList(
@@ -211,6 +234,7 @@ private fun SftpFileList(
         SftpFileItems(
             rows = rows,
             rootPath = state.currentPath,
+            folder = folder,
             showTree = showTree,
             gitStatuses = state.gitStatuses,
             onToggleFolder = onToggleFolder,
@@ -218,7 +242,9 @@ private fun SftpFileList(
             onOpenFile = onOpenFile,
             onDownload = onDownload,
             onRename = onRename,
-            onDelete = onDelete
+            onDelete = onDelete,
+            listState = listState,
+            onScrollChanged = onScrollChanged
         )
     }
 }
@@ -270,11 +296,13 @@ private fun SftpEmptyList(
     }
 }
 
+@OptIn(FlowPreview::class)
 @Suppress("LongParameterList")
 @Composable
 private fun SftpFileItems(
     rows: List<SftpRow>,
     rootPath: String,
+    folder: String,
     showTree: Boolean,
     gitStatuses: Map<String, String>,
     onToggleFolder: (SftpFile) -> Unit,
@@ -282,10 +310,22 @@ private fun SftpFileItems(
     onOpenFile: (SftpFile) -> Unit,
     onDownload: (SftpFile) -> Unit,
     onRename: (SftpFile) -> Unit,
-    onDelete: (SftpFile) -> Unit
+    onDelete: (SftpFile) -> Unit,
+    listState: LazyListState,
+    onScrollChanged: (Int, Int) -> Unit
 ) {
     var menuTargetPath by remember { mutableStateOf<String?>(null) }
+    // While a folder loads, the previous folder's rows are shown. Their position is not this folder's, so skip saving.
+    if (rootPath == folder) {
+        LaunchedEffect(folder) {
+            snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
+                .debounce(ScrollSaveDelayMs)
+                .distinctUntilChanged()
+                .collect { (index, offset) -> onScrollChanged(index, offset) }
+        }
+    }
     LazyColumn(
+        state = listState,
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(
             top = 8.dp,

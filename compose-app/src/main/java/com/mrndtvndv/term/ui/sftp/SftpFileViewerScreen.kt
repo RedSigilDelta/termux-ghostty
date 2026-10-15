@@ -3,13 +3,13 @@
 
 package com.mrndtvndv.term.ui.sftp
 
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
@@ -18,6 +18,7 @@ import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.luminance
@@ -43,7 +44,7 @@ fun SftpFileViewerScreen(file: File, tabsButton: (@Composable () -> Unit)? = nul
     var content by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     val isMarkdown = file.extension.lowercase() in MarkdownExtensions
-    var showSource by remember { mutableStateOf(false) }
+    var showSource by rememberSaveable { mutableStateOf(false) }
     val hazeState = rememberHazeState()
     val bottomPadding = 96.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
@@ -136,8 +137,8 @@ private fun CodeViewer(code: String, bottomPadding: Dp) {
         fontScale = (fontScale * zoomChange).coerceIn(0.6f, 3.0f)
     }
 
-    val scrollState = rememberScrollState()
-    val horizScrollState = rememberScrollState()
+    val scrollState = rememberSaveable(saver = ScrollState.Saver) { ScrollState(0) }
+    val horizScrollState = rememberSaveable(saver = ScrollState.Saver) { ScrollState(0) }
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
 
     val lines = remember(code) {

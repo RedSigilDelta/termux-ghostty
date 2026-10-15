@@ -28,6 +28,7 @@ import com.mrndtvndv.term.domain.SftpClient
 import com.mrndtvndv.term.ui.sftp.SftpFileViewerScreen
 import com.mrndtvndv.term.workspace.Tab
 import java.io.File
+import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -44,11 +45,15 @@ fun ViewerTab(client: SftpClient?, tab: Tab.Viewer, onClose: () -> Unit, tabsBut
     val state by produceState<ViewerFile>(ViewerFile.Loading, tab.id) {
         value = withContext(Dispatchers.IO) {
             runCatching {
-                val source = checkNotNull(client) { "No SFTP connection" }
                 val name = File(tab.path).name
                 val target = File(cacheDir, "viewer/${tab.id}/$name")
                 target.parentFile?.mkdirs()
-                source.downloadFile(tab.path, target) {}
+                if (!target.exists()) {
+                    val source = checkNotNull(client) { "No SFTP connection" }
+                    val part = File(target.parentFile, "$name.part")
+                    source.downloadFile(tab.path, part) {}
+                    if (!part.renameTo(target)) throw IOException("Couldn't save $name")
+                }
                 ViewerFile.Ready(target)
             }.getOrElse { error ->
                 ViewerFile.Failed(error.message ?: "Couldn't open the file")

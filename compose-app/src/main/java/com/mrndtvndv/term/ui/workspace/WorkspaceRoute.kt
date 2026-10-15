@@ -22,11 +22,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -40,6 +42,7 @@ import com.mrndtvndv.term.AppContainer
 import com.mrndtvndv.term.AppViewModel
 import com.mrndtvndv.term.TabType
 import com.mrndtvndv.term.data.prefs.AppSettings
+import com.mrndtvndv.term.navigation.SftpFolder
 import com.mrndtvndv.term.navigation.WorkspaceNavigator
 import com.mrndtvndv.term.server.Server
 import com.mrndtvndv.term.server.TerminalEntry
@@ -54,6 +57,7 @@ import com.termux.terminal.TerminalSession
 import com.termux.terminal.compose.TerminalThumbnail
 import java.io.File
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 
 class TerminalHostCallbacks(
     val onCommitContent: (TerminalSession, ClipData) -> Boolean,
@@ -331,7 +335,14 @@ private fun SftpTab(
             transferManager = SftpTransferManager.current,
             ownerKey = server.config.id,
             onDirectoryChanged = { dir -> appViewModel.setSftpDir(tab.id, dir) },
+            initialExpanded = tab.expanded.toSet(),
+            onExpandedChanged = { expanded -> appViewModel.setSftpExpanded(tab.id, expanded.toList()) },
         )
+    }
+    LaunchedEffect(tab.id) {
+        snapshotFlow { navigator.sftpStack(tab).mapNotNull { (it as? SftpFolder)?.path }.dropLast(1) }
+            .distinctUntilChanged()
+            .collect { back -> appViewModel.setSftpBack(tab.id, back) }
     }
     SftpScreenRoute(
         viewModel = sftpViewModel,
@@ -349,6 +360,11 @@ private fun SftpTab(
         },
         onOpenFileError = { message -> onError("SFTP Error", message) },
         tabsButton = tabsButton,
+        initialScrollIndex = tab.scrollIndex,
+        initialScrollOffset = tab.scrollOffset,
+        onScrollChanged = { index, offset -> appViewModel.setSftpScroll(tab.id, index, offset) },
+        initialTreeMode = tab.treeMode,
+        onTreeModeChanged = { enabled -> appViewModel.setSftpTreeMode(tab.id, enabled) },
     )
 }
 

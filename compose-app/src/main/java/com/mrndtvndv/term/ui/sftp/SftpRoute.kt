@@ -57,7 +57,12 @@ fun SftpScreenRoute(
     isTabActive: Boolean,
     onOpenFile: (SftpFile, File) -> Unit,
     onOpenFileError: (String) -> Unit,
-    tabsButton: (@Composable () -> Unit)? = null
+    tabsButton: (@Composable () -> Unit)? = null,
+    initialScrollIndex: Int = 0,
+    initialScrollOffset: Int = 0,
+    onScrollChanged: (index: Int, offset: Int) -> Unit = { _, _ -> },
+    initialTreeMode: Boolean = false,
+    onTreeModeChanged: (Boolean) -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
@@ -72,7 +77,7 @@ fun SftpScreenRoute(
     var dialog by remember { mutableStateOf<SftpDialog?>(null) }
     var isSearchActive by rememberSaveable { mutableStateOf(false) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
-    var treeMode by rememberSaveable { mutableStateOf(false) }
+    var treeMode by rememberSaveable { mutableStateOf(initialTreeMode) }
     val hazeState = rememberHazeState()
 
     fun showMessage(message: String) {
@@ -150,6 +155,13 @@ fun SftpScreenRoute(
             searchQuery = ""
         }
     }
+    // The saved position belongs to the folder the tab was saved on. It is dropped once the user leaves that folder.
+    val savedFolder = remember { currentPath }
+    var savedScroll by remember { mutableStateOf(initialScrollIndex to initialScrollOffset) }
+    LaunchedEffect(currentPath) {
+        if (currentPath != savedFolder) savedScroll = 0 to 0
+    }
+    val (restoredIndex, restoredOffset) = if (currentPath == savedFolder) savedScroll else (0 to 0)
 
     AppNavDisplay(
         backStack = backStack,
@@ -197,6 +209,7 @@ fun SftpScreenRoute(
                             )
                             SftpDirectory(
                                 state = uiState,
+                                folder = currentPath,
                                 isRefreshing = isRefreshing,
                                 onRefresh = viewModel::refresh,
                                 onOpenFolder = { path ->
@@ -240,6 +253,9 @@ fun SftpScreenRoute(
                                 treeMode = treeMode,
                                 tree = tree,
                                 onToggleFolder = viewModel::toggleExpanded,
+                                initialScrollIndex = restoredIndex,
+                                initialScrollOffset = restoredOffset,
+                                onScrollChanged = onScrollChanged,
                                 modifier = Modifier.weight(1f)
                             )
                         }
@@ -255,7 +271,10 @@ fun SftpScreenRoute(
                                 searchQuery = ""
                             },
                             onSearchQueryChange = { searchQuery = it },
-                            onToggleTree = { treeMode = !treeMode },
+                            onToggleTree = {
+                                treeMode = !treeMode
+                                onTreeModeChanged(treeMode)
+                            },
                             onUploadClick = { uploadPicker.launch("*/*") },
                             hazeState = hazeState,
                             modifier = Modifier

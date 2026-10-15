@@ -14,6 +14,8 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -58,6 +60,8 @@ class SftpViewModel(
     private val transferManager: SftpTransferManager?,
     private val ownerKey: String,
     private val onDirectoryChanged: (String) -> Unit,
+    private val initialExpanded: Set<String> = emptySet(),
+    private val onExpandedChanged: (Set<String>) -> Unit = {},
 ) : ViewModel() {
     private val _uiState = MutableStateFlow<SftpUiState>(SftpUiState.Loading)
     val uiState = _uiState.asStateFlow()
@@ -156,6 +160,18 @@ class SftpViewModel(
     var currentPath: String? = null
         private set
 
+    /** The folder whose listing last succeeded. Expansion is saved only while the tree belongs to that folder. */
+    private var expansionOwner: String? = null
+
+    init {
+        viewModelScope.launch {
+            tree.map { it.expanded }
+                .distinctUntilChanged()
+                .filter { expansionOwner == currentPath }
+                .collect { onExpandedChanged(it) }
+        }
+    }
+
     private fun isPathPrefix(prefix: String, fullPath: String): Boolean {
         if (prefix == fullPath || prefix == "/" || prefix.isEmpty()) return true
         val formattedPrefix = if (prefix.endsWith("/")) prefix else "$prefix/"
@@ -166,8 +182,15 @@ class SftpViewModel(
     val trailPath = _trailPath.asStateFlow()
 
     fun navigateTo(path: String) {
-        if (path != currentPath) _tree.value = SftpTreeState()
+        val previous = currentPath
+        // Set before the tree changes, so the reset below is never read as the old folder's expansion.
         currentPath = path
+        // The first navigate is the folder the tab was saved on, so its saved expansion comes back.
+        if (previous == null) {
+            _tree.value = SftpTreeState(expanded = initialExpanded)
+        } else if (path != previous) {
+            _tree.value = SftpTreeState()
+        }
         if (!isPathPrefix(path, _trailPath.value)) {
             _trailPath.value = path
         }
@@ -197,6 +220,8 @@ class SftpViewModel(
                 }
                 _uiState.value = SftpUiState.Success(path, list, gitStatuses)
                 onDirectoryChanged(path)
+                expansionOwner = path
+                onExpandedChanged(_tree.value.expanded)
                 reloadExpanded()
             } catch (e: Exception) {
                 if (_uiState.value !is SftpUiState.Success) {

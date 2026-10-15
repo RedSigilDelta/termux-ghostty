@@ -10,7 +10,12 @@ class WorkspaceNavigator(private val activeTab: () -> Tab?) {
     private val reviewStacks = mutableMapOf<String, NavBackStack<NavKey>>()
 
     fun sftpStack(tab: Tab.Sftp): NavBackStack<NavKey> =
-        sftpStacks.getOrPut(tab.id) { NavBackStack<NavKey>(SftpFolder(tab.dir)) }
+        sftpStacks.getOrPut(tab.id) {
+            // dir moves only after a listing succeeds, so a kill mid-load leaves back ending in dir. Keep it once.
+            val back = if (tab.back.lastOrNull() == tab.dir) tab.back.dropLast(1) else tab.back
+            val folders: List<NavKey> = back.map { SftpFolder(it) } + SftpFolder(tab.dir)
+            NavBackStack<NavKey>().apply { addAll(folders) }
+        }
 
     fun reviewStack(tabId: String): NavBackStack<NavKey> =
         reviewStacks.getOrPut(tabId) { NavBackStack<NavKey>(ReviewRoute.Changes) }
