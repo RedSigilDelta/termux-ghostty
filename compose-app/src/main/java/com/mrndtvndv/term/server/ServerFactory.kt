@@ -8,6 +8,7 @@ import com.mrndtvndv.term.domain.ServerConfig
 import com.mrndtvndv.term.domain.toDomainAuth
 import com.mrndtvndv.term.workspace.Tab
 import com.mrndtvndv.term.workspace.create
+import com.mrndtvndv.term.workspace.missingToolMessage
 import com.termux.shared.termux.terminal.TermuxTerminalSessionClientBase
 import com.termux.terminal.TerminalSession
 import kotlinx.coroutines.Dispatchers
@@ -71,7 +72,9 @@ class ServerFactory(
         if (server.config.isLocal) return openLocalTerminal(server, tab, onFinished)
 
         val ssh = checkNotNull(server.sshSession) { "SSH session is not connected" }
-        val command = server.config.persistence.create().startCommand(tab)
+        val persistence = server.config.persistence.create()
+        persistence.missingToolMessage { ssh.execCommand(it) }?.let { throw IllegalStateException(it) }
+        val command = persistence.startCommand(tab)
         val channel = withContext(Dispatchers.IO) {
             ssh.openShellChannel(
                 termType = server.config.termType,

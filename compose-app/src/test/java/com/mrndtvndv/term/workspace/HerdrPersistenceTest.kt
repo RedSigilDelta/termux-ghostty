@@ -81,11 +81,14 @@ class HerdrPersistenceTest {
     }
 
     @Test
-    fun missingHerdrFallsBackToLoginShell() {
+    fun failedTerminalCreationSaysSoBeforeLoginShell() {
         val root = stub()
         File(root, "bin/herdr").delete()
 
-        assertEquals("-l", run(root, HerdrPersistence.startCommand(tab)!!))
+        assertEquals(
+            "herdr couldn't create a terminal; this shell won't persist\n-l",
+            run(root, HerdrPersistence.startCommand(tab)!!),
+        )
     }
 
     private companion object {
@@ -100,7 +103,7 @@ class HerdrPersistenceTest {
             "workspace create") touch "${'$'}st/ws"; echo '{"result":{"workspace":{"workspace_id":"w1"},"root_pane":{"terminal_id":"term_root"}}}';;
             "tab create") echo '{"result":{"tab":{"tab_id":"w1:t2"},"root_pane":{"agent_session":{"a":"b"},"cwd":"/x, y","pane_id":"w1:p2","scroll":{"m":1},"terminal_id":"term_new1"}}}'
               echo '{"result":{"panes":[{"pane_id":"w1:p1","scroll":{"m":0},"terminal_id":"term_root"},{"pane_id":"w1:p2","scroll":{"m":0},"terminal_id":"term_new1"}]}}' > "${'$'}st/panes";;
-            "terminal attach") echo "ATTACHED ${'$'}4";;
+            "terminal attach") case "${'$'}3" in --*) echo "unknown option: ${'$'}3"; exit 2;; esac; echo "ATTACHED ${'$'}3";;
             "pane close") ;;
             *) echo "unexpected ${'$'}*"; exit 2;;
             esac
