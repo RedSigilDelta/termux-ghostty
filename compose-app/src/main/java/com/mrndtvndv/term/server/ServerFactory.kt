@@ -6,12 +6,20 @@ import com.mrndtvndv.term.data.ssh.native.NativeSshSession
 import com.mrndtvndv.term.data.ssh.native.NativeSshShellChannel
 import com.mrndtvndv.term.domain.ServerConfig
 import com.mrndtvndv.term.domain.toDomainAuth
+import com.mrndtvndv.term.herdr.HerdrControlClient
 import com.mrndtvndv.term.workspace.Tab
-import com.mrndtvndv.term.workspace.create
-import com.mrndtvndv.term.workspace.missingToolMessage
+import com.mrndtvndv.term.workspace.herdrAttachCommand
+import com.mrndtvndv.term.workspace.herdrControlSocketPath
+import com.mrndtvndv.term.workspace.herdrFullUiCommand
+import com.mrndtvndv.term.workspace.isHerdrFullUiTab
+import com.mrndtvndv.term.workspace.plainShellCommand
 import com.termux.shared.termux.terminal.TermuxTerminalSessionClientBase
 import com.termux.terminal.TerminalSession
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -51,12 +59,24 @@ class ServerFactory(
             ?.takeIf { it.startsWith("/") }
             ?: "/"
 
-        return Server(
+        // Herdr control runs in its own scope. A failed or unsupported control connection is reported through
+        // its state and never blocks the SSH connection or plain tabs.
+        val herdrScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val herdr = if (config.herdrEnabled) {
+            HerdrControlClient(session, herdrControlSocketPath(config.herdrSocketPath, homeDir), herdrScope)
+        } else {
+            null
+        }
+        val server = Server(
             config = config,
             sshSession = session,
             sftpClient = sftpClient,
             homeDir = homeDir,
+            herdr = herdr,
         )
+        server.onDisconnect { herdrScope.cancel() }
+        if (herdr != null) herdrScope.launch { runCatching { herdr.start() } }
+        return server
     }
 
     /**
@@ -72,9 +92,21 @@ class ServerFactory(
         if (server.config.isLocal) return openLocalTerminal(server, tab, onFinished)
 
         val ssh = checkNotNull(server.sshSession) { "SSH session is not connected" }
-        val persistence = server.config.persistence.create()
-        persistence.missingToolMessage { ssh.execCommand(it) }?.let { throw IllegalStateException(it) }
-        val command = persistence.startCommand(tab)
+        val remote = tab.herdrTerminal
+        val socket = herdrControlSocketPath(server.config.herdrSocketPath, server.homeDir)
+        val command = when {
+            // The session tab runs Herdr's full UI on the configured socket. A missing binary or a failed launch ends
+            // the shell and the tab reports it. There is no plain-shell fallback.
+            isHerdrFullUiTab(tab) -> {
+                check(server.config.herdrEnabled) { "herdr is off for this server" }
+                herdrFullUiCommand(socket)
+            }
+            // A projected herdr card attaches directly. A missing binary or a rejected attach ends the shell,
+            // which the tab reports as an ended attachment; no exec probe runs per open.
+            remote != null -> herdrAttachCommand(remote.terminalId, socket)
+            // A plain tab is a login shell in its directory. Nothing is kept alive on the server for it.
+            else -> plainShellCommand(tab)
+        }
         val channel = withContext(Dispatchers.IO) {
             ssh.openShellChannel(
                 termType = server.config.termType,

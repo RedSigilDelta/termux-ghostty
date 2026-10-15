@@ -1,6 +1,5 @@
 package com.mrndtvndv.term.domain
 
-import com.mrndtvndv.term.workspace.TerminalPersistenceKind
 import kotlinx.serialization.Serializable
 import java.util.UUID
 
@@ -19,7 +18,10 @@ data class ServerConfig(
     val imagePasteDirectory: String? = null,
     val imagePasteAutoCleanup: Boolean = true,
     val imagePasteMaxFiles: Int = DEFAULT_IMAGE_PASTE_MAX_FILES,
-    val persistence: TerminalPersistenceKind = TerminalPersistenceKind.None,
+    /** Shows the server's herdr workspaces and attaches to their terminals. Plain tabs stay login shells. */
+    val herdrEnabled: Boolean = false,
+    /** Absolute path of the herdr API socket on the server. Null uses herdr's default under the server home. */
+    val herdrSocketPath: String? = null,
 ) {
     companion object {
         const val DEFAULT_IMAGE_PASTE_MAX_FILES = 20

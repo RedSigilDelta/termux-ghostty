@@ -94,6 +94,15 @@ data class WorkspaceState(
         return mapWorkspace(owner.id) { it.copy(tabs = tabs) }
     }
 
+    fun setHiddenTerminals(workspaceId: String, hiddenTerminalIds: Set<String>): WorkspaceState =
+        mapWorkspace(workspaceId) { workspace ->
+            workspace.copy(herdr = workspace.herdr?.copy(hiddenTerminalIds = hiddenTerminalIds))
+        }
+
+    /** Removes the Herdr binding only. Local tabs stay, so user data is never deleted by unbinding. */
+    fun unbindHerdr(workspaceId: String): WorkspaceState =
+        mapWorkspace(workspaceId) { it.copy(herdr = null) }
+
     private fun mapWorkspace(workspaceId: String, transform: (Workspace) -> Workspace): WorkspaceState =
         copy(workspaces = workspaces.map { if (it.id == workspaceId) transform(it) else it })
 }
@@ -107,14 +116,40 @@ data class Workspace(
     val tabs: List<Tab> = emptyList(),
     val activeTabId: String? = null,
     val lastUsed: Long = 0,
+    /** Set when this workspace shows a Herdr workspace. Its remote tabs are projected, never stored in [tabs]. */
+    val herdr: HerdrWorkspaceBinding? = null,
 )
+
+/** Local record of which Herdr workspace on the server this workspace shows. Remote topology is not stored here. */
+@Serializable
+data class HerdrWorkspaceBinding(
+    val workspaceId: String,
+    /** Terminal ids of hidden cards. A local presentation preference; hiding never touches the remote terminal. */
+    val hiddenTerminalIds: Set<String> = emptySet(),
+)
+
+/** A remote terminal a tab attaches to. Set only on projected cards, which are in-memory and never saved. */
+@Serializable
+data class HerdrTerminalRef(val terminalId: String)
+
+/**
+ * Identity of one remote Herdr workspace's file collection: the server, the control socket it was read from, and the
+ * Herdr workspace id. Captured when a sheet or viewer opens, so a result that arrives later stays in its source.
+ */
+@Serializable
+data class HerdrFileScope(val serverId: String, val socketPath: String, val herdrWorkspaceId: String)
 
 @Serializable
 sealed interface Tab {
     val id: String
 
     @Serializable @SerialName("terminal")
-    data class Terminal(override val id: String, val name: String? = null, val cwd: String) : Tab
+    data class Terminal(
+        override val id: String,
+        val name: String? = null,
+        val cwd: String,
+        val herdrTerminal: HerdrTerminalRef? = null,
+    ) : Tab
 
     @Serializable @SerialName("sftp")
     data class Sftp(override val id: String, val dir: String) : Tab
@@ -122,8 +157,9 @@ sealed interface Tab {
     @Serializable @SerialName("git")
     data class Git(override val id: String, val repoDir: String) : Tab
 
+    /** [scope] is null for an ordinary preview. A Herdr preview keeps the remote workspace it was opened from. */
     @Serializable @SerialName("viewer")
-    data class Viewer(override val id: String, val path: String) : Tab
+    data class Viewer(override val id: String, val path: String, val scope: HerdrFileScope? = null) : Tab
 }
 
 fun newId(): String = UUID.randomUUID().toString()

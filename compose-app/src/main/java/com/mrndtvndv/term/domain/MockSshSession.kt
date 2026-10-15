@@ -32,6 +32,14 @@ class MockSshSession : SshSession {
         return MockSshShellChannel()
     }
 
+    override suspend fun openUnixSocketChannel(socketPath: String): SshStreamChannel {
+        requireRemoteSocketPath(socketPath)
+        throw SshStreamChannelException(
+            SshStreamChannelException.Reason.FAILED,
+            "Unix socket channels are not available in the mock session",
+        )
+    }
+
     override suspend fun openSftpClient(): SftpClient {
         return object : SftpClient {
             override suspend fun listFiles(path: String): List<SftpFile> = emptyList()

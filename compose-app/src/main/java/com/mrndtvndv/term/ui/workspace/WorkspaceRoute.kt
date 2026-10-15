@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.LoadingIndicator
@@ -41,7 +40,6 @@ import com.mrndtvndv.term.AppContainer
 import com.mrndtvndv.term.AppViewModel
 import com.mrndtvndv.term.TabType
 import com.mrndtvndv.term.data.prefs.AppSettings
-import com.mrndtvndv.term.navigation.AppRoute
 import com.mrndtvndv.term.navigation.WorkspaceNavigator
 import com.mrndtvndv.term.server.Server
 import com.mrndtvndv.term.server.TerminalEntry
@@ -64,7 +62,7 @@ class TerminalHostCallbacks(
     val onOpenUrl: (String) -> Unit,
 )
 
-@Suppress("LongMethod")
+@Suppress("LongMethod", "LongParameterList")
 @Composable
 fun WorkspaceRoute(
     workspaceId: String,
@@ -112,31 +110,23 @@ fun WorkspaceRoute(
     // when back only pops a tab's inner stack.
     BackHandler(enabled = navigator.handlesBack, onBack = onBack)
 
-    WorkspaceDialogHost(
-        dialog = dialog,
-        onDismiss = { dialog = null },
-        onCreateWorkspace = { name, root ->
-            dialog = null
-            appViewModel.createWorkspace(serverId, name, root)
-        },
-        onRenameWorkspace = { id, name ->
-            dialog = null
-            appViewModel.renameWorkspace(id, name)
-        },
-        onRenameTerminal = { tabId, name ->
-            dialog = null
-            appViewModel.renameTerminal(tabId, name)
-        },
-        onDeleteWorkspace = { id ->
-            dialog = null
-            gridVisible = false
-            appViewModel.deleteWorkspace(id)
-        },
+    val dialogActions = WorkspaceDialogController(
+        appViewModel = appViewModel,
+        serverId = serverId,
+        setDialog = { dialog = it },
+        setGridVisible = { gridVisible = it },
     )
+    val gridActions = WorkspaceGridController(
+        appViewModel = appViewModel,
+        workspace = workspace,
+        server = server,
+        setDialog = { dialog = it },
+        setGridVisible = { gridVisible = it },
+    )
+    WorkspaceDialogHost(dialog = dialog, actions = dialogActions)
 
     val canAddSftp = server.sftpClient != null
     val canAddGit = server.sshSession != null
-    val activeTab = workspace.tabs.firstOrNull { it.id == workspace.activeTabId }
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
     val tabsButton: @Composable () -> Unit = {
@@ -150,70 +140,19 @@ fun WorkspaceRoute(
             },
         )
     }
-    val gridActions = object : TabsGridActions {
-        override fun onSelectTab(id: String) {
-            appViewModel.activateTab(id)
-            gridVisible = false
-        }
-
-        override fun onCloseTab(id: String) {
-            appViewModel.closeTab(id)
-        }
-
-        override fun onMoveTab(id: String, toIndex: Int) {
-            appViewModel.moveTab(id, toIndex)
-        }
-
-        override fun onRenameTab(id: String) {
-            val tab = workspace.tabs.firstOrNull { it.id == id } as? Tab.Terminal ?: return
-            dialog = WorkspaceDialogs.RenameTerminal(tab.id, tab.name)
-        }
-
-        override fun onNewTab(type: TabType) {
-            appViewModel.addTab(workspace.id, type)
-            gridVisible = false
-        }
-
-        override fun onSelectWorkspace(id: String) {
-            appViewModel.switchWorkspace(id)
-            gridVisible = false
-        }
-
-        override fun onNewWorkspace() {
-            dialog = WorkspaceDialogs.NewWorkspace(defaultRoot = server.homeDir)
-        }
-
-        override fun onRenameWorkspace() {
-            dialog = WorkspaceDialogs.RenameWorkspace(workspace.id, workspace.name)
-        }
-
-        override fun onDeleteWorkspace() {
-            dialog = WorkspaceDialogs.DeleteWorkspace(workspace.id, workspace.name)
-        }
-
-        override fun onOpenSettings() {
-            gridVisible = false
-            appViewModel.navigator.navigate(AppRoute.Settings)
-        }
-
-        override fun onDismiss() {
-            gridVisible = false
-        }
-    }
+    val selectedTab = workspace.tabs.firstOrNull { it.id == workspace.activeTabId }
 
     Box(modifier = Modifier.fillMaxSize()) {
         WorkspacePager(
             tabs = workspace.tabs,
             currentTabId = workspace.activeTabId,
-            onSelectTab = { appViewModel.activateTab(it.id) },
+            onSelectTab = { appViewModel.selectTab(workspace.id, it.id) },
             empty = {
-                Box(modifier = Modifier.fillMaxSize().statusBarsPadding().imePadding()) {
-                    EmptyWorkspace(
-                        canAddSftp = canAddSftp,
-                        canAddGit = canAddGit,
-                        onAdd = { appViewModel.addTab(workspace.id, it) },
-                    )
-                }
+                WorkspaceEmptyState(
+                    canAddSftp = canAddSftp,
+                    canAddGit = canAddGit,
+                    onAdd = { appViewModel.addTab(workspace.id, it) },
+                )
             },
         ) { tab, isActive ->
             // Terminal pages are edge to edge; the other pages keep the system bars and IME clear.
@@ -261,7 +200,7 @@ fun WorkspaceRoute(
                 }
             }
         }
-        if (!gridVisible && needsOverlayTabsButton(activeTab, terminals, navigator)) {
+        if (!gridVisible && needsOverlayTabsButton(selectedTab, terminals, navigator)) {
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
@@ -276,23 +215,36 @@ fun WorkspaceRoute(
             workspaces = workspaceState.workspacesFor(serverId).map { item ->
                 WorkspaceItem(item.id, item.name, item.root, item.tabs.size, item.id == workspace.id)
             },
-            tabs = workspace.tabs.map { tabCard(it, terminals, it.id == workspace.activeTabId) },
-            canAddSftp = canAddSftp,
-            canAddGit = canAddGit,
+            tabs = workspace.tabs.map { tab ->
+                tabCard(tab, terminals, tab.id == workspace.activeTabId)
+            },
+            addOptions = TabAddOptions(canAddSftp = canAddSftp, canAddGit = canAddGit),
             actions = gridActions,
             preview = { card, modifier ->
-                when (val tab = workspace.tabs.firstOrNull { it.id == card.id }) {
-                    is Tab.Terminal -> TerminalThumbnail(thumbnails.frames[tab.id], modifier)
-                    is Tab.Sftp -> IconPreview(Icons.Default.Folder, modifier)
-                    is Tab.Git -> IconPreview(tab.icon(), modifier)
-                    is Tab.Viewer -> ViewerPreview(
-                        file = File(LocalContext.current.cacheDir, "viewer/${tab.id}/${File(tab.path).name}"),
-                        modifier = modifier,
-                    )
-                    null -> Unit
-                }
+                TabPreview(workspace.tabs.firstOrNull { it.id == card.id }, thumbnails, modifier)
             },
         )
+    }
+}
+
+@Composable
+private fun WorkspaceEmptyState(canAddSftp: Boolean, canAddGit: Boolean, onAdd: (TabType) -> Unit) {
+    Box(modifier = Modifier.fillMaxSize().statusBarsPadding().imePadding()) {
+        EmptyWorkspace(canAddSftp = canAddSftp, canAddGit = canAddGit, onAdd = onAdd)
+    }
+}
+
+@Composable
+private fun TabPreview(tab: Tab?, thumbnails: TabThumbnails, modifier: Modifier) {
+    when (tab) {
+        is Tab.Terminal -> TerminalThumbnail(thumbnails.frames[tab.id], modifier)
+        is Tab.Sftp -> IconPreview(Icons.Default.Folder, modifier)
+        is Tab.Git -> IconPreview(tab.icon(), modifier)
+        is Tab.Viewer -> ViewerPreview(
+            file = File(LocalContext.current.cacheDir, "viewer/${tab.id}/${File(tab.path).name}"),
+            modifier = modifier,
+        )
+        null -> Unit
     }
 }
 
@@ -427,7 +379,7 @@ private fun GitTab(
     )
 }
 
-private fun TerminalHostCallbacks.paneCallbacks(
+internal fun TerminalHostCallbacks.paneCallbacks(
     session: TerminalSession,
     onUpdateSettings: ((AppSettings) -> AppSettings) -> Unit,
 ) = TerminalPaneCallbacks(

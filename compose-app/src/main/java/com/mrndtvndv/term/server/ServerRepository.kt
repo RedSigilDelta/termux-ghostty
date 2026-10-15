@@ -2,53 +2,59 @@ package com.mrndtvndv.term.server
 
 import android.content.SharedPreferences
 import com.mrndtvndv.term.domain.ServerConfig
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 
+/** What the saved server list holds right now. [Unreadable] means the stored payload is left as it is. */
+sealed interface SavedServersLoad {
+    data class Loaded(val servers: List<ServerConfig>) : SavedServersLoad
+
+    data class Unreadable(val message: String) : SavedServersLoad
+}
+
+/**
+ * Saved servers in SharedPreferences. Reads are all-or-nothing and writes are gated on a complete read, so a
+ * stored list this version cannot fully read is never partly shown as complete and never rewritten.
+ */
 class ServerRepository(
     private val prefs: SharedPreferences,
 ) : ServerRepositoryAccess {
-    private val json = Json {
-        ignoreUnknownKeys = true
-        encodeDefaults = true
-    }
 
     companion object {
-        private const val KEY_SAVED_SERVERS = "saved_servers_v2"
+        internal const val KEY_SAVED_SERVERS = "saved_servers_v2"
     }
 
-    override fun loadAll(): List<ServerConfig> {
-        val raw = prefs.getString(KEY_SAVED_SERVERS, null) ?: return emptyList()
+    override fun load(): SavedServersLoad {
+        // Only a missing key means nothing was saved. Any stored text, blank included, must decode in full.
+        val raw = prefs.getString(KEY_SAVED_SERVERS, null) ?: return SavedServersLoad.Loaded(emptyList())
         return try {
-            json.decodeFromString<List<ServerConfig>>(raw)
-        } catch (e: kotlinx.serialization.SerializationException) {
-            android.util.Log.w("ServerRepository", "Corrupted server config data, starting fresh", e)
-            emptyList()
-        } catch (e: IllegalArgumentException) {
-            android.util.Log.w("ServerRepository", "Illegal argument decoding server config", e)
-            emptyList()
+            SavedServersLoad.Loaded(SavedServerCodec.decode(raw))
+        } catch (e: SavedServerCodec.UnreadableException) {
+            SavedServersLoad.Unreadable(e.message.orEmpty())
         }
     }
 
-    fun saveAll(servers: List<ServerConfig>) {
-        prefs.edit().putString(KEY_SAVED_SERVERS, json.encodeToString(servers)).apply()
+    override fun get(id: String): ServerConfig? =
+        (load() as? SavedServersLoad.Loaded)?.servers?.find { it.id == id }
+
+    override fun add(config: ServerConfig): Result<Unit> = write { servers -> servers + config }
+
+    override fun update(config: ServerConfig): Result<Unit> = write { servers ->
+        servers.map { if (it.id == config.id) config else it }
     }
 
-    override fun add(config: ServerConfig) {
-        val list = loadAll().toMutableList()
-        list.add(config)
-        saveAll(list)
-    }
+    override fun remove(id: String): Result<Unit> = write { servers -> servers.filterNot { it.id == id } }
 
-    override fun remove(id: String) {
-        val list = loadAll().filter { it.id != id }
-        saveAll(list)
+    /**
+     * Applies [change] to the complete list. Refused, without opening an editor, when the stored list is unreadable.
+     * Accepted writes use apply(), so the disk write happens in the background and never blocks the main thread.
+     * Success means accepted, not durable: a disk write that fails later is not reported back to the caller.
+     */
+    private fun write(change: (List<ServerConfig>) -> List<ServerConfig>): Result<Unit> {
+        val servers = when (val loaded = load()) {
+            is SavedServersLoad.Loaded -> loaded.servers
+            is SavedServersLoad.Unreadable ->
+                return Result.failure(IllegalStateException("${loaded.message} Nothing was changed."))
+        }
+        prefs.edit().putString(KEY_SAVED_SERVERS, SavedServerCodec.encode(change(servers))).apply()
+        return Result.success(Unit)
     }
-
-    override fun update(config: ServerConfig) {
-        val list = loadAll().map { if (it.id == config.id) config else it }
-        saveAll(list)
-    }
-
-    override fun get(id: String): ServerConfig? = loadAll().find { it.id == id }
 }

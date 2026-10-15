@@ -15,7 +15,14 @@ interface SshSession {
         rows: Int,
         command: String? = null,
     ): SshShellChannel
+    /**
+     * Opens a direct channel to the Unix socket at [socketPath] on the remote host, over this connection.
+     * Throws [SshStreamChannelException] when sshd refuses the channel or nothing listens on the path.
+     * Throws [IllegalArgumentException] for a path that is not absolute (see [requireRemoteSocketPath]).
+     */
+    suspend fun openUnixSocketChannel(socketPath: String): SshStreamChannel
     suspend fun openSftpClient(): SftpClient
+    /** Executes a POSIX shell script through /bin/sh, independent of the user's login shell. */
     suspend fun execCommand(command: String): String
     fun disconnect()
 }

@@ -18,15 +18,21 @@ interface ServerCoordinatorAccess {
 }
 
 interface ServerRepositoryAccess {
-    fun loadAll(): List<ServerConfig>
+    /** Every saved server, or [SavedServersLoad.Unreadable] when the stored list cannot be read in full. */
+    fun load(): SavedServersLoad
 
-    fun add(config: ServerConfig)
-
-    fun update(config: ServerConfig)
-
-    fun remove(id: String)
-
+    /** The saved server with [id]. Null when absent or when the stored list is unreadable; see [load] for why. */
     fun get(id: String): ServerConfig?
+
+    /**
+     * Refused, with storage untouched, while the stored list is unreadable. Success means the change was accepted
+     * and queued for disk, not that it is durable.
+     */
+    fun add(config: ServerConfig): Result<Unit>
+
+    fun update(config: ServerConfig): Result<Unit>
+
+    fun remove(id: String): Result<Unit>
 }
 
 interface AppSessionManagerAccess {
@@ -54,10 +60,9 @@ interface AppSessionManagerAccess {
     suspend fun openTerminal(serverId: String, tab: Tab.Terminal): Result<TerminalSession>
 
     /**
-     * Closes the tab's terminal if any. [terminate] = the user closed the tab: also ends the
-     * persistent remote session (TerminalPersistence.terminate). Main thread.
+     * Closes the tab's local attachment, if any. Never ends a remote terminal. Main thread.
      */
-    fun closeTerminal(serverId: String, tab: Tab.Terminal, terminate: Boolean)
+    fun closeTerminal(serverId: String, tab: Tab.Terminal)
 
     fun locateSession(session: TerminalSession): SessionLocation? = null
 }

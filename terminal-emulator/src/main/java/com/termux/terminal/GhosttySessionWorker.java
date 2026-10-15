@@ -8,6 +8,7 @@ import android.os.SystemClock;
 import android.view.KeyEvent;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -149,7 +150,41 @@ final class GhosttySessionWorker extends Thread {
             return;
         }
 
-        mMainThreadHandler.post(mSession::finishIfRunning);
+        postShellEnd(readShellEnd(sshShellHandle));
+    }
+
+    /**
+     * Reads how the remote shell ended. Must run while the native shell handle is live, because the native side
+     * frees it when the JVM closes the shell. Native state is the only source. Terminal text is never parsed.
+     */
+    static ShellEnd readShellEnd(long sshShellHandle) {
+        return ShellEnd.fromNative(
+            GhosttyNative.nativeSshShellExitState(sshShellHandle),
+            GhosttyNative.nativeSshShellExitCode(sshShellHandle),
+            GhosttyNative.nativeSshShellExitSignal(sshShellHandle));
+    }
+
+    /**
+     * The remote end native state already holds, or null while the shell is running or no shell is attached.
+     * Used when the local side detaches, so the detach cannot mask an exit that has already happened. Native
+     * records the state before it posts the close callback, so this sees every end the callback will deliver.
+     */
+    @Nullable
+    ShellEnd peekRemoteEnd() {
+        long sshShellHandle = mSshShellHandle;
+        if (sshShellHandle == 0L) {
+            return null;
+        }
+        ShellEnd end = ShellEnd.fromNativeIfEnded(
+            GhosttyNative.nativeSshShellExitState(sshShellHandle),
+            GhosttyNative.nativeSshShellExitCode(sshShellHandle),
+            GhosttyNative.nativeSshShellExitSignal(sshShellHandle));
+        return end != null && end.isRemoteExit() ? end : null;
+    }
+
+    /** Delivers a shell end to the session on the main thread. The session admits only the first end. */
+    private void postShellEnd(ShellEnd end) {
+        mMainThreadHandler.post(() -> mSession.onRemoteShellEnded(end));
     }
  
     @Override
@@ -273,8 +308,9 @@ final class GhosttySessionWorker extends Thread {
     }
 
     public void onNativeSshClosed() {
-        if (mSshShellHandle != 0L) {
-            mMainThreadHandler.post(mSession::finishIfRunning);
+        long sshShellHandle = mSshShellHandle;
+        if (sshShellHandle != 0L) {
+            postShellEnd(readShellEnd(sshShellHandle));
         }
     }
 

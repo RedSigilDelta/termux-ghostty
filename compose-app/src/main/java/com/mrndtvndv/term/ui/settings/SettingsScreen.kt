@@ -746,7 +746,7 @@ fun SettingsScreen(
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Arrow joystick", style = MaterialTheme.typography.bodyLarge)
                         Text(
-                            text = "Swipe moves one arrow per step; Hold repeats while held",
+                            text = "Swipe: flick up/down once, slide left/right; Hold repeats while held",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

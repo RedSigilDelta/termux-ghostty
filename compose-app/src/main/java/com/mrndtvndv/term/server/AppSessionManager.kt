@@ -15,7 +15,6 @@ import androidx.lifecycle.Lifecycle
 import com.mrndtvndv.term.R
 import com.mrndtvndv.term.service.SshSessionService
 import com.mrndtvndv.term.workspace.Tab
-import com.mrndtvndv.term.workspace.create
 import com.termux.shared.termux.TermuxConstants
 import com.termux.shared.termux.terminal.TermuxTerminalSessionClientBase
 import com.termux.terminal.TerminalSession
@@ -23,7 +22,6 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.launch
 import java.io.IOException
 import java.lang.ref.WeakReference
 
@@ -67,8 +65,8 @@ class AppSessionManager private constructor(context: Context) : AppSessionManage
     private val appScope = MainScope()
     /** In-flight terminal opens by tab id. Main thread only. */
     private val pendingOpens = mutableMapOf<String, Deferred<Result<TerminalSession>>>()
-    /** Tabs closed while their open was in flight, mapped to whether that close also terminates. */
-    private val cancelledOpens = mutableMapOf<String, Boolean>()
+    /** Tabs closed while their open was in flight. The terminal that open produces is dropped, not handed out. */
+    private val cancelledOpens = mutableSetOf<String>()
 
     private var hostRef: WeakReference<SessionHost>? = null
 
@@ -145,7 +143,7 @@ class AppSessionManager private constructor(context: Context) : AppSessionManage
             ?: return Result.failure(IllegalStateException("Server is not connected"))
         val existing = server.terminals.value[tab.id]
         if (existing?.running == true) return Result.success(existing.session)
-        if (existing != null) closeTerminal(serverId, tab, terminate = false)
+        if (existing != null) closeTerminal(serverId, tab)
 
         // Registered before the body runs (Main dispatch), so later callers share this open.
         val open = pendingOpens[tab.id] ?: appScope.async {
@@ -160,7 +158,7 @@ class AppSessionManager private constructor(context: Context) : AppSessionManage
                 },
             )
             pendingOpens.remove(tab.id)
-            val cancelledTerminate = cancelledOpens.remove(tab.id)
+            val cancelled = cancelledOpens.remove(tab.id)
             when {
                 coordinator.getServer(serverId) !== server -> {
                     // Disconnected mid-open: Server.disconnect already ran, so release the late terminal here.
@@ -172,9 +170,9 @@ class AppSessionManager private constructor(context: Context) : AppSessionManage
                     }
                     Result.failure(IllegalStateException("Server disconnected while opening"))
                 }
-                cancelledTerminate != null -> {
+                cancelled -> {
                     // Closed while opening: drop the new terminal instead of handing it out.
-                    opened.onSuccess { closeTerminal(serverId, tab, terminate = cancelledTerminate) }
+                    opened.onSuccess { closeTerminal(serverId, tab) }
                     Result.failure(IllegalStateException("Terminal was closed while opening"))
                 }
                 else -> opened
@@ -183,21 +181,18 @@ class AppSessionManager private constructor(context: Context) : AppSessionManage
         return open.await()
     }
 
-    override fun closeTerminal(serverId: String, tab: Tab.Terminal, terminate: Boolean) {
-        if (pendingOpens.containsKey(tab.id)) {
-            cancelledOpens[tab.id] = terminate || cancelledOpens[tab.id] == true
-        }
+    /**
+     * Closes the tab's local attachment. The remote side is never touched: a local shell ends with its
+     * connection, and a herdr terminal keeps running on the server.
+     */
+    override fun closeTerminal(serverId: String, tab: Tab.Terminal) {
+        if (pendingOpens.containsKey(tab.id)) cancelledOpens.add(tab.id)
         val server = coordinator.getServer(serverId) ?: return
         server.removeTerminal(tab.id)?.let { (session, channel) ->
             closeTerminalSession(session, channel)
             terminalProgress.remove(session)
             programStatus.remove(session)
             unbindTerminalSession(session)
-        }
-        val ssh = server.sshSession
-        if (terminate && ssh != null && server.isAlive) {
-            val persistence = server.config.persistence.create()
-            appScope.launch { persistence.terminate(tab) { ssh.execCommand(it) } }
         }
     }
 

@@ -19,7 +19,7 @@ class ServerCoordinator(
     @Suppress("TooGenericExceptionCaught") // catches SSH/IO errors into Result; specific types are impractical here
     suspend fun connect(id: String): Result<Server> {
         val config = serverRepository.get(id)
-            ?: return Result.failure(IllegalArgumentException("Unknown server: $id"))
+            ?: return Result.failure(IllegalArgumentException(unavailableReason(id)))
 
         return try {
             Result.success(serverManager.connect(config))
@@ -29,6 +29,10 @@ class ServerCoordinator(
             Result.failure(e)
         }
     }
+
+    /** Why [id] cannot be opened. An unreadable saved list is the real reason; otherwise the server is unknown. */
+    private fun unavailableReason(id: String): String =
+        (serverRepository.load() as? SavedServersLoad.Unreadable)?.message ?: "Unknown server: $id"
 
     override fun getServer(id: String): Server? = serverManager.get(id)
 

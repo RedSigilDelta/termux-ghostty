@@ -33,7 +33,9 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridItemScope
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
@@ -62,6 +64,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -105,9 +108,43 @@ data class TabCard(
     val running: Boolean,       // terminals only; others pass true
     val exitStatus: Int,
     val current: Boolean,
+    val remote: Boolean = false, // a projected herdr card: no drag, no local rename
 )
 
 data class WorkspaceItem(val id: String, val name: String, val root: String, val tabCount: Int, val active: Boolean)
+
+/** Herdr entries for the workspace menu. [bindable] are remote workspaces that no local workspace shows yet. */
+data class RemoteMenu(
+    val bindable: List<Pair<String, String>> = emptyList(),
+    val hasHidden: Boolean = false,
+    val bound: Boolean = false,
+)
+
+/** Connection or binding notice shown above the cards, with an optional button. */
+data class RemoteBanner(val message: String, val actionLabel: String? = null, val onAction: () -> Unit = {})
+
+/** Which tab types the new-tab menu offers for the current server. */
+data class TabAddOptions(val canAddSftp: Boolean, val canAddGit: Boolean)
+
+/** Herdr state the grid shows: the workspace menu's entries and the notice above the cards. */
+data class RemoteGridState(val menu: RemoteMenu = RemoteMenu(), val banner: RemoteBanner? = null)
+
+/** Actions from the workspace menu in the pill. */
+sealed interface WorkspaceMenuAction {
+    data class Select(val workspaceId: String) : WorkspaceMenuAction
+
+    data class Bind(val herdrWorkspaceId: String) : WorkspaceMenuAction
+
+    data object New : WorkspaceMenuAction
+
+    data object Rename : WorkspaceMenuAction
+
+    data object Delete : WorkspaceMenuAction
+
+    data object ShowHidden : WorkspaceMenuAction
+
+    data object CloseOnServer : WorkspaceMenuAction
+}
 
 interface TabsGridActions {
     fun onSelectTab(id: String)
@@ -115,10 +152,7 @@ interface TabsGridActions {
     fun onMoveTab(id: String, toIndex: Int)
     fun onRenameTab(id: String)
     fun onNewTab(type: TabType)
-    fun onSelectWorkspace(id: String)
-    fun onNewWorkspace()
-    fun onRenameWorkspace()
-    fun onDeleteWorkspace()
+    fun onWorkspaceMenu(action: WorkspaceMenuAction)
     fun onOpenSettings()
     fun onDismiss()
 }
@@ -128,9 +162,9 @@ fun TabsGrid(
     visible: Boolean,
     workspaces: List<WorkspaceItem>,
     tabs: List<TabCard>,
-    canAddSftp: Boolean,
-    canAddGit: Boolean,
+    addOptions: TabAddOptions,
     actions: TabsGridActions,
+    remote: RemoteGridState = RemoteGridState(),
     preview: @Composable (tab: TabCard, modifier: Modifier) -> Unit = { _, _ -> },
 ) {
     BackHandler(enabled = visible) { actions.onDismiss() }
@@ -147,39 +181,19 @@ fun TabsGrid(
     ) {
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surfaceContainer) {
             Box(modifier = Modifier.fillMaxSize()) {
-                LazyVerticalGrid(
-                    columns = GridCells.Adaptive(minSize = 150.dp),
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .hazeSource(hazeState)
-                        .onGloballyPositioned { reorder.viewport = it },
-                    state = gridState,
-                    contentPadding = PaddingValues(
-                        start = 12.dp,
-                        top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 12.dp,
-                        end = 12.dp,
-                        bottom = WindowInsets.navigationBars
-                            .asPaddingValues().calculateBottomPadding() +
-                            56.dp + 16.dp + 12.dp,
-                    ),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.Bottom),
-                ) {
-                    items(reorder.arrange(tabs), key = { it.id }) { tab ->
-                        SwipeableTabCard(
-                            tab = tab,
-                            reorder = reorder,
-                            onSelect = { actions.onSelectTab(tab.id) },
-                            onClose = { actions.onCloseTab(tab.id) },
-                            onRename = { if (tab.kind == TabKind.Terminal) actions.onRenameTab(tab.id) },
-                            preview = preview,
-                        )
-                    }
-                }
+                TabCardGrid(
+                    gridState = gridState,
+                    hazeState = hazeState,
+                    reorder = reorder,
+                    tabs = tabs,
+                    banner = remote.banner,
+                    actions = actions,
+                    preview = preview,
+                )
                 TabsGridPill(
                     workspaces = workspaces,
-                    canAddSftp = canAddSftp,
-                    canAddGit = canAddGit,
+                    addOptions = addOptions,
+                    remoteMenu = remote.menu,
                     actions = actions,
                     hazeState = hazeState,
                     modifier = Modifier
@@ -193,17 +207,75 @@ fun TabsGrid(
 }
 
 @Composable
+private fun TabCardGrid(
+    gridState: LazyGridState,
+    hazeState: HazeState,
+    reorder: TabReorderState,
+    tabs: List<TabCard>,
+    banner: RemoteBanner?,
+    actions: TabsGridActions,
+    preview: @Composable (tab: TabCard, modifier: Modifier) -> Unit,
+) {
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(minSize = 150.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .hazeSource(hazeState)
+            .onGloballyPositioned { reorder.viewport = it },
+        state = gridState,
+        contentPadding = PaddingValues(
+            start = 12.dp,
+            top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 12.dp,
+            end = 12.dp,
+            bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 56.dp + 16.dp + 12.dp,
+        ),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.Bottom),
+    ) {
+        banner?.let { notice ->
+            item(span = { GridItemSpan(maxLineSpan) }) { RemoteBannerRow(notice) }
+        }
+        items(reorder.arrange(tabs), key = { it.id }) { tab ->
+            SwipeableTabCard(
+                tab = tab,
+                reorder = reorder,
+                onSelect = { actions.onSelectTab(tab.id) },
+                onClose = { actions.onCloseTab(tab.id) },
+                onRename = { if (tab.kind == TabKind.Terminal && !tab.remote) actions.onRenameTab(tab.id) },
+                preview = preview,
+            )
+        }
+    }
+}
+
+@Composable
+private fun RemoteBannerRow(banner: RemoteBanner) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = banner.message,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
+        )
+        banner.actionLabel?.let { label -> TextButton(onClick = banner.onAction) { Text(label) } }
+    }
+}
+
+@Composable
 private fun TabsGridPill(
     workspaces: List<WorkspaceItem>,
-    canAddSftp: Boolean,
-    canAddGit: Boolean,
+    addOptions: TabAddOptions,
+    remoteMenu: RemoteMenu,
     actions: TabsGridActions,
     hazeState: HazeState,
     modifier: Modifier,
 ) {
     FloatingPill(state = Unit, hazeState = hazeState, modifier = modifier) {
         PillActions {
-            WorkspaceChip(workspaces = workspaces, actions = actions)
+            WorkspaceChip(workspaces = workspaces, remoteMenu = remoteMenu, actions = actions)
             PillDivider()
             PillIconButton(
                 icon = Icons.Rounded.Settings,
@@ -211,7 +283,11 @@ private fun TabsGridPill(
                 onClick = actions::onOpenSettings,
             )
             PillDivider()
-            NewTabButton(canAddSftp = canAddSftp, canAddGit = canAddGit, onNewTab = actions::onNewTab)
+            NewTabButton(
+                canAddSftp = addOptions.canAddSftp,
+                canAddGit = addOptions.canAddGit,
+                onNewTab = actions::onNewTab,
+            )
         }
     }
 }
@@ -219,6 +295,7 @@ private fun TabsGridPill(
 @Composable
 private fun WorkspaceChip(
     workspaces: List<WorkspaceItem>,
+    remoteMenu: RemoteMenu,
     actions: TabsGridActions,
 ) {
     val active = workspaces.firstOrNull { it.active }
@@ -253,7 +330,12 @@ private fun WorkspaceChip(
             )
         }
         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-            WorkspaceMenuItems(workspaces = workspaces, actions = actions, onDismiss = { menuOpen = false })
+            WorkspaceMenuItems(
+                workspaces = workspaces,
+                remoteMenu = remoteMenu,
+                actions = actions,
+                onDismiss = { menuOpen = false },
+            )
         }
     }
 }
@@ -261,6 +343,43 @@ private fun WorkspaceChip(
 @Composable
 private fun ColumnScope.WorkspaceMenuItems(
     workspaces: List<WorkspaceItem>,
+    remoteMenu: RemoteMenu,
+    actions: TabsGridActions,
+    onDismiss: () -> Unit,
+) {
+    WorkspaceEntries(workspaces, remoteMenu, actions, onDismiss)
+    HorizontalDivider()
+    DropdownMenuItem(
+        text = { Text("New workspace…") },
+        leadingIcon = { Icon(Icons.Rounded.Add, contentDescription = null) },
+        onClick = {
+            onDismiss()
+            actions.onWorkspaceMenu(WorkspaceMenuAction.New)
+        },
+    )
+    DropdownMenuItem(
+        text = { Text("Rename…") },
+        leadingIcon = { Icon(Icons.Rounded.Edit, contentDescription = null) },
+        onClick = {
+            onDismiss()
+            actions.onWorkspaceMenu(WorkspaceMenuAction.Rename)
+        },
+    )
+    HerdrWorkspaceItems(remoteMenu, actions, onDismiss)
+    DropdownMenuItem(
+        text = { Text("Delete") },
+        leadingIcon = { Icon(Icons.Rounded.Delete, contentDescription = null) },
+        onClick = {
+            onDismiss()
+            actions.onWorkspaceMenu(WorkspaceMenuAction.Delete)
+        },
+    )
+}
+
+@Composable
+private fun ColumnScope.WorkspaceEntries(
+    workspaces: List<WorkspaceItem>,
+    remoteMenu: RemoteMenu,
     actions: TabsGridActions,
     onDismiss: () -> Unit,
 ) {
@@ -283,35 +402,50 @@ private fun ColumnScope.WorkspaceMenuItems(
             },
             onClick = {
                 onDismiss()
-                actions.onSelectWorkspace(workspace.id)
+                actions.onWorkspaceMenu(WorkspaceMenuAction.Select(workspace.id))
             },
         )
     }
-    HorizontalDivider()
-    DropdownMenuItem(
-        text = { Text("New workspace…") },
-        leadingIcon = { Icon(Icons.Rounded.Add, contentDescription = null) },
-        onClick = {
-            onDismiss()
-            actions.onNewWorkspace()
-        },
-    )
-    DropdownMenuItem(
-        text = { Text("Rename…") },
-        leadingIcon = { Icon(Icons.Rounded.Edit, contentDescription = null) },
-        onClick = {
-            onDismiss()
-            actions.onRenameWorkspace()
-        },
-    )
-    DropdownMenuItem(
-        text = { Text("Delete") },
-        leadingIcon = { Icon(Icons.Rounded.Delete, contentDescription = null) },
-        onClick = {
-            onDismiss()
-            actions.onDeleteWorkspace()
-        },
-    )
+    if (remoteMenu.bindable.isNotEmpty()) {
+        HorizontalDivider()
+        remoteMenu.bindable.forEach { (herdrId, name) ->
+            DropdownMenuItem(
+                text = { Text("Herdr · $name", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                leadingIcon = { Icon(Icons.Rounded.Workspaces, contentDescription = null) },
+                onClick = {
+                    onDismiss()
+                    actions.onWorkspaceMenu(WorkspaceMenuAction.Bind(herdrId))
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun ColumnScope.HerdrWorkspaceItems(
+    remoteMenu: RemoteMenu,
+    actions: TabsGridActions,
+    onDismiss: () -> Unit,
+) {
+    if (remoteMenu.hasHidden) {
+        DropdownMenuItem(
+            text = { Text("Show hidden terminals") },
+            onClick = {
+                onDismiss()
+                actions.onWorkspaceMenu(WorkspaceMenuAction.ShowHidden)
+            },
+        )
+    }
+    if (remoteMenu.bound) {
+        DropdownMenuItem(
+            text = { Text("Close workspace on server…", color = MaterialTheme.colorScheme.error) },
+            leadingIcon = { Icon(Icons.Rounded.Close, contentDescription = null) },
+            onClick = {
+                onDismiss()
+                actions.onWorkspaceMenu(WorkspaceMenuAction.CloseOnServer)
+            },
+        )
+    }
 }
 
 @Composable
@@ -344,7 +478,11 @@ private fun LazyGridItemScope.SwipeableTabCard(
 ) {
     val dismissState = rememberSwipeToDismissBoxState()
     LaunchedEffect(dismissState.currentValue) {
-        if (dismissState.currentValue != SwipeToDismissBoxValue.Settled) onClose()
+        if (dismissState.currentValue != SwipeToDismissBoxValue.Settled) {
+            // Snap back first: a close may be cancelled by a confirmation, and the card must not stay swiped away.
+            dismissState.snapTo(SwipeToDismissBoxValue.Settled)
+            onClose()
+        }
     }
     val dragging = reorder.draggingId == tab.id
     SwipeToDismissBox(
@@ -440,7 +578,8 @@ private fun TabCardHeader(
         modifier = Modifier.fillMaxWidth().padding(start = 2.dp, top = 8.dp, end = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        DragHandle(tabId = tab.id, reorder = reorder)
+        // Remote cards keep their slot but have no grip: shared order is never changed from a drag.
+        if (tab.remote) Spacer(Modifier.size(28.dp)) else DragHandle(tabId = tab.id, reorder = reorder)
         Spacer(Modifier.width(2.dp))
         TabIcon(
             kind = tab.kind,

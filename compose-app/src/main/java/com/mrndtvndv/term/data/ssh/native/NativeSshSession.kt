@@ -1,6 +1,7 @@
 package com.mrndtvndv.term.data.ssh.native
 
 import com.mrndtvndv.term.domain.*
+import com.mrndtvndv.term.domain.SshStreamChannelException.Reason
 import com.termux.terminal.GhosttyNative
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -12,6 +13,24 @@ import java.io.OutputStream
 import java.io.IOException
 import java.net.InetSocketAddress
 import java.net.Socket
+
+/**
+ * Start result from the native layer when the admission limit is reached. Mirrors `start_refused_busy` in
+ * jni_exports.zig. A retry can succeed once queued operations drain.
+ */
+internal const val NativeStartBusy = -1L
+
+/**
+ * Maps a native start result to an op handle. 0 means the session is not running, and [NativeStartBusy]
+ * means the admission limit is reached. Both throw with an actionable message.
+ */
+internal fun requireStartedHandle(handle: Long, what: String): Long = when (handle) {
+    0L -> throw IOException("Failed to open $what: the SSH session is not running")
+    NativeStartBusy -> throw IOException(
+        "Too many SSH channel operations are pending on this session; try again shortly",
+    )
+    else -> handle
+}
 
 class NativeSshSession : SshSession {
     private val _isConnected = MutableStateFlow(false)
@@ -29,8 +48,12 @@ class NativeSshSession : SshSession {
         private set
 
     private val lock = Any()
+    private val channelOps = ChannelOpAwaiter()
     private var activeSftpClient: NativeSftpClient? = null
     private val shells = mutableSetOf<NativeSshShellChannel>()
+    // Own lock: closing a stream runs on the main thread and must not wait behind a long exec under [lock].
+    private val streamLock = Any()
+    private val streams = mutableSetOf<NativeSshStreamChannel>()
 
     override suspend fun connect(config: SshConfig) {
         this.config = config
@@ -80,38 +103,115 @@ class NativeSshSession : SshSession {
         cols: Int,
         rows: Int,
         command: String?,
-    ): SshShellChannel = withContext(Dispatchers.IO) {
-        synchronized(lock) {
+    ): SshShellChannel {
+        val op = withSessionLockOnIo {
             val sessionHandle = nativeSessionHandle
             check(sessionHandle != 0L) { "SSH session is not connected" }
-            val shellHandle = GhosttyNative.nativeSshOpenShell(sessionHandle, termType, cols, rows, command)
-            if (shellHandle == 0L) throw IOException("Failed to open SSH shell channel")
-            NativeSshShellChannel(this@NativeSshSession, shellHandle).also { shells += it }
+            requireStartedHandle(
+                GhosttyNative.nativeSshStartShell(sessionHandle, termType, cols, rows, command),
+                "SSH shell channel",
+            )
         }
-    }
-
-    override suspend fun openSftpClient(): SftpClient = synchronized(lock) {
-        val handle = nativeSessionHandle
-        if (handle == 0L) throw IllegalStateException("Not connected")
-        activeSftpClient?.close()
-        val sftpHandle = GhosttyNative.nativeSftpInit(handle)
-        if (sftpHandle == 0L) throw IOException("Failed to initialize native SFTP subsystem")
-        val client = NativeSftpClient(sftpHandle, handle)
-        activeSftpClient = client
-        client
-    }
-
-    override suspend fun execCommand(command: String): String {
-        return withContext(Dispatchers.IO) {
+        return channelOps.await(op, "SSH shell channel") { opHandle ->
+            // Take and register under one lock: disconnect() tears the shell list down under it too.
             synchronized(lock) {
-                val handle = nativeSessionHandle
-                check(handle != 0L) { "SSH session is not connected" }
-                checkNotNull(GhosttyNative.nativeSshExec(handle, command)) {
-                    "SSH command execution failed"
-                }
+                val shellHandle = GhosttyNative.nativeSshOpTakeShell(opHandle)
+                if (shellHandle == 0L) throw IOException("The SSH session ended before the shell channel opened")
+                NativeSshShellChannel(this@NativeSshSession, shellHandle).also { shells += it }
             }
         }
     }
+
+    override suspend fun openUnixSocketChannel(socketPath: String): SshStreamChannel {
+        requireRemoteSocketPath(socketPath)
+        // The native open only links the request; [NativeSshStreamChannel.awaitOpen] waits for the result.
+        val streamHandle = withSessionLockOnIo {
+            val sessionHandle = nativeSessionHandle
+            if (sessionHandle == 0L) {
+                throw SshStreamChannelException(Reason.DISCONNECTED, "SSH session is not connected")
+            }
+            GhosttyNative.nativeSshOpenStreamLocal(sessionHandle, socketPath.toByteArray(Charsets.UTF_8))
+        }
+        if (streamHandle == NativeStartBusy) {
+            throw SshStreamChannelException(
+                Reason.FAILED,
+                "Too many Unix socket channels are opening on this session; try again shortly",
+            )
+        }
+        if (streamHandle == 0L) {
+            throw SshStreamChannelException(
+                Reason.DISCONNECTED,
+                "The SSH session ended before the Unix socket channel to $socketPath could open",
+            )
+        }
+        val channel = NativeSshStreamChannel(streamHandle, socketPath, onClose = ::untrackStream)
+        synchronized(streamLock) { streams += channel }
+        var opened = false
+        try {
+            channel.awaitOpen()
+            opened = true
+        } finally {
+            // Also runs on cancellation, so an abandoned open still closes the channel.
+            if (!opened) channel.close()
+        }
+        return channel
+    }
+
+    private fun untrackStream(channel: NativeSshStreamChannel) {
+        synchronized(streamLock) { streams -= channel }
+    }
+
+    override suspend fun openSftpClient(): SftpClient {
+        val op = withSessionLockOnIo {
+            val handle = nativeSessionHandle
+            if (handle == 0L) throw IllegalStateException("Not connected")
+            requireStartedHandle(GhosttyNative.nativeSshStartSftp(handle), "the SFTP subsystem")
+        }
+        return channelOps.await(op, "SFTP subsystem") { opHandle ->
+            synchronized(lock) {
+                val handle = nativeSessionHandle
+                if (handle == 0L) throw IllegalStateException("Not connected")
+                val sftpHandle = GhosttyNative.nativeSshOpTakeSftp(opHandle)
+                if (sftpHandle == 0L) throw IOException("Failed to initialize native SFTP subsystem")
+                activeSftpClient?.close()
+                NativeSftpClient(sftpHandle, handle).also { activeSftpClient = it }
+            }
+        }
+    }
+
+    override suspend fun execCommand(command: String): String {
+        val op = withSessionLockOnIo {
+            val handle = nativeSessionHandle
+            check(handle != 0L) { "SSH session is not connected" }
+            requireStartedHandle(GhosttyNative.nativeSshStartExec(handle, posixExecCommand(command)), "the SSH command")
+        }
+        return channelOps.await(op, "SSH command") { opHandle ->
+            val exitStatus = GhosttyNative.nativeSshOpExitStatus(opHandle)
+            val stdout = GhosttyNative.nativeSshOpOutput(opHandle).orEmpty()
+            if (exitStatus > 0) {
+                val stderr = GhosttyNative.nativeSshOpErrorOutput(opHandle).orEmpty()
+                throw IllegalStateException(commandFailureMessage(exitStatus, stderr, stdout))
+            }
+            stdout
+        }
+    }
+
+    /**
+     * Runs [block] under [lock] on the IO dispatcher. [disconnect] holds [lock] while the native loop is joined,
+     * so a caller on the main thread must not wait for it there.
+     */
+    private suspend fun <T> withSessionLockOnIo(block: () -> T): T = withContext(Dispatchers.IO) {
+        synchronized(lock) { block() }
+    }
+
+    private fun commandFailureMessage(exitStatus: Int, stderr: String, stdout: String): String {
+        val errorDetail = stderr.trim()
+        if (errorDetail.isNotEmpty()) return errorDetail
+        val outputDetail = stdout.trim()
+        if (outputDetail.isNotEmpty()) return outputDetail
+        return "Remote command exited with status $exitStatus"
+    }
+
 
     internal fun writeToShell(shellHandle: Long, data: ByteArray, offset: Int, length: Int) {
         synchronized(lock) {
@@ -140,6 +240,10 @@ class NativeSshSession : SshSession {
     }
 
     override fun disconnect() {
+        // Close streams before deinit. Their native close still reaches the loop, which retires them while the
+        // session is alive.
+        val openStreams = synchronized(streamLock) { streams.toList().also { streams.clear() } }
+        openStreams.forEach { it.close() }
         synchronized(lock) {
             activeSftpClient?.close()
             activeSftpClient = null

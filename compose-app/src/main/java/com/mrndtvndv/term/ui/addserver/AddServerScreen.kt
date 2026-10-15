@@ -17,7 +17,6 @@ import com.mrndtvndv.term.domain.AuthType
 import com.mrndtvndv.term.domain.ServerConfig
 import com.mrndtvndv.term.ui.components.ImagePasteSettingsSection
 import com.mrndtvndv.term.ui.components.rememberImagePasteSettingsState
-import com.mrndtvndv.term.workspace.TerminalPersistenceKind
 
 @Suppress("LongMethod")
 @OptIn(ExperimentalMaterial3Api::class)
@@ -35,9 +34,9 @@ fun AddServerScreen(
     var username by remember(initialConfig) { mutableStateOf(initialConfig?.username ?: "") }
     var password by remember(initialConfig) { mutableStateOf(initialPassword) }
     var useGhosttyTerm by remember(initialConfig) { mutableStateOf(initialConfig?.useGhosttyTerm ?: false) }
-    var persistence by remember(initialConfig) {
-        mutableStateOf(initialConfig?.persistence ?: TerminalPersistenceKind.None)
-    }
+    var herdrEnabled by remember(initialConfig) { mutableStateOf(initialConfig?.herdrEnabled ?: false) }
+    var herdrSocketPath by remember(initialConfig) { mutableStateOf(initialConfig?.herdrSocketPath.orEmpty()) }
+    val socketPathValid = herdrSocketPath.isBlank() || herdrSocketPath.trim().startsWith("/")
     val imagePasteState = rememberImagePasteSettingsState(initialConfig)
 
     Scaffold(
@@ -118,39 +117,13 @@ fun AddServerScreen(
                 Switch(checked = useGhosttyTerm, onCheckedChange = { useGhosttyTerm = it })
             }
 
-            val persistenceOptions = TerminalPersistenceKind.entries
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("Session persistence")
-                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                    persistenceOptions.forEachIndexed { index, option ->
-                        SegmentedButton(
-                            selected = persistence == option,
-                            onClick = { persistence = option },
-                            shape = SegmentedButtonDefaults.itemShape(index, persistenceOptions.size),
-                        ) {
-                            Text(
-                                when (option) {
-                                    TerminalPersistenceKind.None -> "None"
-                                    TerminalPersistenceKind.Dtach -> "dtach"
-                                    TerminalPersistenceKind.Herdr -> "herdr"
-                                },
-                            )
-                        }
-                    }
-                }
-                Text(
-                    when (persistence) {
-                        TerminalPersistenceKind.None -> "Shells end when the connection closes"
-                        TerminalPersistenceKind.Dtach ->
-                            "Shells keep running on the server between connections (dtach must be installed there)"
-                        TerminalPersistenceKind.Herdr ->
-                            "Each tab is a herdr terminal on the server, reattached on reconnect " +
-                                "(herdr must be installed there)"
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            HerdrSection(
+                herdrEnabled = herdrEnabled,
+                onHerdrEnabledChange = { herdrEnabled = it },
+                herdrSocketPath = herdrSocketPath,
+                onHerdrSocketPathChange = { herdrSocketPath = it },
+                socketPathValid = socketPathValid,
+            )
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
 
@@ -172,7 +145,8 @@ fun AddServerScreen(
                             username = username,
                             auth = AuthType.Password(password),
                             useGhosttyTerm = useGhosttyTerm,
-                            persistence = persistence,
+                            herdrEnabled = herdrEnabled,
+                            herdrSocketPath = herdrSocketPath.trim().ifEmpty { null },
                             imagePasteEnabled = imagePasteState.isPasteActive,
                             imagePasteDirectory = imagePasteState.trimmedDirectory,
                             imagePasteAutoCleanup = imagePasteState.autoCleanup,
@@ -180,12 +154,56 @@ fun AddServerScreen(
                         )
                     )
                 },
-                enabled = host.isNotBlank() && username.isNotBlank(),
+                enabled = host.isNotBlank() && username.isNotBlank() && socketPathValid,
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text("Save")
             }
         }
+    }
+}
+
+@Composable
+private fun HerdrSection(
+    herdrEnabled: Boolean,
+    onHerdrEnabledChange: (Boolean) -> Unit,
+    herdrSocketPath: String,
+    onHerdrSocketPathChange: (String) -> Unit,
+    socketPathValid: Boolean,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text("herdr workspaces")
+            Text(
+                "Shows herdr workspaces from the server and attaches to their terminals directly. " +
+                    "Plain tabs stay login shells. herdr must be installed there.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Switch(checked = herdrEnabled, onCheckedChange = onHerdrEnabledChange)
+    }
+    if (herdrEnabled) {
+        OutlinedTextField(
+            value = herdrSocketPath,
+            onValueChange = onHerdrSocketPathChange,
+            label = { Text("herdr socket path (optional)") },
+            supportingText = {
+                Text(
+                    if (socketPathValid) {
+                        "Absolute path on the server. Empty uses ~/.config/herdr/herdr.sock"
+                    } else {
+                        "Must be an absolute path, starting with /"
+                    },
+                )
+            },
+            isError = !socketPathValid,
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }
 

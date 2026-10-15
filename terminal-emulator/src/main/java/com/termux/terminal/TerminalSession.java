@@ -49,6 +49,8 @@ public final class TerminalSession extends TerminalOutput implements AutoCloseab
     }
 
     private static final int MSG_PROCESS_EXITED = 4;
+    /** A custom-IO session was detached locally. Nothing is printed and no exit status is reported. */
+    private static final int MSG_LOCAL_DETACHED = 5;
 
     public static final int GHOSTTY_PROGRESS_STATE_NONE = GhosttyNative.PROGRESS_STATE_NONE;
     public static final int GHOSTTY_PROGRESS_STATE_SET = GhosttyNative.PROGRESS_STATE_SET;
@@ -156,6 +158,8 @@ public final class TerminalSession extends TerminalOutput implements AutoCloseab
 
     /** True after an explicit finish request has started. Access under this object's monitor. */
     private boolean mFinishRequested;
+    /** Admits the first end of a custom-IO session: a remote shell end or a local detach. */
+    private final ShellEnd.Gate mShellEndGate = new ShellEnd.Gate();
 
     /** True after the process exit callback has been handled. Access under this object's monitor. */
     private volatile boolean mProcessExited;
@@ -223,6 +227,8 @@ public final class TerminalSession extends TerminalOutput implements AutoCloseab
         this.mClient = client;
         this.mIoHandler = ioHandler;
         this.mIsCustomIO = true;
+        // Until a remote end is recorded, no exit status exists. Reporting the field default 0 would read as success.
+        this.mShellExitStatus = ShellEnd.EXIT_STATUS_UNKNOWN;
     }
 
     TerminalSession(TerminalSessionClient client, BackendResources backendResources) {
@@ -777,7 +783,8 @@ public final class TerminalSession extends TerminalOutput implements AutoCloseab
             mFinishRequested = true;
 
             if (mIsCustomIO) {
-                mMainThreadHandler.sendMessage(mMainThreadHandler.obtainMessage(MSG_PROCESS_EXITED, 0));
+                // Local detach only. The remote shell is not killed and no exit status is synthesized.
+                mMainThreadHandler.sendMessage(mMainThreadHandler.obtainMessage(MSG_LOCAL_DETACHED));
                 return;
             }
             try {
@@ -876,6 +883,74 @@ public final class TerminalSession extends TerminalOutput implements AutoCloseab
                     content.close();
                 } catch (Exception ignored) {
                 }
+            }
+        }
+    }
+
+    /**
+     * The remote shell ended, as reported by native state. Main thread. Only the first end is admitted,
+     * so a disconnect and a late exit notification cannot both print or report.
+     */
+    void onRemoteShellEnded(ShellEnd end) {
+        finishCustomIo(end);
+    }
+
+    /** The end recorded for a custom-IO session, or null while it is still running or was never ended. */
+    @Nullable
+    public ShellEnd getShellEnd() {
+        return mShellEndGate.get();
+    }
+
+    /**
+     * The local side detached. A remote exit that native state already holds wins over the detach, so the detach
+     * cannot mask it. Nothing is read from the native shell once the session is closed.
+     */
+    private void finishLocalDetach() {
+        GhosttySessionWorker worker;
+        synchronized (this) {
+            if (mClosed) {
+                return;
+            }
+            worker = mGhosttySessionWorker;
+        }
+        ShellEnd known = worker != null ? worker.peekRemoteEnd() : null;
+        finishCustomIo(ShellEnd.forLocalDetach(known));
+    }
+
+    private void finishCustomIo(ShellEnd end) {
+        if (!mShellEndGate.tryAdmit(end)) {
+            return;
+        }
+        synchronized (this) {
+            mProcessExited = true;
+            mShellPid = -1;
+            mShellExitStatus = end.getKind() == ShellEnd.Kind.EXITED
+                ? end.getExitCode()
+                : ShellEnd.EXIT_STATUS_UNKNOWN;
+        }
+
+        GhosttyLog.info("Custom IO session " + mHandle + " ended: " + end);
+        closeProcessResources();
+
+        synchronized (this) {
+            if (mClosed) {
+                return;
+            }
+            String line = end.describe();
+            if (line != null) {
+                byte[] message = line.getBytes(StandardCharsets.UTF_8);
+                BackendResources backendResources = mBackendResources;
+                if (backendResources != null) {
+                    backendResources.appendDirect(message);
+                } else {
+                    GhosttySessionWorker worker = mGhosttySessionWorker;
+                    if (worker != null) {
+                        worker.appendDirect(message);
+                    }
+                }
+            }
+            if (mClient != null) {
+                mClient.onSessionFinished(this);
             }
         }
     }
@@ -1086,6 +1161,10 @@ public final class TerminalSession extends TerminalOutput implements AutoCloseab
 
         @Override
         public void handleMessage(Message msg) {
+            if (msg.what == MSG_LOCAL_DETACHED) {
+                finishLocalDetach();
+                return;
+            }
             if (msg.what != MSG_PROCESS_EXITED) {
                 return;
             }

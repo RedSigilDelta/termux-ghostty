@@ -114,6 +114,7 @@ fun TerminalPane(
     onProgramStatusOpened: () -> Unit,
     tabsButton: (@Composable () -> Unit)?,
     callbacks: TerminalPaneCallbacks,
+    keyBarActions: (@Composable () -> Unit)? = null,
 ) {
     val modifierKeys = remember { ModifierKeys() }
     val imeController = remember(session) { TerminalImeController() }
@@ -161,12 +162,12 @@ fun TerminalPane(
                 showAgents = true
                 onProgramStatusOpened()
             },
+            extraActions = keyBarActions,
             modifier = Modifier.align(Alignment.BottomCenter).keyBarLayout { keyBarTop = it },
             pillModifier = Modifier.onGloballyPositioned { keyBarPill = it.boundsInRoot() },
         )
         TerminalProgressStrip(
-            progress = progress,
-            modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding(),
+            progress = progress, modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding(),
         )
         ProgramStatusSheet(
             state = programStatus,

@@ -162,8 +162,9 @@ class MainActivity : ComponentActivity(), SessionHost {
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (event.keyCode == KeyEvent.KEYCODE_BACK && event.action == KeyEvent.ACTION_DOWN) {
-            // Only intercept when on the terminal workspace screen
-            if (viewModel.navigator.backStack.lastOrNull() is AppRoute.Workspace) {
+            // Only intercept when on a terminal screen: a workspace or a Herdr session
+            val topRoute = viewModel.navigator.backStack.lastOrNull()
+            if (topRoute is AppRoute.Workspace || topRoute is AppRoute.HerdrSession) {
                 // Hide keyboard BEFORE the IME can consume the event via onKeyPreIme.
                 // This way the back event propagates through to OnBackPressedDispatcher
                 // and navigator.goBack() fires on the SAME press.

@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -34,6 +35,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
@@ -138,9 +140,7 @@ enum class ArrowDirection(val keyCode: Int) {
 
 private val JoystickTrackSize = 40.dp
 private val JoystickKnobSize = 18.dp
-private val JoystickStepX = 24.dp
-private val JoystickStepY = 36.dp
-private const val SwipeHoldDelayMillis = 400L
+private val JoystickSwipeStep = 10.dp
 private const val JoystickDeadZoneFraction = 0.35f
 private const val FirstRepeatDelayMillis = 350L
 private const val RepeatDelayMillis = 120.0
@@ -168,12 +168,10 @@ internal data class ArrowSteps(val direction: ArrowDirection, val count: Int)
 
 /**
  * Turns a drag into arrow steps like HeliBoard's spacebar swipe: every step of travel is one
- * arrow, the remainder carries over, and the first step locks the axis until the finger lifts.
- * Vertical steps are longer ([stepY]) because vertical arrows jump whole lines.
+ * horizontal arrow, the remainder carries over, and the first step locks the axis until the finger lifts.
+ * A vertical flick emits only one arrow per touch, regardless of distance or subsequent movement.
  */
 internal class ArrowDragTracker(private val stepX: Float, private val stepY: Float = stepX) {
-    private var startX = 0f
-    private var startY = 0f
     private var originX = 0f
     private var originY = 0f
     private var horizontal: Boolean? = null
@@ -182,14 +180,13 @@ internal class ArrowDragTracker(private val stepX: Float, private val stepY: Flo
     val lockedHorizontal: Boolean? get() = horizontal
 
     fun start(x: Float, y: Float) {
-        startX = x
-        startY = y
         originX = x
         originY = y
         horizontal = null
     }
 
     fun move(x: Float, y: Float): ArrowSteps? {
+        if (horizontal == false) return null
         val dx = x - originX
         val dy = y - originY
         val onX = horizontal ?: (abs(dx) >= abs(dy))
@@ -202,20 +199,9 @@ internal class ArrowDragTracker(private val stepX: Float, private val stepY: Flo
             onX -> if (steps < 0) ArrowDirection.LEFT else ArrowDirection.RIGHT
             else -> if (steps < 0) ArrowDirection.UP else ArrowDirection.DOWN
         }
-        return ArrowSteps(direction, abs(steps))
-    }
-
-    /** True while the finger is still at least half a step from where it went down towards [direction]. */
-    fun isPulled(direction: ArrowDirection, x: Float, y: Float): Boolean = when (direction) {
-        ArrowDirection.LEFT -> startX - x >= stepX / 2
-        ArrowDirection.RIGHT -> x - startX >= stepX / 2
-        ArrowDirection.UP -> startY - y >= stepY / 2
-        ArrowDirection.DOWN -> y - startY >= stepY / 2
+        return ArrowSteps(direction, if (onX) abs(steps) else 1)
     }
 }
-
-/** Identity-compared so each emitted step restarts the hold delay. */
-private class SwipeHold(val direction: ArrowDirection)
 
 private fun Offset.limitedTo(maxLength: Float): Offset {
     val length = getDistance()
@@ -229,9 +215,9 @@ private fun swipeKnobTarget(lockedHorizontal: Boolean?, drag: Offset): Offset = 
     null -> drag
 }
 
-/** Repeats the held arrow, or the swipe's arrow once its hold delay has passed, until the finger moves on. */
+/** Only Hold mode repeats; Swipe mode emits arrows from finger travel alone. */
 @Composable
-private fun ArrowRepeat(held: ArrowDirection?, swipeHold: SwipeHold?, onArrow: (ArrowDirection) -> Unit) {
+private fun ArrowRepeat(held: ArrowDirection?, onArrow: (ArrowDirection) -> Unit) {
     val haptics = LocalHapticFeedback.current
     val currentOnArrow by rememberUpdatedState(onArrow)
 
@@ -245,16 +231,6 @@ private fun ArrowRepeat(held: ArrowDirection?, swipeHold: SwipeHold?, onArrow: (
         }
     }
 
-    LaunchedEffect(swipeHold) {
-        val arrow = swipeHold?.direction ?: return@LaunchedEffect
-        delay(SwipeHoldDelayMillis)
-        var repeatIndex = 1
-        while (true) {
-            currentOnArrow(arrow)
-            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-            delay(repeatDelayMillis(repeatIndex++))
-        }
-    }
 }
 
 @Composable
@@ -275,21 +251,18 @@ fun ArrowJoystick(mode: ArrowJoystickMode, onArrow: (ArrowDirection) -> Unit, mo
     val currentOnArrow by rememberUpdatedState(onArrow)
     val knob = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
     var held by remember { mutableStateOf<ArrowDirection?>(null) }
-    var swipeHold by remember { mutableStateOf<SwipeHold?>(null) }
-
-    val stepXPx = with(density) { JoystickStepX.toPx() }
-    val stepYPx = with(density) { JoystickStepY.toPx() }
+    val swipeStepPx = with(density) { JoystickSwipeStep.toPx() }
     val radius = with(density) { JoystickTrackSize.toPx() / 2f }
     val knobTravel = with(density) { (JoystickTrackSize - JoystickKnobSize).toPx() / 2f }
 
-    ArrowRepeat(held = held, swipeHold = swipeHold, onArrow = onArrow)
+    ArrowRepeat(held = held, onArrow = onArrow)
 
     Box(
         modifier
             .size(JoystickTrackSize)
             .background(MaterialTheme.colorScheme.surfaceContainerHighest, CircleShape)
-            .pointerInput(mode, stepXPx, stepYPx) {
-                val tracker = ArrowDragTracker(stepXPx, stepYPx)
+            .pointerInput(mode, swipeStepPx) {
+                val tracker = ArrowDragTracker(swipeStepPx)
                 awaitEachGesture {
                     val down = awaitFirstDown()
                     tracker.start(down.position.x, down.position.y)
@@ -302,10 +275,6 @@ fun ArrowJoystick(mode: ArrowJoystickMode, onArrow: (ArrowDirection) -> Unit, mo
                                 tracker.move(position.x, position.y)?.let { steps ->
                                     repeat(steps.count) { currentOnArrow(steps.direction) }
                                     haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    swipeHold = SwipeHold(steps.direction)
-                                }
-                                swipeHold?.let {
-                                    if (!tracker.isPulled(it.direction, position.x, position.y)) swipeHold = null
                                 }
                                 swipeKnobTarget(tracker.lockedHorizontal, position - down.position)
                             }
@@ -319,7 +288,6 @@ fun ArrowJoystick(mode: ArrowJoystickMode, onArrow: (ArrowDirection) -> Unit, mo
                         pointer = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
                     }
                     held = null
-                    swipeHold = null
                     scope.launch {
                         knob.animateTo(Offset.Zero, spring(dampingRatio = Spring.DampingRatioMediumBouncy))
                     }
@@ -366,16 +334,18 @@ private fun FloatingBar(
 }
 
 /**
- * Bottom key bar for the terminal: Esc, Ctrl, Alt, the arrow joystick, Tab, then [agents]. [tabsButton]
- * sits beside the pill.
+ * Bottom key bar for the terminal: Esc, Ctrl, Alt, the arrow joystick, Tab, then [agents] and [extraActions].
+ * [tabsButton] sits beside the pill.
  */
 @Composable
+@Suppress("LongParameterList")
 fun KeyBar(
     modifiers: ModifierKeys,
     onKey: (keyCode: Int) -> Unit,
     joystickMode: ArrowJoystickMode,
     tabsButton: (@Composable () -> Unit)?,
     agents: (@Composable () -> Unit)?,
+    extraActions: (@Composable () -> Unit)? = null,
     modifier: Modifier = Modifier,
     pillModifier: Modifier = Modifier,
 ) {
@@ -386,6 +356,28 @@ fun KeyBar(
         ArrowJoystick(mode = joystickMode, onArrow = { onKey(it.keyCode) })
         KeyButton(label = "Tab", onClick = { onKey(KeyEvent.KEYCODE_TAB) })
         agents?.invoke()
+        extraActions?.invoke()
+    }
+}
+
+/** An icon key on the key bar pill, for actions the terminal adds, such as the Herdr Git and SFTP sheets. */
+@Composable
+fun KeyBarIcon(icon: ImageVector, contentDescription: String, onClick: () -> Unit) {
+    Box(
+        Modifier
+            .focusProperties { canFocus = false }
+            .clip(CircleShape)
+            .clickable(onClick = onClick)
+            .defaultMinSize(minWidth = 36.dp, minHeight = 36.dp)
+            .padding(horizontal = 8.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            modifier = Modifier.size(20.dp),
+            tint = MaterialTheme.colorScheme.onSurface,
+        )
     }
 }
 

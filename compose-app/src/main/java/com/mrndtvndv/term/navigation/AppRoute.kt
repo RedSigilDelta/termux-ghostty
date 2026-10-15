@@ -19,4 +19,8 @@ sealed interface AppRoute : NavKey {
 
     @Serializable
     data class Workspace(val workspaceId: String) : AppRoute
+
+    /** A server's Herdr session: its one full-UI terminal and file tabs. Its workspace is looked up from [serverId]. */
+    @Serializable
+    data class HerdrSession(val serverId: String) : AppRoute
 }

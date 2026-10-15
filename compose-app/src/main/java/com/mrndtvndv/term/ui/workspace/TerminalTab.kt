@@ -34,6 +34,7 @@ import com.mrndtvndv.term.AppViewModel
 import com.mrndtvndv.term.data.prefs.AppSettings
 import com.mrndtvndv.term.server.TerminalEntry
 import com.mrndtvndv.term.workspace.Tab
+import com.mrndtvndv.term.workspace.remoteAttachmentEndText
 import com.termux.terminal.TerminalSession
 import kotlinx.coroutines.flow.first
 
@@ -54,6 +55,7 @@ fun TerminalTab(
     appearance: TerminalAppearance,
     paneCallbacks: (TerminalSession) -> TerminalPaneCallbacks,
     tabsButton: (@Composable () -> Unit)?,
+    keyBarActions: (@Composable () -> Unit)? = null,
 ) {
     val opening = entry == null
     var attempt by remember { mutableIntStateOf(0) }
@@ -61,7 +63,7 @@ fun TerminalTab(
     val currentIsActive by rememberUpdatedState(isActive)
 
     // Waits for the page to become active so off-screen neighbours do not start shells.
-    LaunchedEffect(tab.id, opening, attempt) {
+    LaunchedEffect(tab.id, tab.herdrTerminal, opening, attempt) {
         if (!opening) return@LaunchedEffect
         snapshotFlow { currentIsActive }.first { it }
         failure = null
@@ -81,17 +83,30 @@ fun TerminalTab(
                 appearance = appearance,
                 workspaceViewModel = workspaceViewModel,
                 tabsButton = tabsButton,
+                keyBarActions = keyBarActions,
                 callbacks = paneCallbacks(entry.session),
             )
             if (!entry.running) {
-                Button(
-                    onClick = { appViewModel.restartTerminal(serverId, tab) },
+                // A remote attachment says what the native end facts show, and nothing more: unknown ends stay unknown.
+                val remote = tab.herdrTerminal != null
+                Column(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .navigationBarsPadding()
                         .padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    Text("Restart")
+                    if (remote) {
+                        Text(
+                            text = remoteAttachmentEndText(entry.session.shellEnd),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                    }
+                    Button(onClick = { appViewModel.restartTerminal(serverId, tab) }) {
+                        Text(if (remote) "Reattach" else "Restart")
+                    }
                 }
             }
         }
@@ -107,6 +122,7 @@ private fun TerminalSessionPane(
     appearance: TerminalAppearance,
     workspaceViewModel: WorkspaceViewModel,
     tabsButton: (@Composable () -> Unit)?,
+    keyBarActions: (@Composable () -> Unit)?,
     callbacks: TerminalPaneCallbacks,
 ) {
     val progress by workspaceViewModel.observeTerminalProgress(session).collectAsStateWithLifecycle()
@@ -120,6 +136,7 @@ private fun TerminalSessionPane(
         programStatus = programStatus,
         onProgramStatusOpened = { workspaceViewModel.markProgramStatusSeen(session) },
         tabsButton = tabsButton,
+        keyBarActions = keyBarActions,
         callbacks = callbacks,
     )
 }

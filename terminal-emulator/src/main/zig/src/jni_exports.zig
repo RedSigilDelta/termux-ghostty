@@ -2,6 +2,7 @@ const std = @import("std");
 const ghostty_log = @import("android_log.zig");
 const core = @import("termux_ghostty.zig");
 const ssh = @import("ssh_native_session.zig");
+const ssh_shell_exit = @import("ssh_shell_exit.zig");
 // Shared cImport: zig 0.16 gives each @cImport call its own type namespace, so
 // JNIEnv/JavaVM/etc. passed to ssh would otherwise be distinct types.
 const c = ssh.c;
@@ -784,38 +785,6 @@ fn throwJavaRuntimeException(env: *c.JNIEnv, message: []const u8) void {
     _ = env.*.*.ThrowNew.?(env, exception_class, message_c.ptr);
 }
 
-fn throwSshCommandFailure(
-    env: *c.JNIEnv,
-    exit_status: c_int,
-    error_output: []const u8,
-    output: []const u8,
-) void {
-    const error_detail = std.mem.trim(u8, error_output, " \t\r\n");
-    if (error_detail.len > 0) {
-        throwJavaRuntimeException(env, error_detail);
-        return;
-    }
-
-    const output_detail = std.mem.trim(u8, output, " \t\r\n");
-    if (output_detail.len > 0) {
-        throwJavaRuntimeException(env, output_detail);
-        return;
-    }
-
-    if (exit_status > 0) {
-        var message: [64]u8 = undefined;
-        const formatted = std.fmt.bufPrint(
-            &message,
-            "Remote command exited with status {}",
-            .{exit_status},
-        ) catch "Remote command failed";
-        throwJavaRuntimeException(env, formatted);
-        return;
-    }
-
-    throwJavaRuntimeException(env, "SSH command execution failed");
-}
-
 pub export fn Java_com_termux_terminal_GhosttyNative_nativeSshInit(
     env: ?*c.JNIEnv,
     clazz: c.jclass,
@@ -976,7 +945,91 @@ fn shellFromHandle(shell_handle: jlong) ?*ssh.SshNativeSession.ShellChannel {
     return @as(*ssh.SshNativeSession.ShellChannel, @ptrFromInt(@as(usize, @intCast(shell_handle))));
 }
 
-pub export fn Java_com_termux_terminal_GhosttyNative_nativeSshOpenShell(
+/// How the remote shell ended, from `ssh_shell_exit.State`: 0 running, 1 exited (see the code), 2 signaled
+/// (see the signal name), 3 ended with no exit evidence, 4 transport lost. -1 when the handle is invalid.
+/// Valid only while the shell handle is live: the JVM must query before it closes the shell.
+pub export fn Java_com_termux_terminal_GhosttyNative_nativeSshShellExitState(
+    env: ?*c.JNIEnv,
+    clazz: c.jclass,
+    shell_handle: jlong,
+) jint {
+    _ = env;
+    _ = clazz;
+    const shell = shellFromHandle(shell_handle) orelse return -1;
+    shell.exit_lock.lock();
+    defer shell.exit_lock.unlock();
+    return @intFromEnum(shell.exit.state);
+}
+
+/// The server's exit status. Meaningful only when the state is 1 (exited).
+pub export fn Java_com_termux_terminal_GhosttyNative_nativeSshShellExitCode(
+    env: ?*c.JNIEnv,
+    clazz: c.jclass,
+    shell_handle: jlong,
+) jint {
+    _ = env;
+    _ = clazz;
+    const shell = shellFromHandle(shell_handle) orelse return 0;
+    shell.exit_lock.lock();
+    defer shell.exit_lock.unlock();
+    return shell.exit.code;
+}
+
+/// The signal name without SIG, when the state is 2 (signaled). Null otherwise.
+pub export fn Java_com_termux_terminal_GhosttyNative_nativeSshShellExitSignal(
+    env: ?*c.JNIEnv,
+    clazz: c.jclass,
+    shell_handle: jlong,
+) c.jstring {
+    _ = clazz;
+    const jni = env orelse return null;
+    const shell = shellFromHandle(shell_handle) orelse return null;
+    var buffer: [ssh_shell_exit.signal_name_capacity + 1]u8 = undefined;
+    shell.exit_lock.lock();
+    if (shell.exit.state != .signaled) {
+        shell.exit_lock.unlock();
+        return null;
+    }
+    const name = shell.exit.signalName();
+    @memcpy(buffer[0..name.len], name);
+    shell.exit_lock.unlock();
+    buffer[name.len] = 0;
+    return jni.*.*.NewStringUTF.?(jni, buffer[0..].ptr);
+}
+
+pub export fn Java_com_termux_terminal_GhosttyNative_nativeSshCloseShell(
+    env: ?*c.JNIEnv,
+    clazz: c.jclass,
+    session_handle: jlong,
+    shell_handle: jlong,
+) void {
+    _ = clazz;
+    const session = sshSessionFromHandle(session_handle) orelse return;
+    const shell = shellFromHandle(shell_handle) orelse return;
+    session.closeShell(shell, env);
+}
+
+// --- SSH channel operations (shell, exec, SFTP) ---
+// The native loop opens these channels one step at a time. The JVM starts an op, waits with
+// bounded timeouts, takes the result, and releases the op.
+
+/// Returned by the start calls when an admission limit is reached. The JVM may retry.
+const start_refused_busy: jlong = -1;
+
+/// Start refusals as JNI handles: -1 when busy (retryable), 0 when the session is not running or the input was refused.
+fn startFailureHandle(err: ssh.SshNativeSession.StartError) jlong {
+    return switch (err) {
+        error.TooManyPending => start_refused_busy,
+        error.NotRunning, error.InvalidPath, error.OutOfMemory => 0,
+    };
+}
+
+fn channelOpFromHandle(op_handle: jlong) ?*ssh.SshNativeSession.ChannelOp {
+    if (op_handle <= 0) return null;
+    return @as(*ssh.SshNativeSession.ChannelOp, @ptrFromInt(@as(usize, @intCast(op_handle))));
+}
+
+pub export fn Java_com_termux_terminal_GhosttyNative_nativeSshStartShell(
     env: ?*c.JNIEnv,
     clazz: c.jclass,
     session_handle: jlong,
@@ -995,69 +1048,33 @@ pub export fn Java_com_termux_terminal_GhosttyNative_nativeSshOpenShell(
     const command_chars = if (command != null) jni.*.*.GetStringUTFChars.?(jni, command, null) else null;
     defer if (command_chars) |chars| jni.*.*.ReleaseStringUTFChars.?(jni, command, chars);
 
-    const shell = session.openShell(
+    const op = session.openShellOp(
         std.mem.span(term_chars),
         cols,
         rows,
         if (command_chars) |chars| std.mem.span(chars) else null,
-    ) orelse return 0;
-    return @intCast(@intFromPtr(shell));
+    ) catch |err| return startFailureHandle(err);
+    return @intCast(@intFromPtr(op));
 }
 
-pub export fn Java_com_termux_terminal_GhosttyNative_nativeSshCloseShell(
-    env: ?*c.JNIEnv,
-    clazz: c.jclass,
-    session_handle: jlong,
-    shell_handle: jlong,
-) void {
-    _ = clazz;
-    const session = sshSessionFromHandle(session_handle) orelse return;
-    const shell = shellFromHandle(shell_handle) orelse return;
-    session.closeShell(shell, env);
-}
-
-// --- SSH Exec & SFTP Support ---
-
-fn sshSessionFromHandle(session_handle: jlong) ?*ssh.SshNativeSession {
-    if (session_handle <= 0) return null;
-    return @as(*ssh.SshNativeSession, @ptrFromInt(@as(usize, @intCast(session_handle))));
-}
-
-pub export fn Java_com_termux_terminal_GhosttyNative_nativeSshExec(
+pub export fn Java_com_termux_terminal_GhosttyNative_nativeSshStartExec(
     env: ?*c.JNIEnv,
     clazz: c.jclass,
     session_handle: jlong,
     command: c.jstring,
-) c.jstring {
+) jlong {
     _ = clazz;
-    const jni = env orelse return null;
-    const session = sshSessionFromHandle(session_handle) orelse return null;
-    if (command == null) return null;
+    const jni = env orelse return 0;
+    const session = sshSessionFromHandle(session_handle) orelse return 0;
+    if (command == null) return 0;
 
     const chars = jni.*.*.GetStringUTFChars.?(jni, command, null);
     defer jni.*.*.ReleaseStringUTFChars.?(jni, command, chars);
-    var output: std.ArrayList(u8) = .empty;
-    defer output.deinit(native_allocator);
-    var error_output: std.ArrayList(u8) = .empty;
-    defer error_output.deinit(native_allocator);
-
-    const exit_status = session.execCommand(
-        std.mem.span(chars),
-        &output,
-        &error_output,
-    ) catch {
-        throwSshCommandFailure(jni, -1, error_output.items, output.items);
-        return null;
-    };
-    if (exit_status > 0) {
-        throwSshCommandFailure(jni, exit_status, error_output.items, output.items);
-        return null;
-    }
-
-    return newJStringFromUtf8(jni, output.items);
+    const op = session.execOp(std.mem.span(chars)) catch |err| return startFailureHandle(err);
+    return @intCast(@intFromPtr(op));
 }
 
-pub export fn Java_com_termux_terminal_GhosttyNative_nativeSftpInit(
+pub export fn Java_com_termux_terminal_GhosttyNative_nativeSshStartSftp(
     env: ?*c.JNIEnv,
     clazz: c.jclass,
     session_handle: jlong,
@@ -1065,8 +1082,269 @@ pub export fn Java_com_termux_terminal_GhosttyNative_nativeSftpInit(
     _ = env;
     _ = clazz;
     const session = sshSessionFromHandle(session_handle) orelse return 0;
-    const handle = session.sftpInit() orelse return 0;
+    const op = session.sftpOp() catch |err| return startFailureHandle(err);
+    return @intCast(@intFromPtr(op));
+}
+
+/// Waits up to `timeout_ms`. Returns 1 when the op is done, 2 when an exec command is running and `until_done`
+/// is false, 0 while still waiting, and -2 when it failed.
+pub export fn Java_com_termux_terminal_GhosttyNative_nativeSshOpAwait(
+    env: ?*c.JNIEnv,
+    clazz: c.jclass,
+    op_handle: jlong,
+    timeout_ms: jint,
+    until_done: jboolean,
+) jint {
+    _ = env;
+    _ = clazz;
+    const op = channelOpFromHandle(op_handle) orelse return stream_status_failed;
+    return op.awaitResult(timeout_ms, until_done != c.JNI_FALSE);
+}
+
+/// Moves the shell to the JVM. Returns 0 when there is none to take.
+pub export fn Java_com_termux_terminal_GhosttyNative_nativeSshOpTakeShell(
+    env: ?*c.JNIEnv,
+    clazz: c.jclass,
+    op_handle: jlong,
+) jlong {
+    _ = env;
+    _ = clazz;
+    const op = channelOpFromHandle(op_handle) orelse return 0;
+    const shell = op.takeShell() orelse return 0;
+    return @intCast(@intFromPtr(shell));
+}
+
+/// Moves the SFTP handle to the JVM. Returns 0 when there is none to take.
+pub export fn Java_com_termux_terminal_GhosttyNative_nativeSshOpTakeSftp(
+    env: ?*c.JNIEnv,
+    clazz: c.jclass,
+    op_handle: jlong,
+) jlong {
+    _ = env;
+    _ = clazz;
+    const op = channelOpFromHandle(op_handle) orelse return 0;
+    const handle = op.takeSftp() orelse return 0;
     return @intCast(@intFromPtr(handle));
+}
+
+pub export fn Java_com_termux_terminal_GhosttyNative_nativeSshOpExitStatus(
+    env: ?*c.JNIEnv,
+    clazz: c.jclass,
+    op_handle: jlong,
+) jint {
+    _ = env;
+    _ = clazz;
+    const op = channelOpFromHandle(op_handle) orelse return -1;
+    return op.exitStatus();
+}
+
+pub export fn Java_com_termux_terminal_GhosttyNative_nativeSshOpOutput(
+    env: ?*c.JNIEnv,
+    clazz: c.jclass,
+    op_handle: jlong,
+) c.jstring {
+    _ = clazz;
+    const jni = env orelse return null;
+    const op = channelOpFromHandle(op_handle) orelse return null;
+    op.mutex.lock();
+    defer op.mutex.unlock();
+    return newJStringFromUtf8(jni, op.stdout.items);
+}
+
+pub export fn Java_com_termux_terminal_GhosttyNative_nativeSshOpErrorOutput(
+    env: ?*c.JNIEnv,
+    clazz: c.jclass,
+    op_handle: jlong,
+) c.jstring {
+    _ = clazz;
+    const jni = env orelse return null;
+    const op = channelOpFromHandle(op_handle) orelse return null;
+    op.mutex.lock();
+    defer op.mutex.unlock();
+    return newJStringFromUtf8(jni, op.stderr.items);
+}
+
+pub export fn Java_com_termux_terminal_GhosttyNative_nativeSshOpDetail(
+    env: ?*c.JNIEnv,
+    clazz: c.jclass,
+    op_handle: jlong,
+) c.jstring {
+    _ = clazz;
+    const jni = env orelse return null;
+    const op = channelOpFromHandle(op_handle) orelse return null;
+    var detail: [ssh.SshNativeSession.ChannelOp.detail_capacity + 1]u8 = undefined;
+    _ = op.copyDetail(&detail);
+    return jni.*.*.NewStringUTF.?(jni, detail[0..].ptr);
+}
+
+/// The JVM is done with the op. Releasing an untaken shell or SFTP handle is the loop's job.
+pub export fn Java_com_termux_terminal_GhosttyNative_nativeSshOpRelease(
+    env: ?*c.JNIEnv,
+    clazz: c.jclass,
+    op_handle: jlong,
+) void {
+    _ = env;
+    _ = clazz;
+    const op = channelOpFromHandle(op_handle) orelse return;
+    op.release();
+}
+
+// --- SSH Unix-socket streams ---
+// Status codes shared with GhosttyNative.java.
+//   read:  >0 bytes, 0 nothing arrived in time, -1 EOF or closed, -2 failed
+//   write: >=0 bytes accepted, 0 no room in time, -1 closed, -2 failed
+//   await: 1 open, 0 still opening, -1 closed, -2 failed
+const stream_status_closed: jint = -1;
+const stream_status_failed: jint = -2;
+const max_stream_path_bytes: jint = 4096;
+
+fn streamFromHandle(stream_handle: jlong) ?*ssh.SshNativeSession.StreamChannel {
+    if (stream_handle <= 0) return null;
+    return @as(*ssh.SshNativeSession.StreamChannel, @ptrFromInt(@as(usize, @intCast(stream_handle))));
+}
+
+pub export fn Java_com_termux_terminal_GhosttyNative_nativeSshOpenStreamLocal(
+    env: ?*c.JNIEnv,
+    clazz: c.jclass,
+    session_handle: jlong,
+    socket_path: c.jbyteArray,
+) jlong {
+    _ = clazz;
+    const jni = env orelse return 0;
+    const session = sshSessionFromHandle(session_handle) orelse return 0;
+    if (socket_path == null) return 0;
+    const length = jni.*.*.GetArrayLength.?(jni, socket_path);
+    if (length <= 0 or length > max_stream_path_bytes) return 0;
+
+    // Raw UTF-8 bytes. GetStringUTFChars returns modified UTF-8, which turns NUL into C0 80.
+    const path = native_allocator.alloc(u8, @intCast(length)) catch return 0;
+    defer native_allocator.free(path);
+    jni.*.*.GetByteArrayRegion.?(jni, socket_path, 0, length, @ptrCast(path.ptr));
+
+    const stream = session.openStreamLocal(path) catch |err| return startFailureHandle(err);
+    return @intCast(@intFromPtr(stream));
+}
+
+pub export fn Java_com_termux_terminal_GhosttyNative_nativeSshStreamAwaitOpen(
+    env: ?*c.JNIEnv,
+    clazz: c.jclass,
+    stream_handle: jlong,
+    timeout_ms: jint,
+) jint {
+    _ = env;
+    _ = clazz;
+    const stream = streamFromHandle(stream_handle) orelse return stream_status_failed;
+    return stream.awaitOpen(timeout_ms);
+}
+
+pub export fn Java_com_termux_terminal_GhosttyNative_nativeSshStreamRead(
+    env: ?*c.JNIEnv,
+    clazz: c.jclass,
+    stream_handle: jlong,
+    buffer: c.jbyteArray,
+    offset: jint,
+    length: jint,
+    timeout_ms: jint,
+) jint {
+    _ = clazz;
+    const jni = env orelse return stream_status_failed;
+    const stream = streamFromHandle(stream_handle) orelse return stream_status_closed;
+    if (buffer == null or offset < 0 or length <= 0) return 0;
+
+    // Wait with no JNI array pointer held, then copy what arrived.
+    const chunk_bytes = ssh.SshNativeSession.stream_jni_chunk_bytes;
+    var chunk: [chunk_bytes]u8 = undefined;
+    const capacity: usize = @min(@as(usize, @intCast(length)), chunk_bytes);
+    const count = stream.read(chunk[0..capacity], timeout_ms);
+    if (count <= 0) return count;
+    jni.*.*.SetByteArrayRegion.?(jni, buffer, offset, count, @ptrCast(chunk[0..].ptr));
+    return count;
+}
+
+pub export fn Java_com_termux_terminal_GhosttyNative_nativeSshStreamWrite(
+    env: ?*c.JNIEnv,
+    clazz: c.jclass,
+    stream_handle: jlong,
+    data: c.jbyteArray,
+    offset: jint,
+    length: jint,
+    timeout_ms: jint,
+) jint {
+    _ = clazz;
+    const jni = env orelse return stream_status_failed;
+    const stream = streamFromHandle(stream_handle) orelse return stream_status_closed;
+    if (data == null or offset < 0 or length <= 0) return 0;
+
+    const chunk_bytes = ssh.SshNativeSession.stream_jni_chunk_bytes;
+    var chunk: [chunk_bytes]u8 = undefined;
+    const count: usize = @min(@as(usize, @intCast(length)), chunk_bytes);
+    jni.*.*.GetByteArrayRegion.?(jni, data, offset, @intCast(count), @ptrCast(chunk[0..].ptr));
+    return stream.write(chunk[0..count], timeout_ms);
+}
+
+pub export fn Java_com_termux_terminal_GhosttyNative_nativeSshStreamFlush(
+    env: ?*c.JNIEnv,
+    clazz: c.jclass,
+    stream_handle: jlong,
+    timeout_ms: jint,
+) jint {
+    _ = env;
+    _ = clazz;
+    const stream = streamFromHandle(stream_handle) orelse return stream_status_closed;
+    return stream.flush(timeout_ms);
+}
+
+pub export fn Java_com_termux_terminal_GhosttyNative_nativeSshStreamClose(
+    env: ?*c.JNIEnv,
+    clazz: c.jclass,
+    stream_handle: jlong,
+) void {
+    _ = env;
+    _ = clazz;
+    const stream = streamFromHandle(stream_handle) orelse return;
+    stream.close();
+}
+
+pub export fn Java_com_termux_terminal_GhosttyNative_nativeSshStreamRelease(
+    env: ?*c.JNIEnv,
+    clazz: c.jclass,
+    stream_handle: jlong,
+) void {
+    _ = env;
+    _ = clazz;
+    const stream = streamFromHandle(stream_handle) orelse return;
+    stream.release();
+}
+
+pub export fn Java_com_termux_terminal_GhosttyNative_nativeSshStreamFailure(
+    env: ?*c.JNIEnv,
+    clazz: c.jclass,
+    stream_handle: jlong,
+) jint {
+    _ = env;
+    _ = clazz;
+    const stream = streamFromHandle(stream_handle) orelse return 0;
+    return stream.failureCode();
+}
+
+pub export fn Java_com_termux_terminal_GhosttyNative_nativeSshStreamDetail(
+    env: ?*c.JNIEnv,
+    clazz: c.jclass,
+    stream_handle: jlong,
+) c.jstring {
+    _ = clazz;
+    const jni = env orelse return null;
+    const stream = streamFromHandle(stream_handle) orelse return null;
+    var detail: [ssh.SshNativeSession.StreamChannel.detail_capacity + 1]u8 = undefined;
+    _ = stream.copyDetail(&detail);
+    return jni.*.*.NewStringUTF.?(jni, detail[0..].ptr);
+}
+
+// --- SSH Exec & SFTP Support ---
+
+fn sshSessionFromHandle(session_handle: jlong) ?*ssh.SshNativeSession {
+    if (session_handle <= 0) return null;
+    return @as(*ssh.SshNativeSession, @ptrFromInt(@as(usize, @intCast(session_handle))));
 }
 
 pub export fn Java_com_termux_terminal_GhosttyNative_nativeSftpClose(

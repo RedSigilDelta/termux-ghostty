@@ -54,6 +54,7 @@ fun ServerListScreen(
         autoCleanup: Boolean,
         maxFiles: Int,
     ) -> Unit = { cmd, _, _, _, _ -> onSetStartupCommand(cmd) },
+    storageError: String? = null,
     modifier: Modifier = Modifier,
 ) {
     var showStartupDialog by remember { mutableStateOf(false) }
@@ -84,6 +85,19 @@ fun ServerListScreen(
             contentPadding = PaddingValues(vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
+            storageError?.let { message ->
+                item(key = "storage_error") {
+                    Text(
+                        text = message,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                }
+            }
+
             // ── Local Terminal card (always visible) ────────────────
             item(key = "local_terminal") {
                 LocalTerminalCard(
@@ -94,7 +108,8 @@ fun ServerListScreen(
             }
 
             val sshServers = servers.filter { !it.isLocal }
-            if (sshServers.isEmpty()) {
+            // With a storage error the list is unknown, not empty, so the "no servers" text would mislead.
+            if (sshServers.isEmpty() && storageError == null) {
                 item {
                     Box(
                         modifier = Modifier

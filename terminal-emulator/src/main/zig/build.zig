@@ -26,6 +26,24 @@ pub fn build(b: *std.Build) !void {
 
     var test_module_opt: ?*std.Build.Module = null;
     const test_step = b.step("test", "Run terminal wrapper Zig tests");
+
+    // Pure Zig, no libssh2 or JNI: these SSH seams run on the host. The stream pump and
+    // pipe harness (ssh_stream_harness.zig) needs JDK and libssh2 headers, so it is not wired here.
+    for ([_][]const u8{
+        "src/ssh_stream_buffer.zig",
+        "src/ssh_open_queue.zig",
+        "src/ssh_shell_exit.zig",
+    }) |root_source| {
+        const seam_tests = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path(root_source),
+                .target = target,
+                .optimize = optimize,
+            }),
+            .filters = test_filters,
+        });
+        test_step.dependOn(&b.addRunArtifact(seam_tests).step);
+    }
     if (b.lazyDependency("ghostty", .{
         .target = target,
         .optimize = optimize,

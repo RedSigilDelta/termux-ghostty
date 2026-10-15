@@ -38,6 +38,44 @@ class WorkspaceRepository(private val file: WorkspaceFile, private val scope: Co
         return workspace
     }
 
+    /** A workspace showing a Herdr workspace. Starts with no tabs, so no local shell opens behind the scenes. */
+    fun createHerdrWorkspace(serverId: String, name: String, root: String, herdrWorkspaceId: String): Workspace {
+        val workspace = Workspace(
+            id = newId(),
+            serverId = serverId,
+            name = name,
+            root = root,
+            lastUsed = System.currentTimeMillis(),
+            herdr = HerdrWorkspaceBinding(herdrWorkspaceId),
+        )
+        _state.update { it.addWorkspace(workspace) }
+        return workspace
+    }
+
+    /** The workspace that holds a server's Herdr session: its one full-UI terminal and nothing else. */
+    fun createHerdrSessionWorkspace(serverId: String, name: String, root: String): Workspace {
+        val tab = Tab.Terminal(herdrFullUiTabId(serverId), cwd = root)
+        val workspace = Workspace(
+            id = newId(),
+            serverId = serverId,
+            name = name,
+            root = root,
+            tabs = listOf(tab),
+            activeTabId = tab.id,
+            lastUsed = System.currentTimeMillis(),
+        )
+        _state.update { it.addWorkspace(workspace) }
+        return workspace
+    }
+
+    fun setHiddenTerminals(workspaceId: String, hiddenTerminalIds: Set<String>) {
+        _state.update { it.setHiddenTerminals(workspaceId, hiddenTerminalIds) }
+    }
+
+    fun unbindHerdr(workspaceId: String) {
+        _state.update { it.unbindHerdr(workspaceId) }
+    }
+
     fun activateWorkspace(workspaceId: String) {
         _state.update { it.activateWorkspace(workspaceId, System.currentTimeMillis()) }
     }

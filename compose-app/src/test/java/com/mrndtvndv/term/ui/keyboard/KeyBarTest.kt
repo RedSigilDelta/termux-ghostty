@@ -1,7 +1,6 @@
 package com.mrndtvndv.term.ui.keyboard
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -56,15 +55,21 @@ class KeyBarTest {
     }
 
     @Test
-    fun pulledUntilFingerReturnsWithinHalfStepOfWhereItWentDown() {
-        val tracker = ArrowDragTracker(10f, 30f).apply { start(100f, 100f) }
+    fun verticalFlickEmitsOnlyOneStepEvenAcrossALargeDistance() {
+        assertEquals(ArrowSteps(ArrowDirection.DOWN, 1), tracker().move(100f, 300f))
+        assertEquals(ArrowSteps(ArrowDirection.UP, 1), tracker().move(100f, -100f))
+    }
 
-        assertTrue(tracker.isPulled(ArrowDirection.UP, 100f, 80f))
-        assertTrue(tracker.isPulled(ArrowDirection.UP, 100f, 85f))
-        assertFalse(tracker.isPulled(ArrowDirection.UP, 100f, 90f))
-        assertTrue(tracker.isPulled(ArrowDirection.RIGHT, 105f, 100f))
-        assertFalse(tracker.isPulled(ArrowDirection.RIGHT, 104f, 100f))
-        assertFalse(tracker.isPulled(ArrowDirection.DOWN, 100f, 80f))
+    @Test
+    fun verticalFlickIgnoresFurtherTravelAndReversalUntilTheNextTouch() {
+        val tracker = tracker()
+        assertEquals(ArrowSteps(ArrowDirection.UP, 1), tracker.move(100f, 90f))
+        assertNull(tracker.move(100f, 90f))
+        assertNull(tracker.move(100f, 50f))
+        assertNull(tracker.move(100f, 150f))
+        assertNull(tracker.move(150f, 100f))
+        tracker.start(100f, 100f)
+        assertEquals(ArrowSteps(ArrowDirection.DOWN, 1), tracker.move(100f, 110f))
     }
 
     @Test
@@ -76,7 +81,7 @@ class KeyBarTest {
     fun dragEmitsOneArrowPerStepInDragDirection() {
         assertEquals(ArrowSteps(ArrowDirection.RIGHT, 2), tracker().move(125f, 100f))
         assertEquals(ArrowSteps(ArrowDirection.LEFT, 1), tracker().move(90f, 100f))
-        assertEquals(ArrowSteps(ArrowDirection.DOWN, 3), tracker().move(100f, 130f))
+        assertEquals(ArrowSteps(ArrowDirection.DOWN, 1), tracker().move(100f, 130f))
         assertEquals(ArrowSteps(ArrowDirection.UP, 1), tracker().move(100f, 90f))
     }
 
@@ -87,6 +92,14 @@ class KeyBarTest {
         assertEquals(ArrowSteps(ArrowDirection.RIGHT, 2), tracker.move(125f, 100f))
         assertNull(tracker.move(128f, 100f))
         assertEquals(ArrowSteps(ArrowDirection.RIGHT, 1), tracker.move(130f, 100f))
+    }
+
+    @Test
+    fun horizontalSwipeDoesNotEmitAgainWhileStationary() {
+        val tracker = tracker()
+        assertEquals(ArrowSteps(ArrowDirection.RIGHT, 3), tracker.move(130f, 100f))
+        repeat(20) { assertNull(tracker.move(130f, 100f)) }
+        assertEquals(ArrowSteps(ArrowDirection.LEFT, 1), tracker.move(120f, 100f))
     }
 
     @Test

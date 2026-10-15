@@ -48,6 +48,7 @@ import com.mrndtvndv.term.ui.theme.TermuxGhosttyTheme
 import com.mrndtvndv.term.ui.theme.resolveAppTheme
 import com.mrndtvndv.term.ui.workspace.DebugHud
 import com.mrndtvndv.term.ui.workspace.FileUploadBlockingOverlay
+import com.mrndtvndv.term.ui.workspace.HerdrSessionRoute
 import com.mrndtvndv.term.ui.workspace.TerminalAppearance
 import com.mrndtvndv.term.ui.workspace.TerminalHostCallbacks
 import com.mrndtvndv.term.ui.workspace.WallpaperController
@@ -143,6 +144,18 @@ fun TermApp(
                 }
                 TerminalThemeSync(termSession = currentSession, appTheme = appTheme)
 
+                val terminalAppearance = TerminalAppearance(
+                    typeface = terminalTypeface,
+                    fontSizeRange = preferences.fontSizeRange,
+                    wallpaper = wallpaperConfig,
+                )
+                val terminalHost = TerminalHostCallbacks(
+                    onCommitContent = uploads::handleCommittedContent,
+                    onRequestMediaUpload = uploads::requestMediaUpload,
+                    onRequestFileUpload = uploads::requestFileUpload,
+                    onOpenUrl = onOpenUrl,
+                )
+
                 Box(modifier = Modifier.fillMaxSize()) {
                     AppNavDisplay(
                         backStack = navigator.backStack,
@@ -166,6 +179,7 @@ fun TermApp(
                                     onSettingsClick = { navigator.navigate(AppRoute.Settings) },
                                     onStartLocal = appViewModel::startLocalTerminal,
                                     localConfig = serverListState.localConfig,
+                                    storageError = serverListState.storageError,
                                     onSetStartupCommand = appViewModel::setLocalStartupCommand,
                                     onUpdateLocalConfig = { cmd, enabled, dir, autoCleanup, maxFiles ->
                                         appViewModel.updateLocalConfig(cmd, enabled, dir, autoCleanup, maxFiles)
@@ -214,24 +228,30 @@ fun TermApp(
                                     appViewModel = appViewModel,
                                     container = container,
                                     settings = settings,
-                                    appearance = TerminalAppearance(
-                                        typeface = terminalTypeface,
-                                        fontSizeRange = preferences.fontSizeRange,
-                                        wallpaper = wallpaperConfig,
-                                    ),
-                                    host = TerminalHostCallbacks(
-                                        onCommitContent = uploads::handleCommittedContent,
-                                        onRequestMediaUpload = uploads::requestMediaUpload,
-                                        onRequestFileUpload = uploads::requestFileUpload,
-                                        onOpenUrl = onOpenUrl,
-                                    ),
+                                    appearance = terminalAppearance,
+                                    host = terminalHost,
                                     onBack = onBack,
+                                )
+                            }
+
+                            entry<AppRoute.HerdrSession>(
+                                metadata = if (settings.animationsEnabled) SurfaceSafeTransitions else emptyMap(),
+                            ) { route ->
+                                HerdrSessionRoute(
+                                    serverId = route.serverId,
+                                    appViewModel = appViewModel,
+                                    container = container,
+                                    settings = settings,
+                                    appearance = terminalAppearance,
+                                    host = terminalHost,
                                 )
                             }
                         },
                     )
 
-                    if (settings.debugHudEnabled && navigator.backStack.lastOrNull() is AppRoute.Workspace) {
+                    val topRoute = navigator.backStack.lastOrNull()
+                    val terminalRoute = topRoute is AppRoute.Workspace || topRoute is AppRoute.HerdrSession
+                    if (settings.debugHudEnabled && terminalRoute) {
                         DebugHud(modifier = Modifier.align(Alignment.TopEnd))
                     }
 
