@@ -12,6 +12,10 @@ fun HerdrSnapshot.panesIn(tabId: String): List<HerdrPane> =
 fun HerdrSnapshot.paneForTerminal(terminalId: String): HerdrPane? =
     panes.firstOrNull { it.terminalId == terminalId }
 
+/** Pane identified by the snapshot's server-global focus, not a client-specific focus. */
+fun HerdrSnapshot.focusedPane(): HerdrPane? =
+    focusedPaneId?.let { paneId -> panes.firstOrNull { it.id == paneId } }
+
 fun HerdrSnapshot.layoutFor(tabId: String): HerdrLayout? =
     layouts.firstOrNull { it.tabId == tabId }
 

@@ -82,8 +82,14 @@ class MainActivity : ComponentActivity(), SessionHost {
     override fun isAtLeast(state: Lifecycle.State): Boolean =
         lifecycle.currentState.isAtLeast(state)
 
-    override fun showInAppNotification(title: String?, body: String?, serverId: String?, tabId: String?) {
-        viewModel.notificationState.post(title, body, serverId, tabId)
+    override fun showInAppNotification(
+        title: String?,
+        body: String?,
+        serverId: String?,
+        tabId: String?,
+        herdrTerminalId: String?,
+    ) {
+        viewModel.notificationState.post(title, body, serverId, tabId, herdrTerminalId)
     }
 
     private fun resolveUploadTarget(session: TerminalSession?): UploadTarget {
@@ -172,9 +178,11 @@ class MainActivity : ComponentActivity(), SessionHost {
     private fun handleNotificationTap(intent: Intent?) {
         val serverId = intent?.getStringExtra(AppSessionManager.EXTRA_NOTIFICATION_SERVER_ID) ?: return
         val tabId = intent.getStringExtra(AppSessionManager.EXTRA_NOTIFICATION_TAB_ID)
+        val herdrTerminalId = intent.getStringExtra(AppSessionManager.EXTRA_NOTIFICATION_HERDR_TERMINAL_ID)
         intent.removeExtra(AppSessionManager.EXTRA_NOTIFICATION_SERVER_ID)
         intent.removeExtra(AppSessionManager.EXTRA_NOTIFICATION_TAB_ID)
-        viewModel.focusTerminalNotification(serverId, tabId)
+        intent.removeExtra(AppSessionManager.EXTRA_NOTIFICATION_HERDR_TERMINAL_ID)
+        viewModel.focusTerminalNotification(serverId, tabId, herdrTerminalId)
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {

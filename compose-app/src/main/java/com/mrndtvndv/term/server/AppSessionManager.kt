@@ -15,6 +15,7 @@ import android.util.Log
 import androidx.lifecycle.Lifecycle
 import com.mrndtvndv.term.ConnectionViewModelStores
 import com.mrndtvndv.term.R
+import com.mrndtvndv.term.herdr.focusedPane
 import com.mrndtvndv.term.service.SshSessionService
 import com.mrndtvndv.term.workspace.Tab
 import com.termux.shared.termux.TermuxConstants
@@ -234,11 +235,20 @@ class AppSessionManager private constructor(context: Context) : AppSessionManage
         serverId: String? = null,
         tabId: String? = null,
     ) {
+        // OSC notifications omit pane identity, so capture Herdr's latest server-global focus as the destination.
+        val herdrTerminalId = serverId
+            ?.let(coordinator::getServer)
+            ?.herdr
+            ?.state
+            ?.value
+            ?.snapshot
+            ?.focusedPane()
+            ?.terminalId
         val host = hostRef?.get()
         if (host != null && host.isAtLeast(Lifecycle.State.RESUMED)) {
-            host.showInAppNotification(title, body, serverId, tabId)
+            host.showInAppNotification(title, body, serverId, tabId, herdrTerminalId)
         } else {
-            showSystemNotification(title, body, serverId, tabId)
+            showSystemNotification(title, body, serverId, tabId, herdrTerminalId)
         }
     }
 
@@ -252,7 +262,13 @@ class AppSessionManager private constructor(context: Context) : AppSessionManage
         return id
     }
 
-    private fun showSystemNotification(title: String?, body: String?, serverId: String?, tabId: String?) {
+    private fun showSystemNotification(
+        title: String?,
+        body: String?,
+        serverId: String?,
+        tabId: String?,
+        herdrTerminalId: String?,
+    ) {
         val notificationManager =
             com.termux.shared.notification.NotificationUtils.getNotificationManager(appContext) ?: return
 
@@ -267,6 +283,7 @@ class AppSessionManager private constructor(context: Context) : AppSessionManage
 
         val normalizedTitle = title ?: "Terminal Notification"
         val normalizedBody = body ?: ""
+        val notificationId = getNextTerminalProtocolNotificationId()
 
         val intent = Intent(appContext, com.mrndtvndv.term.MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
@@ -276,10 +293,13 @@ class AppSessionManager private constructor(context: Context) : AppSessionManage
             if (tabId != null) {
                 putExtra(EXTRA_NOTIFICATION_TAB_ID, tabId)
             }
+            if (herdrTerminalId != null) {
+                putExtra(EXTRA_NOTIFICATION_HERDR_TERMINAL_ID, herdrTerminalId)
+            }
         }
         val contentIntent = PendingIntent.getActivity(
             appContext,
-            0,
+            notificationId,
             intent,
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
@@ -305,7 +325,7 @@ class AppSessionManager private constructor(context: Context) : AppSessionManage
         builder.setAutoCancel(true)
 
         notificationManager.notify(
-            getNextTerminalProtocolNotificationId(),
+            notificationId,
             builder.build(),
         )
     }
@@ -437,6 +457,8 @@ class AppSessionManager private constructor(context: Context) : AppSessionManage
         const val EXTRA_NOTIFICATION_SERVER_ID = "termux.terminal.notification.server_id"
         /** Intent extra: originating tab id for a tapped terminal notification. */
         const val EXTRA_NOTIFICATION_TAB_ID = "termux.terminal.notification.tab_id"
+        /** Intent extra: stable Herdr terminal identity captured from server-global focus. */
+        const val EXTRA_NOTIFICATION_HERDR_TERMINAL_ID = "termux.terminal.notification.herdr_terminal_id"
 
         @Volatile
         private var instance: AppSessionManager? = null

@@ -260,7 +260,7 @@ fun TermApp(
                         onDismiss = { appViewModel.notificationState.dismiss() },
                         onClick = {
                             notification?.let {
-                                appViewModel.focusTerminalNotification(it.serverId, it.tabId)
+                                appViewModel.focusTerminalNotification(it.serverId, it.tabId, it.herdrTerminalId)
                             }
                             appViewModel.notificationState.dismiss()
                         },

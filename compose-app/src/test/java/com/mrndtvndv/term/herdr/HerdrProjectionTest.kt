@@ -24,6 +24,12 @@ class HerdrProjectionTest {
     }
 
     @Test
+    fun `focused pane resolves through server-global snapshot focus`() {
+        assertEquals("t-1", snapshot.focusedPane()?.terminalId)
+        assertNull(snapshot.copy(focusedPaneId = "p-missing").focusedPane())
+    }
+
+    @Test
     fun `layout and workspace lookups`() {
         assertEquals("tab-1", snapshot.layoutFor("tab-1")?.tabId)
         assertNull(snapshot.layoutFor("tab-2"))

@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.viewModelScope
 import com.mrndtvndv.term.domain.ServerConfig
 import com.mrndtvndv.term.herdr.HerdrControlClient
+import com.mrndtvndv.term.herdr.paneForTerminal
 import com.mrndtvndv.term.navigation.AppNavigator
 import com.mrndtvndv.term.server.AppSessionManagerAccess
 import com.mrndtvndv.term.server.SavedServersLoad
@@ -199,12 +200,13 @@ class AppViewModel(
      * Handle a tapped terminal notification: open the workspace that owns
      * [tabId] on the tab, or the server's workspace when the tab is unknown.
      */
-    fun focusTerminalNotification(serverId: String?, tabId: String?) {
+    fun focusTerminalNotification(serverId: String?, tabId: String?, herdrTerminalId: String? = null) {
         val targetServerId = serverId ?: return
         val target = tabId?.let { repository.state.value.workspaceOf(it) }?.takeIf { it.serverId == targetServerId }
         val open: (Server) -> Unit = { server ->
-            // A Herdr server always opens through its session, so an older saved workspace is not reopened directly.
-            if (target != null && !server.config.herdrEnabled && !isHerdrSessionWorkspace(target)) {
+            if (server.config.herdrEnabled) {
+                openHerdrNotificationTarget(server, herdrTerminalId)
+            } else if (target != null && !isHerdrSessionWorkspace(target)) {
                 openWorkspace(target.id, tabId)
             } else {
                 openServer(server)
@@ -212,6 +214,17 @@ class AppViewModel(
         }
         val server = coordinator.getServer(targetServerId)
         if (server != null) open(server) else connectServer(targetServerId, open)
+    }
+
+    private fun openHerdrNotificationTarget(server: Server, terminalId: String?) {
+        val serverId = server.config.id
+        val workspaceId = ensureHerdrSession(serverId) ?: return
+        openWorkspace(workspaceId, herdrFullUiTab(serverId)?.id)
+
+        val pane = terminalId
+            ?.let { server.herdr?.state?.value?.snapshot?.paneForTerminal(it) }
+            ?: return
+        viewModelScope.launch { focusHerdrPane(serverId, pane.id, pane.tabId) }
     }
 
     /**
