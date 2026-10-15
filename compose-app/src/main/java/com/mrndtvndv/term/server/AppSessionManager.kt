@@ -11,7 +11,9 @@ import android.content.ServiceConnection
 import android.graphics.BitmapFactory
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 import androidx.lifecycle.Lifecycle
+import com.mrndtvndv.term.ConnectionViewModelStores
 import com.mrndtvndv.term.R
 import com.mrndtvndv.term.service.SshSessionService
 import com.mrndtvndv.term.workspace.Tab
@@ -36,6 +38,7 @@ import java.lang.ref.WeakReference
  */
 class AppSessionManager private constructor(context: Context) : AppSessionManagerAccess {
 
+    override val connectionStores = ConnectionViewModelStores { Log.i("SftpRetention", it) }
     private val appContext = context.applicationContext
     private val prefs by lazy { appContext.getSharedPreferences("ssh_prefs", Context.MODE_PRIVATE) }
 
@@ -48,7 +51,13 @@ class AppSessionManager private constructor(context: Context) : AppSessionManage
             onServiceBind = { session, serverId -> bindTerminalSession(session, serverId) },
         )
     }
-    private val serverManager by lazy { ServerManager(serverFactory::create) }
+    private val serverManager by lazy {
+        ServerManager(create = { config ->
+            serverFactory.create(config).also { server ->
+                server.onDisconnect { connectionStores.clear(config.id) }
+            }
+        })
+    }
     override val coordinator by lazy {
         ServerCoordinator(
             serverManager = serverManager,
@@ -102,6 +111,7 @@ class AppSessionManager private constructor(context: Context) : AppSessionManage
      * callback, so this cleanup cannot rely on onSessionFinished().
      */
     override fun disconnect(id: String) {
+        connectionStores.clear(id)
         val sessions = coordinator.getServer(id)?.terminals?.value?.values?.map { it.session }.orEmpty()
         sessions.forEach {
             terminalProgress.remove(it)
@@ -112,6 +122,7 @@ class AppSessionManager private constructor(context: Context) : AppSessionManage
     }
 
     fun disconnectAll() {
+        connectionStores.clearAll()
         val disconnectedIds = coordinator.activeIds.toList()
         val disconnectedSessions = disconnectedIds
             .mapNotNull { coordinator.getServer(it) }
@@ -205,6 +216,7 @@ class AppSessionManager private constructor(context: Context) : AppSessionManage
             return
         }
         // The connection is gone, so the server's other terminals end with it.
+        connectionStores.clear(serverId)
         server.terminals.value.values.map { it.session }.filter { it !== session }.forEach {
             terminalProgress.remove(it)
             programStatus.remove(it)

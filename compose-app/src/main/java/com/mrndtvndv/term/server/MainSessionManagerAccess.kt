@@ -1,5 +1,6 @@
 package com.mrndtvndv.term.server
 
+import com.mrndtvndv.term.ConnectionViewModelStores
 import com.termux.terminal.compose.session.ProgramStatusState
 import com.mrndtvndv.term.domain.ServerConfig
 import com.mrndtvndv.term.workspace.Tab
@@ -36,6 +37,7 @@ interface ServerRepositoryAccess {
 }
 
 interface AppSessionManagerAccess {
+    val connectionStores: ConnectionViewModelStores
     val coordinator: ServerCoordinatorAccess
     val serverRepository: ServerRepositoryAccess
     val sessionFinished: Flow<String>

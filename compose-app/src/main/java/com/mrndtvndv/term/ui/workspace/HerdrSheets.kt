@@ -2,6 +2,7 @@
 
 package com.mrndtvndv.term.ui.workspace
 
+import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -11,8 +12,11 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.ModalBottomSheetProperties
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -54,6 +58,14 @@ data class HerdrSheetCapture(
 /** Navigation lives alongside the SFTP view model until this server connection is cleared. */
 class HerdrSftpNavigation(initialCwd: String) : ViewModel() {
     val backStack = NavBackStack<NavKey>(SftpFolder(initialCwd))
+    var treeMode: Boolean = false
+    private val scrollPositions = mutableMapOf<String, Pair<Int, Int>>()
+
+    fun scrollPosition(path: String): Pair<Int, Int> = scrollPositions[path] ?: (0 to 0)
+
+    fun saveScrollPosition(path: String, index: Int, offset: Int) {
+        scrollPositions[path] = index to offset
+    }
 }
 
 /**
@@ -161,6 +173,20 @@ private fun HerdrSftpContent(
 ) {
     val context = LocalContext.current
     val store = appViewModel.connectionStore(serverId, herdrSheetTabId(capture.kind.key, capture.scopeKey))
+    val navigation = viewModel(viewModelStoreOwner = store) { HerdrSftpNavigation(capture.cwd) }
+    val currentPath = (stack.last() as SftpFolder).path
+    val (scrollIndex, scrollOffset) = navigation.scrollPosition(currentPath)
+    DisposableEffect(navigation) {
+        Log.i("SftpRetention", "sheet opened scope=${capture.scopeKey} browser=${System.identityHashCode(navigation)}")
+        onDispose {
+            Log.i("SftpRetention", "sheet disposed scope=${capture.scopeKey} path=${navigation.backStack.last()}")
+        }
+    }
+    LaunchedEffect(navigation) {
+        snapshotFlow { navigation.backStack.toList() }.collect { folders ->
+            Log.i("SftpRetention", "navigation scope=${capture.scopeKey} folders=$folders")
+        }
+    }
     val sftpViewModel = viewModel(viewModelStoreOwner = store) {
         val sshSession = checkNotNull(server.sshSession)
         SftpViewModel(
@@ -197,6 +223,11 @@ private fun HerdrSftpContent(
         },
         onOpenFileError = { message -> appViewModel.notificationState.post("SFTP Error", message) },
         tabsButton = null,
+        initialScrollIndex = scrollIndex,
+        initialScrollOffset = scrollOffset,
+        onScrollChanged = { index, offset -> navigation.saveScrollPosition(currentPath, index, offset) },
+        initialTreeMode = navigation.treeMode,
+        onTreeModeChanged = { navigation.treeMode = it },
     )
 }
 

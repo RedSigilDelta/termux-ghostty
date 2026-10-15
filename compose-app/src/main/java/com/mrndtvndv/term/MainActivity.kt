@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.view.KeyEvent
 import android.view.inputmethod.InputMethodManager
 import android.widget.Toast
@@ -95,6 +96,7 @@ class MainActivity : ComponentActivity(), SessionHost {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        logRetentionLifecycle("created restored=${savedInstanceState != null}")
         enableEdgeToEdge()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             window.isNavigationBarContrastEnforced = false
@@ -116,9 +118,24 @@ class MainActivity : ComponentActivity(), SessionHost {
     }
 
     override fun onDestroy() {
+        logRetentionLifecycle("destroyed changingConfiguration=$isChangingConfigurations finishing=$isFinishing")
         updateFocusedTerminalSession(null)
         sessionManager.setHost(null)
         super.onDestroy()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        logRetentionLifecycle("started")
+    }
+
+    override fun onStop() {
+        logRetentionLifecycle("stopped")
+        super.onStop()
+    }
+
+    private fun logRetentionLifecycle(event: String) {
+        Log.i("SftpRetention", "activity=${System.identityHashCode(this)} $event")
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {

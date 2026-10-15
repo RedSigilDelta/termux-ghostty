@@ -62,7 +62,7 @@ class AppViewModel(
 
     private val coordinator: ServerCoordinatorAccess get() = sessionManager.coordinator
     private val serverRepository: ServerRepositoryAccess get() = sessionManager.serverRepository
-    private val connectionStores = ConnectionViewModelStores()
+    private val connectionStores get() = sessionManager.connectionStores
 
     /** Focused-workspace context per server. Written by [refreshHerdrContext]'s collector, read by sheets once. */
     private val herdrContextStores = HashMap<String, MutableStateFlow<HerdrFileContext>>()
@@ -339,7 +339,6 @@ class AppViewModel(
     /** Drops the open route and per-tab state of every workspace of [serverId]. */
     private fun closeServerWorkspaces(serverId: String) {
         repository.state.value.workspacesFor(serverId).forEach { navigator.closeWorkspace(it.id) }
-        connectionStores.clear(serverId)
         if (repository.state.value.activeWorkspace?.serverId == serverId) repository.deactivate()
     }
 
@@ -640,10 +639,6 @@ class AppViewModel(
 
     private fun workspaceOf(workspaceId: String): Workspace? =
         repository.state.value.workspaces.firstOrNull { it.id == workspaceId }
-
-    override fun onCleared() {
-        connectionStores.clearAll()
-    }
 
     private companion object {
         const val LOCAL_TERMINAL_ID = "local_terminal"
