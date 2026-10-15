@@ -229,7 +229,27 @@ fun HerdrSessionRoute(
             sheetStates.SaveableStateProvider("agents:$serverId") {
                 HerdrAgentsSheet(
                     state = herdrState,
-                    onRefresh = { appViewModel.refreshHerdrContext(serverId) },
+                    onNewTab = { workspaceId ->
+                        coroutineScope.launch {
+                            if (appViewModel.createHerdrTab(serverId, workspaceId)) {
+                                appViewModel.activateTab(tab.id)
+                            }
+                        }
+                    },
+                    onNewWorkspace = { sourceWorkspaceId ->
+                        coroutineScope.launch {
+                            if (appViewModel.createHerdrWorkspace(serverId, sourceWorkspaceId)) {
+                                appViewModel.activateTab(tab.id)
+                            }
+                        }
+                    },
+                    onSplitPane = { paneId, direction ->
+                        coroutineScope.launch {
+                            if (appViewModel.splitHerdrPane(serverId, paneId, direction)) {
+                                appViewModel.activateTab(tab.id)
+                            }
+                        }
+                    },
                     onFocusPane = { pane ->
                         coroutineScope.launch {
                             if (appViewModel.focusHerdrPane(serverId, pane.id, pane.tabId)) {

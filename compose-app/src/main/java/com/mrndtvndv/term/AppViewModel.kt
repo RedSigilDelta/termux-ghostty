@@ -578,6 +578,31 @@ class AppViewModel(
             false
         }
     }
+    suspend fun createHerdrTab(serverId: String, workspaceId: String): Boolean =
+        runHerdrAction(serverId, "Couldn't create tab") { client ->
+            client.request("tab.create", buildJsonObject {
+                put("workspace_id", workspaceId)
+                put("focus", true)
+            })
+        }
+
+    suspend fun createHerdrWorkspace(serverId: String, sourceWorkspaceId: String): Boolean =
+        runHerdrAction(serverId, "Couldn't create workspace") { client ->
+            client.request("workspace.create", buildJsonObject {
+                put("source_workspace_id", sourceWorkspaceId)
+                put("focus", true)
+            })
+        }
+
+    suspend fun splitHerdrPane(serverId: String, paneId: String, direction: String): Boolean =
+        runHerdrAction(serverId, "Couldn't split pane") { client ->
+            client.request("pane.split", buildJsonObject {
+                put("target_pane_id", paneId)
+                put("direction", direction)
+                put("focus", true)
+            })
+        }
+
 
     /** Restarts the control client after a failure. Only the user's explicit Retry calls this. */
     fun retryHerdr(serverId: String) {

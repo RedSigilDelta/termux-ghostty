@@ -1,4 +1,7 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@file:OptIn(
+    androidx.compose.material3.ExperimentalMaterial3Api::class,
+    androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class,
+)
 
 package com.mrndtvndv.term.ui.workspace
 
@@ -16,9 +19,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.AlertDialog
@@ -26,10 +29,11 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SheetValue
+import androidx.compose.material3.SplitButtonDefaults
+import androidx.compose.material3.SplitButtonLayout
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberBottomSheetState
@@ -49,7 +53,6 @@ import androidx.compose.ui.unit.dp
 import com.mrndtvndv.processicons.agentIconResource
 import com.mrndtvndv.term.herdr.HerdrAgentStatus
 import com.mrndtvndv.term.herdr.HerdrPane
-import com.mrndtvndv.term.herdr.HerdrPhase
 import com.mrndtvndv.term.herdr.HerdrState
 import com.mrndtvndv.term.herdr.HerdrSnapshot
 import com.mrndtvndv.term.herdr.HerdrTab
@@ -63,7 +66,9 @@ import kotlinx.coroutines.launch
 @Composable
 fun HerdrAgentsSheet(
     state: HerdrState,
-    onRefresh: () -> Unit,
+    onNewTab: (workspaceId: String) -> Unit,
+    onNewWorkspace: (sourceWorkspaceId: String) -> Unit,
+    onSplitPane: (paneId: String, direction: String) -> Unit,
     onFocusPane: (HerdrPane) -> Unit,
     onFocusTab: (HerdrTab) -> Unit,
     onClosePane: (HerdrPane) -> Unit,
@@ -78,6 +83,8 @@ fun HerdrAgentsSheet(
     )
     val scope = rememberCoroutineScope()
     var selecting by remember { mutableStateOf(false) }
+    val workspaceId = snapshot?.focusedWorkspaceId
+    val paneId = snapshot?.focusedPaneId
 
     fun dismissAndFocus(action: () -> Unit) {
         if (selecting) return
@@ -102,26 +109,19 @@ fun HerdrAgentsSheet(
         KeepSheetAboveIme()
         Column(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp),
+                modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text("Agents", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-                IconButton(onClick = onRefresh) {
-                    Icon(Icons.Default.Refresh, contentDescription = "Refresh agents")
-                }
+                AgentsSplitButton(
+                    enabled = workspaceId != null,
+                    workspaceId = workspaceId,
+                    paneId = paneId,
+                    onNewTab = { id -> dismissAndFocus { onNewTab(id) } },
+                    onNewWorkspace = { id -> dismissAndFocus { onNewWorkspace(id) } },
+                    onSplitPane = { id, direction -> dismissAndFocus { onSplitPane(id, direction) } },
+                )
             }
-            Text(
-                text = if (state.phase != HerdrPhase.Live || !state.snapshotFresh) {
-                    "Server-wide focus · refreshing last known state"
-                } else {
-                    "Server-wide focus · status sampled every 5 seconds"
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
             state.error?.message?.let {
                 Text(it, modifier = Modifier.padding(16.dp), color = MaterialTheme.colorScheme.error)
             }
@@ -182,6 +182,74 @@ fun HerdrAgentsSheet(
             },
         )
     }
+}
+
+@Composable
+private fun AgentsSplitButton(
+    enabled: Boolean,
+    workspaceId: String?,
+    paneId: String?,
+    onNewTab: (workspaceId: String) -> Unit,
+    onNewWorkspace: (sourceWorkspaceId: String) -> Unit,
+    onSplitPane: (paneId: String, direction: String) -> Unit,
+) {
+    var menuOpen by remember { mutableStateOf(false) }
+    val height = SplitButtonDefaults.SmallContainerHeight
+    SplitButtonLayout(
+        leadingButton = {
+            SplitButtonDefaults.TonalLeadingButton(
+                onClick = { workspaceId?.let { id -> onNewTab(id) } },
+                enabled = enabled,
+                shapes = SplitButtonDefaults.leadingButtonShapesFor(height),
+                contentPadding = SplitButtonDefaults.leadingButtonContentPaddingFor(height),
+            ) {
+                Icon(
+                    Icons.Default.Add,
+                    contentDescription = "New tab",
+                    modifier = Modifier.size(SplitButtonDefaults.leadingButtonIconSizeFor(height)),
+                )
+            }
+        },
+        trailingButton = {
+            Box {
+                SplitButtonDefaults.TonalTrailingButton(
+                    checked = menuOpen,
+                    onCheckedChange = { menuOpen = it },
+                    enabled = enabled,
+                    shapes = SplitButtonDefaults.trailingButtonShapesFor(height),
+                    contentPadding = SplitButtonDefaults.trailingButtonContentPaddingFor(height),
+                ) {
+                    Icon(
+                        Icons.Default.ExpandMore,
+                        contentDescription = "More actions",
+                        modifier = Modifier.size(SplitButtonDefaults.trailingButtonIconSizeFor(height)),
+                    )
+                }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(text = { Text("New workspace") }, onClick = {
+                        menuOpen = false
+                        workspaceId?.let { id -> onNewWorkspace(id) }
+                    })
+                    DropdownMenuItem(
+                        text = { Text("Split right") },
+                        enabled = paneId != null,
+                        onClick = {
+                            menuOpen = false
+                            paneId?.let { id -> onSplitPane(id, "right") }
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Split down") },
+                        enabled = paneId != null,
+                        onClick = {
+                            menuOpen = false
+                            paneId?.let { id -> onSplitPane(id, "down") }
+                        },
+                    )
+                }
+            }
+        },
+    )
 }
 
 @Composable
