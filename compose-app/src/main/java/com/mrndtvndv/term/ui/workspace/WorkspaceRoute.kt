@@ -22,13 +22,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -42,7 +40,6 @@ import com.mrndtvndv.term.AppContainer
 import com.mrndtvndv.term.AppViewModel
 import com.mrndtvndv.term.TabType
 import com.mrndtvndv.term.data.prefs.AppSettings
-import com.mrndtvndv.term.navigation.SftpFolder
 import com.mrndtvndv.term.navigation.WorkspaceNavigator
 import com.mrndtvndv.term.server.Server
 import com.mrndtvndv.term.server.TerminalEntry
@@ -52,12 +49,13 @@ import com.mrndtvndv.term.ui.sftp.SftpScreenRoute
 import com.mrndtvndv.term.ui.sftp.SftpViewModel
 import com.mrndtvndv.term.ui.sftp.openDownloadedFile
 import com.mrndtvndv.term.ui.sftp.transfer.SftpTransferManager
+import com.mrndtvndv.term.workspace.SftpBrowserKey
+import com.mrndtvndv.term.workspace.SftpBrowserStore
 import com.mrndtvndv.term.workspace.Tab
 import com.termux.terminal.TerminalSession
 import com.termux.terminal.compose.TerminalThumbnail
 import java.io.File
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.distinctUntilChanged
 
 class TerminalHostCallbacks(
     val onCommitContent: (TerminalSession, ClipData) -> Boolean,
@@ -176,11 +174,11 @@ fun WorkspaceRoute(
                 is Tab.Sftp -> Box(modifier = Modifier.fillMaxSize().statusBarsPadding().imePadding()) {
                     SftpTab(
                         appViewModel = appViewModel,
+                        browsers = container.workspaceRepository,
                         server = server,
                         navigator = navigator,
                         tab = tab,
                         isActive = isActive,
-                        onBack = onBack,
                         tabsButton = tabsButton,
                     )
                 }
@@ -314,14 +312,15 @@ private fun EmptyWorkspace(canAddSftp: Boolean, canAddGit: Boolean, onAdd: (TabT
     }
 }
 
+@Suppress("LongParameterList")
 @Composable
 private fun SftpTab(
     appViewModel: AppViewModel,
+    browsers: SftpBrowserStore,
     server: Server,
     navigator: WorkspaceNavigator,
     tab: Tab.Sftp,
     isActive: Boolean,
-    onBack: () -> Unit,
     tabsButton: @Composable () -> Unit,
 ) {
     val context = LocalContext.current
@@ -334,21 +333,18 @@ private fun SftpTab(
             execCommand = { command -> sshSession.execCommand(command) },
             transferManager = SftpTransferManager.current,
             ownerKey = server.config.id,
-            onDirectoryChanged = { dir -> appViewModel.setSftpDir(tab.id, dir) },
-            initialExpanded = tab.expanded.toSet(),
-            onExpandedChanged = { expanded -> appViewModel.setSftpExpanded(tab.id, expanded.toList()) },
+            browsers = browsers,
+            key = SftpBrowserKey.SftpTab(server.config.id, tab.id),
+            initialDir = tab.dir,
         )
     }
-    LaunchedEffect(tab.id) {
-        snapshotFlow { navigator.sftpStack(tab).mapNotNull { (it as? SftpFolder)?.path }.dropLast(1) }
-            .distinctUntilChanged()
-            .collect { back -> appViewModel.setSftpBack(tab.id, back) }
+    DisposableEffect(navigator, tab.id, sftpViewModel) {
+        val goBack: () -> Boolean = sftpViewModel::goBack
+        navigator.attachSftp(tab.id, goBack)
+        onDispose { navigator.detachSftp(tab.id, goBack) }
     }
     SftpScreenRoute(
         viewModel = sftpViewModel,
-        backStack = navigator.sftpStack(tab),
-        onOpenFolder = { path -> navigator.openFolder(tab.id, path) },
-        onBack = onBack,
         isTabActive = isActive,
         onOpenFile = { remote, local ->
             openDownloadedFile(
@@ -360,11 +356,6 @@ private fun SftpTab(
         },
         onOpenFileError = { message -> onError("SFTP Error", message) },
         tabsButton = tabsButton,
-        initialScrollIndex = tab.scrollIndex,
-        initialScrollOffset = tab.scrollOffset,
-        onScrollChanged = { index, offset -> appViewModel.setSftpScroll(tab.id, index, offset) },
-        initialTreeMode = tab.treeMode,
-        onTreeModeChanged = { enabled -> appViewModel.setSftpTreeMode(tab.id, enabled) },
     )
 }
 

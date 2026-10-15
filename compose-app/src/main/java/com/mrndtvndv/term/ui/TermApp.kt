@@ -3,6 +3,7 @@
 package com.mrndtvndv.term.ui
 
 import android.graphics.Typeface
+import android.util.Log
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
@@ -259,8 +260,9 @@ fun TermApp(
                         activeNotification = notification,
                         onDismiss = { appViewModel.notificationState.dismiss() },
                         onClick = {
-                            notification?.let {
-                                appViewModel.focusTerminalNotification(it.serverId, it.tabId, it.herdrTerminalId)
+                            notification?.destination?.let {
+                                Log.i("NotifRoute", "in-app tap destination=$it")
+                                appViewModel.openNotification(it)
                             }
                             appViewModel.notificationState.dismiss()
                         },

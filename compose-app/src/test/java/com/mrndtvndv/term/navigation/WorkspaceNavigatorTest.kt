@@ -2,27 +2,39 @@ package com.mrndtvndv.term.navigation
 
 import com.mrndtvndv.term.workspace.Tab
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class WorkspaceNavigatorTest {
 
-    private val navigator = WorkspaceNavigator { null }
+    private var active: Tab? = null
+    private val navigator = WorkspaceNavigator { active }
 
     @Test
-    fun seedsSftpStackWithBackThenDir() {
-        val tab = Tab.Sftp(id = "f1", dir = "/home/src/app", back = listOf("/home", "/home/src"))
+    fun sftpBackFollowsTheDurableFolderStack() {
+        active = Tab.Sftp(id = "f1", dir = "/home/src", back = listOf("/home"))
+        assertTrue(navigator.handlesBack)
 
-        assertEquals(
-            listOf(SftpFolder("/home"), SftpFolder("/home/src"), SftpFolder("/home/src/app")),
-            navigator.sftpStack(tab).toList(),
-        )
+        active = Tab.Sftp(id = "f1", dir = "/home")
+        assertFalse(navigator.handlesBack)
     }
 
     @Test
-    fun keepsFolderOnceWhenBackEndsInDir() {
-        // A kill mid-load leaves back ending in dir, because dir only moves when the listing succeeds.
-        val tab = Tab.Sftp(id = "f1", dir = "/home/src", back = listOf("/home", "/home/src"))
+    fun backReachesTheAttachedSftpBrowser() {
+        active = Tab.Sftp(id = "f1", dir = "/home/src", back = listOf("/home"))
+        var pops = 0
+        val goBack: () -> Boolean = {
+            pops++
+            true
+        }
+        navigator.attachSftp("f1", goBack)
+        // A browser that was replaced cannot detach its successor.
+        navigator.detachSftp("f1") { false }
 
-        assertEquals(listOf(SftpFolder("/home"), SftpFolder("/home/src")), navigator.sftpStack(tab).toList())
+        assertTrue(navigator.goBack())
+        navigator.detachSftp("f1", goBack)
+        assertFalse(navigator.goBack())
+        assertEquals(1, pops)
     }
 }

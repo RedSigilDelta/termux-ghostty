@@ -10,6 +10,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
@@ -28,6 +29,11 @@ class AppContainer(context: Context) {
     val workspaceRepository: WorkspaceRepository = WorkspaceRepository.create(appContext.filesDir)
 
     init {
+        CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate).launch {
+            workspaceRepository.persistenceError.filterNotNull().distinctUntilChanged().collect { message ->
+                sessionManager.notificationState.post("Couldn't save workspace state", message)
+            }
+        }
         CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate).launch {
             preferences.settings
                 .map { it.nativeLogcatLoggingEnabled }

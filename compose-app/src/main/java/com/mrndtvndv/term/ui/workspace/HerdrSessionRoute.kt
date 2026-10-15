@@ -24,6 +24,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
@@ -39,6 +40,7 @@ import com.mrndtvndv.term.AppViewModel
 import com.mrndtvndv.term.data.prefs.AppSettings
 import com.mrndtvndv.term.server.TerminalEntry
 import com.mrndtvndv.term.herdr.HerdrState
+import com.mrndtvndv.term.herdr.panesIn
 import com.mrndtvndv.term.ui.keyboard.KeyBarIcon
 import com.mrndtvndv.term.workspace.HerdrFileContext
 import com.mrndtvndv.term.workspace.Tab
@@ -83,6 +85,8 @@ fun HerdrSessionRoute(
     val viewers by viewersFlow.collectAsStateWithLifecycle()
     val currentScopeKey by rememberUpdatedState(scopeKey)
     var sheet by remember { mutableStateOf<HerdrSheetCapture?>(null) }
+    var openingSheet by remember { mutableStateOf(false) }
+    var sheetIntent by remember { mutableLongStateOf(0L) }
     var agentsVisible by remember { mutableStateOf(false) }
     val sheetStates = rememberSaveableStateHolder()
     val coroutineScope = rememberCoroutineScope()
@@ -120,23 +124,37 @@ fun HerdrSessionRoute(
     }
 
     fun openSheet(kind: HerdrSheetKind) {
-        val current = fileContext as? HerdrFileContext.Ready
-        if (current == null) {
-            val message = (fileContext as? HerdrFileContext.Unavailable)?.message ?: "No focused workspace"
-            appViewModel.notificationState.post("herdr unavailable", message)
-            return
+        if (openingSheet || sheet != null) return
+        val request = ++sheetIntent
+        openingSheet = true
+        coroutineScope.launch {
+            try {
+                // Null: a newer Herdr focus intent arrived while capturing, so this sheet no longer opens.
+                val refreshed = appViewModel.captureHerdrContext(serverId) ?: return@launch
+                // The Agents sheet opened meanwhile is the newer intent.
+                if (agentsVisible || sheetIntent != request) return@launch
+                // Captured only after the control cache has consumed pending topology invalidations.
+                val current = refreshed as? HerdrFileContext.Ready
+                if (current == null) {
+                    val message = (refreshed as? HerdrFileContext.Unavailable)?.message ?: "No focused workspace"
+                    appViewModel.notificationState.post("herdr unavailable", message)
+                    return@launch
+                }
+                // Git starts at the captured cwd; SFTP resumes this workspace's existing browser.
+                if (kind == HerdrSheetKind.Git) {
+                    appViewModel.connectionStore(serverId, herdrSheetTabId(kind.key, current.scopeKey))
+                        .viewModelStore.clear()
+                }
+                sheet = HerdrSheetCapture(
+                    kind = kind,
+                    scopeKey = current.scopeKey,
+                    cwd = current.cwd.ifBlank { server.homeDir },
+                    openId = newId(),
+                )
+            } finally {
+                openingSheet = false
+            }
         }
-        // Git starts at the captured cwd; SFTP resumes this workspace's existing browser.
-        if (kind == HerdrSheetKind.Git) {
-            appViewModel.connectionStore(serverId, herdrSheetTabId(kind.key, current.scopeKey)).viewModelStore.clear()
-        }
-        appViewModel.refreshHerdrContext(serverId)
-        sheet = HerdrSheetCapture(
-            kind = kind,
-            scopeKey = current.scopeKey,
-            cwd = current.cwd.ifBlank { server.homeDir },
-            openId = newId(),
-        )
     }
 
     val keyBarActions: @Composable () -> Unit = {
@@ -152,6 +170,7 @@ fun HerdrSessionRoute(
             shadowElevation = 3.dp,
         ) {
             IconButton(onClick = {
+                sheetIntent++
                 appViewModel.refreshHerdrContext(serverId)
                 agentsVisible = true
             }) {
@@ -229,44 +248,30 @@ fun HerdrSessionRoute(
             sheetStates.SaveableStateProvider("agents:$serverId") {
                 HerdrAgentsSheet(
                     state = herdrState,
-                    onNewTab = { workspaceId ->
-                        coroutineScope.launch {
-                            if (appViewModel.createHerdrTab(serverId, workspaceId)) {
-                                appViewModel.activateTab(tab.id)
-                            }
-                        }
-                    },
+                    onNewTab = { workspaceId -> appViewModel.createHerdrTab(serverId, workspaceId) },
                     onNewWorkspace = { sourceWorkspaceId ->
-                        coroutineScope.launch {
-                            if (appViewModel.createHerdrWorkspace(serverId, sourceWorkspaceId)) {
-                                appViewModel.activateTab(tab.id)
-                            }
-                        }
+                        appViewModel.createHerdrWorkspace(serverId, sourceWorkspaceId)
                     },
                     onSplitPane = { paneId, direction ->
-                        coroutineScope.launch {
-                            if (appViewModel.splitHerdrPane(serverId, paneId, direction)) {
-                                appViewModel.activateTab(tab.id)
-                            }
+                        // The action resolves the pane again from its stable terminal when it runs.
+                        val terminalId = herdrState.snapshot?.panes?.firstOrNull { it.id == paneId }?.terminalId
+                        if (terminalId == null) {
+                            appViewModel.notificationState.post("Couldn't split pane", "That pane has closed")
+                        } else {
+                            appViewModel.splitHerdrPane(serverId, terminalId, direction)
                         }
                     },
-                    onFocusPane = { pane ->
-                        coroutineScope.launch {
-                            if (appViewModel.focusHerdrPane(serverId, pane.id, pane.tabId)) {
-                                appViewModel.activateTab(tab.id)
-                            }
-                        }
-                    },
+                    onFocusPane = { pane -> appViewModel.focusHerdrTerminal(serverId, pane.terminalId) },
                     onFocusTab = { remoteTab ->
-                        coroutineScope.launch {
-                            if (appViewModel.focusHerdrTab(serverId, remoteTab.id)) {
-                                appViewModel.activateTab(tab.id)
-                            }
+                        // Tab IDs are positional, so one of the tab's panes identifies it when the action runs.
+                        val anchor = herdrState.snapshot?.panesIn(remoteTab.id)?.firstOrNull()?.terminalId
+                        if (anchor == null) {
+                            appViewModel.notificationState.post("Couldn't focus tab", "That tab has closed")
+                        } else {
+                            appViewModel.focusHerdrTabOf(serverId, anchor)
                         }
                     },
-                    onClosePane = { pane ->
-                        coroutineScope.launch { appViewModel.closeHerdrPane(serverId, pane.id) }
-                    },
+                    onClosePane = { pane -> appViewModel.closeHerdrPane(serverId, pane.terminalId) },
                     onDismiss = { agentsVisible = false },
                 )
             }
@@ -278,13 +283,14 @@ fun HerdrSessionRoute(
                     serverId = serverId,
                     server = server,
                     appViewModel = appViewModel,
+                    browsers = container.workspaceRepository,
                     // Show the preview only if its captured collection is still current.
                     onViewerOpened = { openedScope, tabId ->
-                        if (openedScope == currentScopeKey) {
+                        if (openedScope == currentScopeKey && sheet?.openId == capture.openId) {
                             appViewModel.activateTab(tabId)
                         }
                     },
-                    onDismiss = { sheet = null },
+                    onDismiss = { if (sheet?.openId == capture.openId) sheet = null },
                 )
             }
         }

@@ -29,6 +29,11 @@ data class HerdrState(
     val agentStatusFresh: Boolean = false,
     /** Optional topology kinds the server rejected. Those kinds are not streamed. */
     val optionalEventsUnsupported: Set<String> = emptySet(),
+    /**
+     * Invalidation generation the client had reached when it requested [snapshot]. A snapshot whose generation is at
+     * least a caller's [HerdrControlClient.awaitFreshSnapshot] token was fetched after that caller's invalidation.
+     */
+    val snapshotGeneration: Long = 0,
 )
 
 enum class HerdrPhase { Idle, Connecting, Live, Reconnecting, Unsupported, Failed, Closed }
@@ -188,3 +193,11 @@ enum class HerdrSplitDirection { Right, Down, Unknown }
  */
 internal fun HerdrState.withFreshness(): HerdrState =
     copy(agentStatusFresh = phase == HerdrPhase.Live && agentStatusSampledAtMillis != null)
+
+/** Outcome of [HerdrControlClient.awaitFreshSnapshot]. */
+sealed interface HerdrFreshSnapshot {
+    /** [snapshot] was fetched after the caller's invalidation. [state] is the published state that carried it. */
+    data class Ready(val state: HerdrState, val snapshot: HerdrSnapshot) : HerdrFreshSnapshot
+
+    data class Unavailable(val error: HerdrError) : HerdrFreshSnapshot
+}

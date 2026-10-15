@@ -7,9 +7,8 @@ import kotlinx.coroutines.flow.asStateFlow
 data class ActiveNotification(
     val title: String,
     val body: String,
-    val serverId: String? = null,
-    val tabId: String? = null,
-    val herdrTerminalId: String? = null,
+    /** Where a tap leads. Null for app messages that have no terminal source. */
+    val destination: NotificationDestination? = null,
     val timestamp: Long = System.currentTimeMillis(),
 )
 
@@ -17,19 +16,11 @@ class NotificationState {
     private val _notification = MutableStateFlow<ActiveNotification?>(null)
     val notification: StateFlow<ActiveNotification?> = _notification.asStateFlow()
 
-    fun post(
-        title: String?,
-        body: String?,
-        serverId: String? = null,
-        tabId: String? = null,
-        herdrTerminalId: String? = null,
-    ) {
+    fun post(title: String?, body: String?, destination: NotificationDestination? = null) {
         _notification.value = ActiveNotification(
             title = title ?: "Terminal Notification",
             body = body ?: "",
-            serverId = serverId,
-            tabId = tabId,
-            herdrTerminalId = herdrTerminalId,
+            destination = destination,
         )
     }
 

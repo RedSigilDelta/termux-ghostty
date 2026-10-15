@@ -3,16 +3,22 @@ package com.mrndtvndv.term
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.viewModelScope
+import android.util.Log
 import com.mrndtvndv.term.domain.ServerConfig
+import com.mrndtvndv.term.herdr.HerdrActions
 import com.mrndtvndv.term.herdr.HerdrControlClient
-import com.mrndtvndv.term.herdr.paneForTerminal
+import com.mrndtvndv.term.herdr.HerdrFreshSnapshot
 import com.mrndtvndv.term.navigation.AppNavigator
+import com.mrndtvndv.term.navigation.AppRoute
 import com.mrndtvndv.term.server.AppSessionManagerAccess
 import com.mrndtvndv.term.server.SavedServersLoad
 import com.mrndtvndv.term.server.Server
 import com.mrndtvndv.term.server.ServerCoordinatorAccess
 import com.mrndtvndv.term.server.ServerRepositoryAccess
+import com.mrndtvndv.term.ui.notification.NotificationDestination
+import com.mrndtvndv.term.ui.notification.NotificationRoute
 import com.mrndtvndv.term.ui.notification.NotificationState
+import com.mrndtvndv.term.ui.notification.notificationRoute
 import com.mrndtvndv.term.workspace.HerdrFileContext
 import com.mrndtvndv.term.workspace.HerdrFileScope
 import com.mrndtvndv.term.workspace.Tab
@@ -28,7 +34,6 @@ import com.mrndtvndv.term.workspace.newId
 import com.mrndtvndv.term.workspace.viewerTabsFor
 import com.termux.terminal.TerminalSession
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -37,8 +42,6 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
 
 data class ServerListUiState(
     val servers: List<ServerConfig> = emptyList(),
@@ -59,6 +62,7 @@ class AppViewModel(
     private val sessionManager: AppSessionManagerAccess,
     val notificationState: NotificationState,
     private val repository: WorkspaceRepository,
+    private val logEvent: (String) -> Unit = { Log.i("NotifRoute", it) },
 ) : ViewModel() {
 
     private val coordinator: ServerCoordinatorAccess get() = sessionManager.coordinator
@@ -76,6 +80,9 @@ class AppViewModel(
 
     val workspaces: StateFlow<WorkspaceState> = repository.state
     val navigator = AppNavigator(repository.state)
+
+    /** Bumped by each navigation, so a late connection or Herdr action never navigates over a newer one. */
+    private var navigationIntent = 0L
 
     private val _serverListState = MutableStateFlow(ServerListUiState())
     val serverListState: StateFlow<ServerListUiState> = _serverListState.asStateFlow()
@@ -125,6 +132,7 @@ class AppViewModel(
 
     /** Called when the workspace route is popped back to the server list. */
     fun leaveWorkspace() {
+        navigationIntent++
         syncTerminalCwds()
         repository.deactivate()
     }
@@ -197,34 +205,29 @@ class AppViewModel(
         connectionStores.owner(serverId, tabId)
 
     /**
-     * Handle a tapped terminal notification: open the workspace that owns
-     * [tabId] on the tab, or the server's workspace when the tab is unknown.
+     * Opens a tapped terminal notification's destination. A Herdr notification opens the session's full-UI terminal
+     * and focuses no remote pane, because its origin pane is unknown. It is a newer intent for that session, so a
+     * pending Agents-sheet focus can no longer move the view afterwards.
      */
-    fun focusTerminalNotification(serverId: String?, tabId: String?, herdrTerminalId: String? = null) {
-        val targetServerId = serverId ?: return
-        val target = tabId?.let { repository.state.value.workspaceOf(it) }?.takeIf { it.serverId == targetServerId }
+    fun openNotification(destination: NotificationDestination) {
+        val serverId = destination.serverId
+        logEvent("route start destination=$destination")
         val open: (Server) -> Unit = { server ->
-            if (server.config.herdrEnabled) {
-                openHerdrNotificationTarget(server, herdrTerminalId)
-            } else if (target != null && !isHerdrSessionWorkspace(target)) {
-                openWorkspace(target.id, tabId)
-            } else {
-                openServer(server)
+            val socket = herdrControlSocketPath(server.config.herdrSocketPath, server.homeDir)
+            val route = notificationRoute(destination, server.config, socket, repository.state.value)
+            logEvent("route resolved server=$serverId route=$route")
+            when (route) {
+                is NotificationRoute.WorkspaceTab -> openWorkspace(route.workspaceId, route.tabId)
+                NotificationRoute.HerdrSession -> {
+                    sessionManager.herdrActions(serverId)?.supersede()
+                    ensureHerdrSession(serverId)?.let { openWorkspace(it, herdrFullUiTab(serverId)?.id) }
+                }
+                NotificationRoute.Server -> openServer(server)
             }
         }
-        val server = coordinator.getServer(targetServerId)
-        if (server != null) open(server) else connectServer(targetServerId, open)
-    }
-
-    private fun openHerdrNotificationTarget(server: Server, terminalId: String?) {
-        val serverId = server.config.id
-        val workspaceId = ensureHerdrSession(serverId) ?: return
-        openWorkspace(workspaceId, herdrFullUiTab(serverId)?.id)
-
-        val pane = terminalId
-            ?.let { server.herdr?.state?.value?.snapshot?.paneForTerminal(it) }
-            ?: return
-        viewModelScope.launch { focusHerdrPane(serverId, pane.id, pane.tabId) }
+        val server = coordinator.getServer(serverId)
+        logEvent("server lookup connected=${server != null} server=$serverId")
+        if (server != null) open(server) else connectServer(serverId, open)
     }
 
     /**
@@ -281,6 +284,7 @@ class AppViewModel(
             return
         }
         _serverListState.update { it.copy(connectingId = serverId, error = null) }
+        val navigation = ++navigationIntent
 
         viewModelScope.launch {
             val result = sessionManager.connect(serverId)
@@ -289,7 +293,8 @@ class AppViewModel(
                     _serverListState.update {
                         it.copy(connectingId = null, activeIds = it.activeIds + serverId)
                     }
-                    onConnected(server)
+                    // A navigation started while connecting is newer, so this one no longer opens anything.
+                    if (navigationIntent == navigation) onConnected(server)
                 },
                 onFailure = { error ->
                     _serverListState.update { it.copy(connectingId = null, error = error.message) }
@@ -345,6 +350,7 @@ class AppViewModel(
 
     private fun openWorkspace(workspaceId: String, tabId: String? = null) {
         if (repository.state.value.workspaces.none { it.id == workspaceId }) return
+        navigationIntent++
         if (tabId != null) repository.activateTab(tabId) else repository.activateWorkspace(workspaceId)
         navigator.openWorkspace(workspaceId)
     }
@@ -398,6 +404,7 @@ class AppViewModel(
             TabType.Sftp -> Tab.Sftp(newId(), dir = root)
             TabType.Git -> Tab.Git(newId(), repoDir = root)
         }
+        navigationIntent++
         repository.openTab(workspaceId, tab)
     }
 
@@ -405,6 +412,7 @@ class AppViewModel(
         val workspaceId = navigator.currentWorkspaceId ?: return
         val workspace = workspaceOf(workspaceId) ?: return
         if (herdrEnabled(workspace.serverId)) return
+        navigationIntent++
         repository.openTab(workspaceId, Tab.Terminal(newId(), cwd = dir))
     }
 
@@ -413,6 +421,7 @@ class AppViewModel(
         val workspaceId = navigator.currentWorkspaceId ?: return
         val workspace = workspaceOf(workspaceId) ?: return
         if (isHerdrSessionWorkspace(workspace)) return
+        navigationIntent++
         repository.openTab(workspaceId, Tab.Viewer(newId(), path))
     }
 
@@ -421,6 +430,7 @@ class AppViewModel(
         val tab = workspace.tabs.firstOrNull { it.id == tabId } ?: return
         // The Herdr session terminal stays open: it is the server's session, not a local tab to close.
         if (isHerdrFullUiTab(tab)) return
+        navigationIntent++
         if (tab is Tab.Terminal) sessionManager.closeTerminal(workspace.serverId, tab)
         navigator.workspace(workspace.id)?.dropTab(tabId)
         connectionStores.clearTab(workspace.serverId, tabId)
@@ -432,43 +442,18 @@ class AppViewModel(
     }
 
     fun activateTab(tabId: String) {
+        navigationIntent++
         repository.activateTab(tabId)
     }
 
     /** Selects a tab of [workspaceId]. Selection is local only and never focuses anything on a Herdr server. */
     fun selectTab(workspaceId: String, tabId: String) {
         if (workspaceOf(workspaceId)?.tabs?.any { it.id == tabId } != true) return
-        repository.activateTab(tabId)
+        activateTab(tabId)
     }
 
     fun renameTerminal(tabId: String, name: String?) {
         repository.renameTerminal(tabId, name?.trim()?.ifEmpty { null })
-    }
-
-    fun setSftpDir(tabId: String, dir: String) {
-        repository.setSftpDir(tabId, dir)
-    }
-
-    fun setSftpBack(tabId: String, back: List<String>) {
-        repository.updateSftp(tabId) { if (it.back == back) it else it.copy(back = back) }
-    }
-
-    fun setSftpExpanded(tabId: String, expanded: List<String>) {
-        repository.updateSftp(tabId) { if (it.expanded == expanded) it else it.copy(expanded = expanded) }
-    }
-
-    fun setSftpScroll(tabId: String, index: Int, offset: Int) {
-        repository.updateSftp(tabId) {
-            if (it.scrollIndex == index && it.scrollOffset == offset) {
-                it
-            } else {
-                it.copy(scrollIndex = index, scrollOffset = offset)
-            }
-        }
-    }
-
-    fun setSftpTreeMode(tabId: String, enabled: Boolean) {
-        repository.updateSftp(tabId) { if (it.treeMode == enabled) it else it.copy(treeMode = enabled) }
     }
 
     suspend fun openTerminal(serverId: String, tab: Tab.Terminal): Result<TerminalSession> =
@@ -534,6 +519,28 @@ class AppViewModel(
         herdrContextCollectors[serverId] = herdr to job
     }
 
+    /**
+     * The focused remote workspace from a snapshot fetched after this call and after every Herdr action submitted
+     * before it, so a sheet opens where a just-requested focus landed. Null when a newer focus intent arrives
+     * meanwhile: the caller then opens nothing.
+     */
+    suspend fun captureHerdrContext(serverId: String): HerdrFileContext? {
+        val navigation = navigationIntent
+        val server = coordinator.getServer(serverId)
+        val actions = sessionManager.herdrActions(serverId)
+        if (server == null || actions == null) return HerdrFileContext.Unavailable("Herdr is not connected")
+        val socket = herdrControlSocketPath(server.config.herdrSocketPath, server.homeDir)
+        val fresh = actions.awaitSettledSnapshot() ?: return null
+        return if (navigationIntent != navigation) {
+            null
+        } else {
+            when (fresh) {
+                is HerdrFreshSnapshot.Ready -> herdrFileContext(serverId, socket, fresh.state)
+                is HerdrFreshSnapshot.Unavailable -> HerdrFileContext.Unavailable(fresh.error.message)
+            }
+        }
+    }
+
     private fun herdrContextStore(serverId: String): MutableStateFlow<HerdrFileContext> =
         herdrContextStores.getOrPut(serverId) {
             MutableStateFlow(HerdrFileContext.Unavailable("Herdr context has not loaded yet"))
@@ -562,7 +569,7 @@ class AppViewModel(
             ?.takeIf { it.serverId == serverId && herdrEnabled(serverId) } ?: return null
         val session = herdrSessionWorkspace(serverId) ?: return null
         val tab = Tab.Viewer(newId(), path, scope = scope)
-        repository.openTab(session.id, tab)
+        repository.openTab(session.id, tab, activate = false)
         return tab.id
     }
 
@@ -573,69 +580,56 @@ class AppViewModel(
         closeTab(tabId)
     }
 
-    suspend fun focusHerdrPane(serverId: String, paneId: String, tabId: String): Boolean =
-        runHerdrAction(serverId, "Couldn't focus pane") { client ->
-            client.request("pane.focus", buildJsonObject { put("pane_id", paneId) })
-            // Tab focus publishes the selection to the normal Herdr frontend as well.
-            client.request("tab.focus", buildJsonObject { put("tab_id", tabId) })
-        }
+    /** Focuses the pane running [terminalId]. Pane IDs are resolved when the action runs, not when tapped. */
+    fun focusHerdrTerminal(serverId: String, terminalId: String) =
+        submitHerdrAction(serverId, "Couldn't focus pane") { it.focusTerminal(terminalId) }
 
-    suspend fun focusHerdrTab(serverId: String, tabId: String): Boolean =
-        runHerdrAction(serverId, "Couldn't focus tab") { client ->
-            client.request("tab.focus", buildJsonObject { put("tab_id", tabId) })
-        }
+    /** Focuses the tab that holds [anchorTerminalId]. Tab IDs are positional, so a pane of the tab anchors it. */
+    fun focusHerdrTabOf(serverId: String, anchorTerminalId: String) =
+        submitHerdrAction(serverId, "Couldn't focus tab") { it.focusTabOf(anchorTerminalId) }
 
-    suspend fun closeHerdrPane(serverId: String, paneId: String): Boolean =
-        runHerdrAction(serverId, "Couldn't close pane") { client ->
-            client.request("pane.close", buildJsonObject { put("pane_id", paneId) })
-        }
+    fun closeHerdrPane(serverId: String, terminalId: String) =
+        submitHerdrAction(serverId, "Couldn't close pane", showSession = false) { it.closePane(terminalId) }
 
-    suspend fun createHerdrTab(serverId: String, workspaceId: String): Boolean =
-        runHerdrAction(serverId, "Couldn't create tab") { client ->
-            client.request("tab.create", buildJsonObject {
-                put("workspace_id", workspaceId)
-                put("focus", true)
-            })
-        }
+    fun createHerdrTab(serverId: String, workspaceId: String) =
+        submitHerdrAction(serverId, "Couldn't create tab") { it.createTab(workspaceId) }
 
-    suspend fun createHerdrWorkspace(serverId: String, sourceWorkspaceId: String): Boolean =
-        runHerdrAction(serverId, "Couldn't create workspace") { client ->
-            client.request("workspace.create", buildJsonObject {
-                put("source_workspace_id", sourceWorkspaceId)
-                put("focus", true)
-            })
-        }
+    fun createHerdrWorkspace(serverId: String, sourceWorkspaceId: String) =
+        submitHerdrAction(serverId, "Couldn't create workspace") { it.createWorkspace(sourceWorkspaceId) }
 
-    suspend fun splitHerdrPane(serverId: String, paneId: String, direction: String): Boolean =
-        runHerdrAction(serverId, "Couldn't split pane") { client ->
-            client.request("pane.split", buildJsonObject {
-                put("target_pane_id", paneId)
-                put("direction", direction)
-                put("focus", true)
-            })
-        }
+    fun splitHerdrPane(serverId: String, terminalId: String, direction: String) =
+        submitHerdrAction(serverId, "Couldn't split pane") { it.splitPane(terminalId, direction) }
 
-    @Suppress("TooGenericExceptionCaught")
-    private suspend fun runHerdrAction(
+    /**
+     * Local selection follows the user's tap immediately, before an activity can be replaced. The remote action
+     * belongs to [HerdrActions], and its eventual completion never changes local selection over a newer intent.
+     */
+    private fun submitHerdrAction(
         serverId: String,
         title: String,
-        action: suspend (HerdrControlClient) -> Unit,
-    ): Boolean {
-        val client = coordinator.getServer(serverId)?.herdr
-        if (client == null) {
+        showSession: Boolean = true,
+        submit: (HerdrActions) -> HerdrActions.Ticket,
+    ) {
+        val actions = sessionManager.herdrActions(serverId)
+        if (actions == null) {
             notificationState.post(title, "Herdr is not connected")
-            return false
+            return
         }
-        return try {
-            action(client)
-            client.refresh()
-            true
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: Exception) {
-            notificationState.post(title, error.message ?: "Herdr request failed")
-            false
+        val ticket = submit(actions)
+        logEvent("$title submitted server=$serverId intent=${ticket.intent}")
+        if (showSession) showHerdrSessionTerminal(serverId)
+        viewModelScope.launch {
+            val result = ticket.result.await()
+            logEvent("$title result server=$serverId intent=${ticket.intent} result=$result")
         }
+    }
+
+    /** Activates the full-UI terminal, only while this server's Herdr session is the shown workspace. */
+    private fun showHerdrSessionTerminal(serverId: String) {
+        val sessionId = herdrSessionWorkspaceId(serverId) ?: return
+        if (navigator.backStack.lastOrNull() != AppRoute.HerdrSession(serverId)) return
+        if (navigator.currentWorkspaceId != sessionId) return
+        herdrFullUiTab(serverId)?.let { activateTab(it.id) }
     }
 
     /** Restarts the control client after a failure. Only the user's explicit Retry calls this. */

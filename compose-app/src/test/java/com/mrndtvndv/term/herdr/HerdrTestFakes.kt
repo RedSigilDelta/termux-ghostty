@@ -81,8 +81,16 @@ internal class FakeStreamChannel(
     }
 }
 
-/** A pane in the fake server's topology. [status] is what the snapshot reports. */
-internal class FakePane(val id: String, var status: String = "idle")
+/**
+ * A pane in the fake server's topology. [status] is what the snapshot reports. [id] is positional upstream and can
+ * change; [terminalId] is the stable identity.
+ */
+internal class FakePane(
+    @Volatile var id: String,
+    var status: String = "idle",
+    val terminalId: String = "t-$id",
+    val tabId: String = "tab-1",
+)
 
 /** One `events.subscribe` connection. Topology connections have no [statusPanes]. */
 internal class FakeSubscription(
@@ -127,6 +135,38 @@ internal class FakeHerdrServer {
     var openGateIgnoresCancel: Boolean = false
 
     val openAttempts = AtomicInteger()
+
+    /** Every request's method and params, in arrival order. */
+    val requestLog = CopyOnWriteArrayList<Pair<String, JsonObject>>()
+
+    /** Server-global focused pane, reported in snapshots and changed by `pane.focus` and `tab.focus`. */
+    @Volatile
+    var focusedPaneId: String? = null
+
+    /** When true, `pane.focus` acknowledges without changing focus, as a focus Herdr overrides at once would. */
+    @Volatile
+    var focusAcksWithoutChange: Boolean = false
+
+    /** When set, `pane.focus` acknowledges with this pane's info instead, as a reused positional ID would. */
+    @Volatile
+    var focusAckPaneOverride: String? = null
+
+    private val replyGates = java.util.concurrent.ConcurrentHashMap<String, CompletableDeferred<Unit>>()
+
+    /** Holds the next reply to [method] until [gate] completes. The request is still logged on arrival. */
+    fun gateNextReply(method: String, gate: CompletableDeferred<Unit>) {
+        replyGates[method] = gate
+    }
+
+    /** Params of every request to [method], in arrival order. */
+    fun paramsOf(method: String): List<JsonObject> = requestLog.filter { it.first == method }.map { it.second }
+
+    /** Gives a pane a new public ID, keeping its terminal, and announces the move. */
+    fun movePane(oldId: String, newId: String) {
+        panes.first { it.id == oldId }.id = newId
+        if (focusedPaneId == oldId) focusedPaneId = newId
+        emitTopology("pane.moved")
+    }
 
     /** The next status probe of this pane finds it gone: the pane leaves the topology and the probe fails. */
     @Volatile
@@ -195,6 +235,9 @@ internal class FakeHerdrServer {
         val id = request.getValue("id").jsonPrimitive.content
         val method = request.getValue("method").jsonPrimitive.content
         requests += method
+        val params = request["params"] as? JsonObject ?: JsonObject(emptyMap())
+        requestLog += method to params
+        replyGates.remove(method)?.await()
 
         replies[method]?.let { reply ->
             val text = reply(id) ?: return
@@ -211,6 +254,8 @@ internal class FakeHerdrServer {
                 respond(channel, snapshotLine(id), closeAfter = true)
             }
             "events.subscribe" -> subscribe(channel, id, request.getValue("params").jsonObject)
+            "pane.focus" -> respond(channel, focusPane(id, params.getValue("pane_id").jsonPrimitive.content), true)
+            "tab.focus" -> respond(channel, focusTab(id, params.getValue("tab_id").jsonPrimitive.content), true)
             else -> respond(channel, unknownVariantReply(id, method), closeAfter = true)
         }
     }
@@ -251,22 +296,52 @@ internal class FakeHerdrServer {
         return panes.any { it.id == paneId }
     }
 
+    private fun focusPane(id: String, paneId: String): String {
+        val pane = panes.firstOrNull { it.id == paneId } ?: return errorReply(id, "pane_not_found", "no pane $paneId")
+        if (!focusAcksWithoutChange) focusedPaneId = pane.id
+        val acked = focusAckPaneOverride?.let { other -> panes.first { it.id == other } } ?: pane
+        return """{"id":"$id","result":{"type":"pane_info","pane":${paneJson(acked)}}}"""
+    }
+
+    private fun focusTab(id: String, tabId: String): String {
+        val pane = panes.firstOrNull { it.tabId == tabId } ?: return errorReply(id, "tab_not_found", "no tab $tabId")
+        focusedPaneId = pane.id
+        return """{"id":"$id","result":{"type":"tab_info","tab":{"tab_id":"$tabId","workspace_id":"ws-1",""" +
+            """"number":1,"label":"$tabId","focused":true,"pane_count":1,"agent_status":"idle"}}}"""
+    }
+
+    private fun paneJson(pane: FakePane): String {
+        val label = if (pane.id == "p-1") "é🚀" else pane.id
+        return """{"pane_id":"${pane.id}","terminal_id":"${pane.terminalId}","workspace_id":"ws-1",""" +
+            """"tab_id":"${pane.tabId}","focused":${pane.id == focusedPaneId},"label":"$label",""" +
+            """"agent_status":"${pane.status}","revision":1}"""
+    }
+
     private fun snapshotLine(id: String) =
         """{"id":"$id","result":{"type":"session_snapshot","snapshot":${snapshotJson()}}}"""
 
-    /** One workspace, one tab, and the current panes. Pane `p-1` carries a multibyte label. */
+    /**
+     * One workspace, its tabs, and the current panes. Pane `p-1` carries a multibyte label. Focus fields appear
+     * only once a pane is focused.
+     */
     private fun snapshotJson(): String {
-        val paneJson = panes.joinToString(",") { pane ->
-            val label = if (pane.id == "p-1") "é🚀" else pane.id
-            """{"pane_id":"${pane.id}","terminal_id":"t-${pane.id}","workspace_id":"ws-1","tab_id":"tab-1",""" +
-                """"focused":false,"label":"$label","agent_status":"${pane.status}","revision":1}"""
-        }
-        return """{"version":"0.9.2","protocol":7,""" +
+        val focused = panes.firstOrNull { it.id == focusedPaneId }
+        val focusedTab = focused?.tabId ?: "tab-1"
+        val tabIds = (listOf("tab-1") + panes.map { it.tabId }).distinct()
+        val tabJson = tabIds.mapIndexed { index, tabId ->
+            val count = panes.count { it.tabId == tabId }
+            """{"tab_id":"$tabId","workspace_id":"ws-1","number":${index + 1},"label":"shell",""" +
+                """"focused":${tabId == focusedTab},"pane_count":$count,"agent_status":"idle"}"""
+        }.joinToString(",")
+        val focusJson = focused?.let {
+            """"focused_workspace_id":"ws-1","focused_tab_id":"${it.tabId}","focused_pane_id":"${it.id}","""
+        }.orEmpty()
+        return """{"version":"0.9.2","protocol":7,$focusJson""" +
             """"workspaces":[{"workspace_id":"ws-1","number":1,"label":"main","focused":true,""" +
-            """"pane_count":${panes.size},"tab_count":1,"active_tab_id":"tab-1","agent_status":"idle"}],""" +
-            """"tabs":[{"tab_id":"tab-1","workspace_id":"ws-1","number":1,"label":"shell","focused":true,""" +
-            """"pane_count":${panes.size},"agent_status":"idle"}],""" +
-            """"panes":[$paneJson],"layouts":[],"agents":[]}"""
+            """"pane_count":${panes.size},"tab_count":${tabIds.size},"active_tab_id":"$focusedTab",""" +
+            """"agent_status":"idle"}],""" +
+            """"tabs":[$tabJson],""" +
+            """"panes":[${panes.joinToString(",") { paneJson(it) }}],"layouts":[],"agents":[]}"""
     }
 
     private fun respond(channel: FakeStreamChannel, line: String, closeAfter: Boolean) {

@@ -15,8 +15,13 @@ import android.util.Log
 import androidx.lifecycle.Lifecycle
 import com.mrndtvndv.term.ConnectionViewModelStores
 import com.mrndtvndv.term.R
-import com.mrndtvndv.term.herdr.focusedPane
+import com.mrndtvndv.term.herdr.HerdrActions
 import com.mrndtvndv.term.service.SshSessionService
+import com.mrndtvndv.term.ui.notification.NotificationDestination
+import com.mrndtvndv.term.ui.notification.NotificationDestinationCodec
+import com.mrndtvndv.term.ui.notification.NotificationState
+import com.mrndtvndv.term.ui.notification.notificationDestination
+import com.mrndtvndv.term.workspace.herdrControlSocketPath
 import com.mrndtvndv.term.workspace.Tab
 import com.termux.shared.termux.TermuxConstants
 import com.termux.shared.termux.terminal.TermuxTerminalSessionClientBase
@@ -27,6 +32,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.StateFlow
 import java.io.IOException
 import java.lang.ref.WeakReference
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Process-scoped owner of all terminal/SSH connections.
@@ -37,6 +43,7 @@ import java.lang.ref.WeakReference
  * forwards input; the manager keeps connections, service binding and
  * notifications independent of the UI.
  */
+@Suppress("TooManyFunctions")
 class AppSessionManager private constructor(context: Context) : AppSessionManagerAccess {
 
     override val connectionStores = ConnectionViewModelStores { Log.i("SftpRetention", it) }
@@ -55,7 +62,18 @@ class AppSessionManager private constructor(context: Context) : AppSessionManage
     private val serverManager by lazy {
         ServerManager(create = { config ->
             serverFactory.create(config).also { server ->
-                server.onDisconnect { connectionStores.clear(config.id) }
+                server.onDisconnect {
+                    connectionStores.clear(config.id)
+                    // Only this connection's actions end. A replacement connection keeps its own.
+                    herdrActionsByServer.computeIfPresent(config.id) { _, actions ->
+                        if (actions.client === server.herdr) {
+                            actions.close()
+                            null
+                        } else {
+                            actions
+                        }
+                    }
+                }
             }
         })
     }
@@ -73,6 +91,13 @@ class AppSessionManager private constructor(context: Context) : AppSessionManage
     private val programStatus = ProgramStatusStore()
 
     private val appScope = MainScope()
+
+    /** In-app notifications and action errors. Process-scoped, so a replaced activity shows the same state. */
+    val notificationState = NotificationState()
+
+    /** Remote Herdr actions per server, each bound to the control client of one connection. */
+    private val herdrActionsByServer = ConcurrentHashMap<String, HerdrActions>()
+
     /** In-flight terminal opens by tab id. Main thread only. */
     private val pendingOpens = mutableMapOf<String, Deferred<Result<TerminalSession>>>()
     /** Tabs closed while their open was in flight. The terminal that open produces is dropped, not handed out. */
@@ -101,6 +126,18 @@ class AppSessionManager private constructor(context: Context) : AppSessionManage
 
     override fun serverIdForSession(session: TerminalSession): String? =
         locateSession(session)?.serverId
+
+    override fun herdrActions(serverId: String): HerdrActions? {
+        val client = coordinator.getServer(serverId)?.herdr ?: return null
+        return herdrActionsByServer.compute(serverId) { _, existing ->
+            existing?.takeIf { it.client === client } ?: run {
+                existing?.close()
+                HerdrActions(client, appScope, onFailure = { failure ->
+                    notificationState.post("Herdr action failed", failure.message)
+                })
+            }
+        }
+    }
 
     // ── Connection lifecycle ─────────────────────────────────────────
 
@@ -229,26 +266,23 @@ class AppSessionManager private constructor(context: Context) : AppSessionManage
 
     // ── Terminal protocol notifications ──────────────────────────────
 
-    fun handleTerminalNotification(
-        title: String?,
-        body: String?,
-        serverId: String? = null,
-        tabId: String? = null,
-    ) {
-        // OSC notifications omit pane identity, so capture Herdr's latest server-global focus as the destination.
-        val herdrTerminalId = serverId
-            ?.let(coordinator::getServer)
-            ?.herdr
-            ?.state
-            ?.value
-            ?.snapshot
-            ?.focusedPane()
-            ?.terminalId
+    /**
+     * Shows a terminal's OSC notification. The destination is the emitting terminal only: a notification from the
+     * Herdr session terminal names the session, never a remote pane, because the OSC carries no pane identity.
+     */
+    fun handleTerminalNotification(title: String?, body: String?, location: SessionLocation?) {
+        val destination = location?.let { (serverId, tabId) ->
+            val server = coordinator.getServer(serverId)
+            val socket = server?.let { herdrControlSocketPath(it.config.herdrSocketPath, it.homeDir) }.orEmpty()
+            notificationDestination(serverId, tabId, socket)
+        }
         val host = hostRef?.get()
         if (host != null && host.isAtLeast(Lifecycle.State.RESUMED)) {
-            host.showInAppNotification(title, body, serverId, tabId, herdrTerminalId)
+            Log.i("NotifRoute", "deliver in-app destination=$destination")
+            host.showInAppNotification(title, body, destination)
         } else {
-            showSystemNotification(title, body, serverId, tabId, herdrTerminalId)
+            Log.i("NotifRoute", "deliver system destination=$destination")
+            showSystemNotification(title, body, destination)
         }
     }
 
@@ -262,13 +296,7 @@ class AppSessionManager private constructor(context: Context) : AppSessionManage
         return id
     }
 
-    private fun showSystemNotification(
-        title: String?,
-        body: String?,
-        serverId: String?,
-        tabId: String?,
-        herdrTerminalId: String?,
-    ) {
+    private fun showSystemNotification(title: String?, body: String?, destination: NotificationDestination?) {
         val notificationManager =
             com.termux.shared.notification.NotificationUtils.getNotificationManager(appContext) ?: return
 
@@ -287,15 +315,7 @@ class AppSessionManager private constructor(context: Context) : AppSessionManage
 
         val intent = Intent(appContext, com.mrndtvndv.term.MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-            if (serverId != null) {
-                putExtra(EXTRA_NOTIFICATION_SERVER_ID, serverId)
-            }
-            if (tabId != null) {
-                putExtra(EXTRA_NOTIFICATION_TAB_ID, tabId)
-            }
-            if (herdrTerminalId != null) {
-                putExtra(EXTRA_NOTIFICATION_HERDR_TERMINAL_ID, herdrTerminalId)
-            }
+            destination?.let(NotificationDestinationCodec::encode)?.forEach { (key, value) -> putExtra(key, value) }
         }
         val contentIntent = PendingIntent.getActivity(
             appContext,
@@ -432,8 +452,7 @@ class AppSessionManager private constructor(context: Context) : AppSessionManage
                 title: String?,
                 body: String?,
             ) {
-                val location = locateSession(session)
-                handleTerminalNotification(title, body, location?.serverId, location?.tabId)
+                handleTerminalNotification(title, body, locateSession(session))
             }
 
             override fun onTerminalProgressChanged(session: TerminalSession) {
@@ -453,13 +472,6 @@ class AppSessionManager private constructor(context: Context) : AppSessionManage
     }
 
     companion object {
-        /** Intent extra: originating server id for a tapped terminal notification. */
-        const val EXTRA_NOTIFICATION_SERVER_ID = "termux.terminal.notification.server_id"
-        /** Intent extra: originating tab id for a tapped terminal notification. */
-        const val EXTRA_NOTIFICATION_TAB_ID = "termux.terminal.notification.tab_id"
-        /** Intent extra: stable Herdr terminal identity captured from server-global focus. */
-        const val EXTRA_NOTIFICATION_HERDR_TERMINAL_ID = "termux.terminal.notification.herdr_terminal_id"
-
         @Volatile
         private var instance: AppSessionManager? = null
 

@@ -1,6 +1,7 @@
 package com.mrndtvndv.term.server
 
 import androidx.lifecycle.Lifecycle
+import com.mrndtvndv.term.ui.notification.NotificationDestination
 import com.termux.terminal.TerminalSession
 
 /**
@@ -19,11 +20,5 @@ interface SessionHost {
 
     fun isAtLeast(state: Lifecycle.State): Boolean
 
-    fun showInAppNotification(
-        title: String?,
-        body: String?,
-        serverId: String? = null,
-        tabId: String? = null,
-        herdrTerminalId: String? = null,
-    )
+    fun showInAppNotification(title: String?, body: String?, destination: NotificationDestination?)
 }

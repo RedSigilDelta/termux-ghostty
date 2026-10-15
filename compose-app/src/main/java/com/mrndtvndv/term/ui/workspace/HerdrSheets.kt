@@ -2,7 +2,6 @@
 
 package com.mrndtvndv.term.ui.workspace
 
-import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -14,18 +13,17 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.lifecycle.ViewModel
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavKey
 import com.mrndtvndv.term.AppViewModel
 import com.mrndtvndv.term.navigation.ReviewRoute
-import com.mrndtvndv.term.navigation.SftpFolder
 import com.mrndtvndv.term.server.Server
 import com.mrndtvndv.term.ui.review.ReviewScreenRoute
 import com.mrndtvndv.term.ui.review.ReviewViewModel
@@ -33,7 +31,11 @@ import com.mrndtvndv.term.ui.sftp.SftpScreenRoute
 import com.mrndtvndv.term.ui.sftp.SftpViewModel
 import com.mrndtvndv.term.ui.sftp.openDownloadedFile
 import com.mrndtvndv.term.ui.sftp.transfer.SftpTransferManager
+import com.mrndtvndv.term.workspace.SftpBrowserKey
+import com.mrndtvndv.term.workspace.SftpBrowserStore
+import com.mrndtvndv.term.workspace.herdrFileScopeFromKey
 import com.mrndtvndv.term.workspace.herdrSheetTabId
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
@@ -45,8 +47,8 @@ enum class HerdrSheetKind(val key: String) {
 
 /**
  * A sheet's starting point, captured when it opens. The sheet reads nothing live, so a later focus change or a
- * download that finishes afterwards stays with the collection it was opened from. SFTP uses [cwd] only on its
- * first open for a collection; subsequent opens resume navigation. [openId] resets Git navigation per open.
+ * download that finishes afterwards stays with the collection it was opened from. SFTP uses [cwd] only when the
+ * collection has no browser yet; otherwise it resumes the saved one. [openId] resets Git navigation per open.
  */
 data class HerdrSheetCapture(
     val kind: HerdrSheetKind,
@@ -54,19 +56,6 @@ data class HerdrSheetCapture(
     val cwd: String,
     val openId: String,
 )
-
-/** Navigation lives alongside the SFTP view model until this server connection is cleared. */
-class HerdrSftpNavigation(initialCwd: String) : ViewModel() {
-    val backStack = NavBackStack<NavKey>(SftpFolder(initialCwd))
-    var treeMode: Boolean = false
-    private val scrollPositions = mutableMapOf<String, Pair<Int, Int>>()
-
-    fun scrollPosition(path: String): Pair<Int, Int> = scrollPositions[path] ?: (0 to 0)
-
-    fun saveScrollPosition(path: String, index: Int, offset: Int) {
-        scrollPositions[path] = index to offset
-    }
-}
 
 /**
  * A full-screen sheet for Git or SFTP at the captured directory. Back pops the sheet's inner stack first, then
@@ -79,24 +68,21 @@ fun HerdrSheetHost(
     serverId: String,
     server: Server,
     appViewModel: AppViewModel,
+    browsers: SftpBrowserStore,
     onViewerOpened: (scopeKey: String, tabId: String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
-    val stack = when (capture.kind) {
-        HerdrSheetKind.Sftp -> {
-            val store = appViewModel.connectionStore(serverId, herdrSheetTabId(capture.kind.key, capture.scopeKey))
-            val navigation = viewModel(viewModelStoreOwner = store) { HerdrSftpNavigation(capture.cwd) }
-            navigation.backStack
-        }
-        HerdrSheetKind.Git -> remember(capture.openId) { NavBackStack<NavKey>(ReviewRoute.Changes) }
+    // A download that completes after this sheet closed must not dismiss a newer sheet.
+    val shown = remember { AtomicBoolean(true) }
+    DisposableEffect(Unit) {
+        onDispose { shown.set(false) }
     }
     val dismiss: () -> Unit = {
-        scope.launch { sheetState.hide() }.invokeOnCompletion { onDismiss() }
-    }
-    val onBack: () -> Unit = {
-        if (stack.size > 1) stack.removeAt(stack.lastIndex) else dismiss()
+        if (shown.get()) {
+            scope.launch { sheetState.hide() }.invokeOnCompletion { if (shown.get()) onDismiss() }
+        }
     }
 
     ModalBottomSheet(
@@ -106,8 +92,6 @@ fun HerdrSheetHost(
         containerColor = MaterialTheme.colorScheme.surface,
     ) {
         KeepSheetAboveIme()
-        // NavDisplay inside the sheet handles back while it has more than one entry; this covers the root.
-        BackHandler(enabled = stack.size <= 1, onBack = dismiss)
         Box(modifier = Modifier.fillMaxHeight()) {
             when (capture.kind) {
                 HerdrSheetKind.Git -> HerdrGitContent(
@@ -115,16 +99,14 @@ fun HerdrSheetHost(
                     server = server,
                     capture = capture,
                     appViewModel = appViewModel,
-                    stack = stack,
-                    onBack = onBack,
+                    dismiss = dismiss,
                 )
                 HerdrSheetKind.Sftp -> HerdrSftpContent(
                     serverId = serverId,
                     server = server,
                     capture = capture,
                     appViewModel = appViewModel,
-                    stack = stack,
-                    onBack = onBack,
+                    browsers = browsers,
                     onViewerOpened = onViewerOpened,
                     dismiss = dismiss,
                 )
@@ -139,9 +121,14 @@ private fun HerdrGitContent(
     server: Server,
     capture: HerdrSheetCapture,
     appViewModel: AppViewModel,
-    stack: NavBackStack<NavKey>,
-    onBack: () -> Unit,
+    dismiss: () -> Unit,
 ) {
+    val stack = remember(capture.openId) { NavBackStack<NavKey>(ReviewRoute.Changes) }
+    val onBack: () -> Unit = {
+        if (stack.size > 1) stack.removeAt(stack.lastIndex) else dismiss()
+    }
+    // NavDisplay inside the sheet handles back while it has more than one entry; this covers the root.
+    BackHandler(enabled = stack.size <= 1, onBack = dismiss)
     val store = appViewModel.connectionStore(serverId, herdrSheetTabId(capture.kind.key, capture.scopeKey))
     val reviewViewModel = viewModel(viewModelStoreOwner = store) {
         val sshSession = checkNotNull(server.sshSession)
@@ -159,6 +146,10 @@ private fun HerdrGitContent(
     )
 }
 
+/**
+ * The browser of the captured remote workspace. It starts at the captured cwd only when the workspace has no browser
+ * yet; otherwise it resumes. Navigation is durable, so it outlives the sheet, the connection and the process.
+ */
 @Suppress("LongParameterList")
 @Composable
 private fun HerdrSftpContent(
@@ -166,27 +157,17 @@ private fun HerdrSftpContent(
     server: Server,
     capture: HerdrSheetCapture,
     appViewModel: AppViewModel,
-    stack: NavBackStack<NavKey>,
-    onBack: () -> Unit,
+    browsers: SftpBrowserStore,
     onViewerOpened: (scopeKey: String, tabId: String) -> Unit,
     dismiss: () -> Unit,
 ) {
     val context = LocalContext.current
+    val fileScope = herdrFileScopeFromKey(capture.scopeKey)?.takeIf { it.serverId == serverId }
+    if (fileScope == null) {
+        LaunchedEffect(capture.openId) { dismiss() }
+        return
+    }
     val store = appViewModel.connectionStore(serverId, herdrSheetTabId(capture.kind.key, capture.scopeKey))
-    val navigation = viewModel(viewModelStoreOwner = store) { HerdrSftpNavigation(capture.cwd) }
-    val currentPath = (stack.last() as SftpFolder).path
-    val (scrollIndex, scrollOffset) = navigation.scrollPosition(currentPath)
-    DisposableEffect(navigation) {
-        Log.i("SftpRetention", "sheet opened scope=${capture.scopeKey} browser=${System.identityHashCode(navigation)}")
-        onDispose {
-            Log.i("SftpRetention", "sheet disposed scope=${capture.scopeKey} path=${navigation.backStack.last()}")
-        }
-    }
-    LaunchedEffect(navigation) {
-        snapshotFlow { navigation.backStack.toList() }.collect { folders ->
-            Log.i("SftpRetention", "navigation scope=${capture.scopeKey} folders=$folders")
-        }
-    }
     val sftpViewModel = viewModel(viewModelStoreOwner = store) {
         val sshSession = checkNotNull(server.sshSession)
         SftpViewModel(
@@ -194,15 +175,16 @@ private fun HerdrSftpContent(
             execCommand = { command -> sshSession.execCommand(command) },
             transferManager = SftpTransferManager.current,
             ownerKey = server.config.id,
-            // The sheet's navigation stays local. Its tab directory is never written from here.
-            onDirectoryChanged = {},
+            browsers = browsers,
+            key = SftpBrowserKey.HerdrWorkspace(fileScope),
+            initialDir = capture.cwd,
         )
     }
+    val browser by sftpViewModel.browser.collectAsStateWithLifecycle()
+    // The browser's NavDisplay handles back above its root folder; this covers the root.
+    BackHandler(enabled = browser?.back.isNullOrEmpty(), onBack = dismiss)
     SftpScreenRoute(
         viewModel = sftpViewModel,
-        backStack = stack,
-        onOpenFolder = { path -> openFolder(stack, path) },
-        onBack = onBack,
         isTabActive = true,
         onOpenFile = { remote, local ->
             openDownloadedFile(
@@ -223,20 +205,5 @@ private fun HerdrSftpContent(
         },
         onOpenFileError = { message -> appViewModel.notificationState.post("SFTP Error", message) },
         tabsButton = null,
-        initialScrollIndex = scrollIndex,
-        initialScrollOffset = scrollOffset,
-        onScrollChanged = { index, offset -> navigation.saveScrollPosition(currentPath, index, offset) },
-        initialTreeMode = navigation.treeMode,
-        onTreeModeChanged = { navigation.treeMode = it },
     )
-}
-
-/** Same rule as the workspace navigator: pop back to an existing folder entry, or push a new one. */
-private fun openFolder(stack: NavBackStack<NavKey>, path: String) {
-    val index = stack.indexOfLast { (it as? SftpFolder)?.path == path }
-    if (index < 0) {
-        stack.add(SftpFolder(path))
-    } else {
-        while (stack.lastIndex > index) stack.removeAt(stack.lastIndex)
-    }
 }

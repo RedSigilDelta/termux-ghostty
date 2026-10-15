@@ -2,25 +2,35 @@ package com.mrndtvndv.term.workspace
 
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /** Main-thread only. */
-class WorkspaceRepository(private val file: WorkspaceFile, private val scope: CoroutineScope) {
+@Suppress("TooManyFunctions")
+class WorkspaceRepository(private val file: WorkspaceFile, private val scope: CoroutineScope) : SftpBrowserStore {
     private val _state = MutableStateFlow(file.read())
     val state: StateFlow<WorkspaceState> = _state.asStateFlow()
+    private val writes = Mutex()
+    private val _persistenceError = MutableStateFlow<String?>(null)
+    val persistenceError = _persistenceError.asStateFlow()
 
     @OptIn(FlowPreview::class)
     private val saveJob = scope.launch {
-        state.debounce(300).collect { value -> withContext(Dispatchers.IO) { runCatching { file.write(value) } } }
+        state.debounce(300).collect { persist() }
     }
 
     fun createWorkspace(serverId: String, name: String, root: String): Workspace {
@@ -116,16 +126,17 @@ class WorkspaceRepository(private val file: WorkspaceFile, private val scope: Co
         _state.update { it.updateTab(tabId) { tab -> if (tab is Tab.Terminal) tab.copy(name = name) else tab } }
     }
 
-    fun setSftpDir(tabId: String, dir: String) {
-        // Expansion and scroll belong to the folder they were taken in, so a new folder starts clean.
-        updateSftp(tabId) {
-            if (it.dir == dir) it else it.copy(dir = dir, expanded = emptyList(), scrollIndex = 0, scrollOffset = 0)
-        }
+    override fun browser(key: SftpBrowserKey): SftpBrowserState? = _state.value.browser(key)
+
+    override fun observeBrowser(key: SftpBrowserKey): Flow<SftpBrowserState?> =
+        state.map { it.browser(key) }.distinctUntilChanged()
+
+    override fun openBrowser(key: SftpBrowserKey, initialDir: String) {
+        _state.update { it.openBrowser(key, initialDir) }
     }
 
-    /** Applies [transform] to the Sftp tab [tabId]. Other tabs are left alone. */
-    fun updateSftp(tabId: String, transform: (Tab.Sftp) -> Tab.Sftp) {
-        _state.update { it.updateTab(tabId) { tab -> if (tab is Tab.Sftp) transform(tab) else tab } }
+    override fun updateBrowser(key: SftpBrowserKey, transform: (SftpBrowserState) -> SftpBrowserState) {
+        _state.update { it.updateBrowser(key, transform) }
     }
 
     fun setTerminalCwd(tabId: String, cwd: String) {
@@ -134,7 +145,22 @@ class WorkspaceRepository(private val file: WorkspaceFile, private val scope: Co
 
     fun close() {
         saveJob.cancel()
-        runCatching { file.write(_state.value) }
+        runCatching { file.write(_state.value) }.onFailure { _persistenceError.value = it.message }
+    }
+
+    /** Runs in the repository's app scope, so stopping or replacing the activity cannot cancel the write. */
+    fun flush() = scope.launch { persist() }
+
+    @Suppress("TooGenericExceptionCaught")
+    private suspend fun persist() {
+        try {
+            writes.withLock { withContext(Dispatchers.IO) { file.write(_state.value) } }
+            _persistenceError.value = null
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            _persistenceError.value = error.message ?: "Couldn't save workspace state"
+        }
     }
 
     companion object {

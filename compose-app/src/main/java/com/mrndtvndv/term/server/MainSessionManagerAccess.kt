@@ -3,6 +3,7 @@ package com.mrndtvndv.term.server
 import com.mrndtvndv.term.ConnectionViewModelStores
 import com.termux.terminal.compose.session.ProgramStatusState
 import com.mrndtvndv.term.domain.ServerConfig
+import com.mrndtvndv.term.herdr.HerdrActions
 import com.mrndtvndv.term.workspace.Tab
 import com.termux.terminal.TerminalSession
 import kotlinx.coroutines.flow.Flow
@@ -67,4 +68,10 @@ interface AppSessionManagerAccess {
     fun closeTerminal(serverId: String, tab: Tab.Terminal)
 
     fun locateSession(session: TerminalSession): SessionLocation? = null
+
+    /**
+     * Remote Herdr actions of the server's current control client, owned for the life of that connection rather than
+     * any activity. Null when the server is not connected or runs no Herdr control client.
+     */
+    fun herdrActions(serverId: String): HerdrActions? = null
 }

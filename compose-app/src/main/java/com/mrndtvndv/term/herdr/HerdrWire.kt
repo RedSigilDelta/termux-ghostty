@@ -99,6 +99,10 @@ internal object HerdrWire {
         return snapshot.toModel()
     }
 
+    /** The pane a `pane.focus` (or other pane-returning request) acted on, as upstream reports it after the change. */
+    fun decodePaneInfo(result: JsonObject): HerdrPane =
+        decode<PaneDto>(expectType(result, "pane_info")["pane"] as? JsonObject, "pane info").toModel()
+
     private inline fun <reified T> decode(element: JsonObject?, what: String): T {
         val source = element ?: throw protocolError("Herdr $what is missing")
         return try {

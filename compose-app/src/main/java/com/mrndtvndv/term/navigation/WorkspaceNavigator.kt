@@ -4,56 +4,54 @@ import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavKey
 import com.mrndtvndv.term.workspace.Tab
 
-/** Per-tab back stacks for one open workspace. [activeTab] is the tab currently shown. */
+/**
+ * Back handling for one open workspace. [activeTab] is the tab currently shown. Git tabs keep their review stacks
+ * here. An SFTP tab's folders are durable in [Tab.Sftp]; its composed browser attaches so back can pop them.
+ */
 class WorkspaceNavigator(private val activeTab: () -> Tab?) {
-    private val sftpStacks = mutableMapOf<String, NavBackStack<NavKey>>()
     private val reviewStacks = mutableMapOf<String, NavBackStack<NavKey>>()
-
-    fun sftpStack(tab: Tab.Sftp): NavBackStack<NavKey> =
-        sftpStacks.getOrPut(tab.id) {
-            // dir moves only after a listing succeeds, so a kill mid-load leaves back ending in dir. Keep it once.
-            val back = if (tab.back.lastOrNull() == tab.dir) tab.back.dropLast(1) else tab.back
-            val folders: List<NavKey> = back.map { SftpFolder(it) } + SftpFolder(tab.dir)
-            NavBackStack<NavKey>().apply { addAll(folders) }
-        }
+    private val sftpBack = mutableMapOf<String, () -> Boolean>()
 
     fun reviewStack(tabId: String): NavBackStack<NavKey> =
         reviewStacks.getOrPut(tabId) { NavBackStack<NavKey>(ReviewRoute.Changes) }
 
-    private val currentStack: NavBackStack<NavKey>?
-        get() = when (val tab = activeTab()) {
-            is Tab.Sftp -> sftpStacks[tab.id]
-            is Tab.Git -> reviewStacks[tab.id]
-            else -> null
-        }
+    /** [goBack] pops the SFTP tab's browser one folder and returns false at its root. */
+    fun attachSftp(tabId: String, goBack: () -> Boolean) {
+        sftpBack[tabId] = goBack
+    }
+
+    fun detachSftp(tabId: String, goBack: () -> Boolean) {
+        if (sftpBack[tabId] === goBack) sftpBack.remove(tabId)
+    }
 
     /** True when back only pops the active tab's inner stack, so the workspace itself must not be popped. */
     val handlesBack: Boolean
-        get() = (currentStack?.size ?: 0) > 1
+        get() = when (val tab = activeTab()) {
+            is Tab.Sftp -> tab.browser.back.isNotEmpty()
+            is Tab.Git -> (reviewStacks[tab.id]?.size ?: 0) > 1
+            else -> false
+        }
 
     fun openDiff(tabId: String, route: ReviewRoute) {
         reviewStack(tabId).add(route)
     }
 
-    fun openFolder(tabId: String, path: String) {
-        val stack = sftpStacks[tabId] ?: return
-        val index = stack.indexOfLast { (it as? SftpFolder)?.path == path }
-        if (index < 0) {
-            stack.add(SftpFolder(path))
-        } else {
-            while (stack.lastIndex > index) stack.removeAt(stack.lastIndex)
-        }
-    }
-
     fun dropTab(tabId: String) {
-        sftpStacks.remove(tabId)
+        sftpBack.remove(tabId)
         reviewStacks.remove(tabId)
     }
 
-    fun goBack(): Boolean {
-        val stack = currentStack ?: return false
-        if (stack.size <= 1) return false
-        stack.removeAt(stack.lastIndex)
-        return true
+    fun goBack(): Boolean = when (val tab = activeTab()) {
+        is Tab.Sftp -> sftpBack[tab.id]?.invoke() ?: false
+        is Tab.Git -> {
+            val stack = reviewStacks[tab.id]
+            if (stack == null || stack.size <= 1) {
+                false
+            } else {
+                stack.removeAt(stack.lastIndex)
+                true
+            }
+        }
+        else -> false
     }
 }

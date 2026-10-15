@@ -15,7 +15,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -28,7 +27,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.entryProvider
 import com.mrndtvndv.term.domain.SftpFile
@@ -51,19 +49,12 @@ private sealed interface SftpDialog {
 @Composable
 fun SftpScreenRoute(
     viewModel: SftpViewModel,
-    backStack: NavBackStack<NavKey>,
-    onOpenFolder: (String) -> Unit,
-    onBack: () -> Unit,
     isTabActive: Boolean,
     onOpenFile: (SftpFile, File) -> Unit,
     onOpenFileError: (String) -> Unit,
     tabsButton: (@Composable () -> Unit)? = null,
-    initialScrollIndex: Int = 0,
-    initialScrollOffset: Int = 0,
-    onScrollChanged: (index: Int, offset: Int) -> Unit = { _, _ -> },
-    initialTreeMode: Boolean = false,
-    onTreeModeChanged: (Boolean) -> Unit = {}
 ) {
+    val browser = viewModel.browser.collectAsStateWithLifecycle().value ?: return
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
     val tree by viewModel.tree.collectAsStateWithLifecycle()
@@ -75,9 +66,11 @@ fun SftpScreenRoute(
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     var dialog by remember { mutableStateOf<SftpDialog?>(null) }
-    var isSearchActive by rememberSaveable { mutableStateOf(false) }
-    var searchQuery by rememberSaveable { mutableStateOf("") }
-    var treeMode by rememberSaveable { mutableStateOf(initialTreeMode) }
+    val currentPath = browser.dir
+    // Search belongs to the folder it was typed in.
+    var isSearchActive by rememberSaveable(currentPath) { mutableStateOf(false) }
+    var searchQuery by rememberSaveable(currentPath) { mutableStateOf("") }
+    val folders: List<NavKey> = remember(browser.back, currentPath) { (browser.back + currentPath).map(::SftpFolder) }
     val hazeState = rememberHazeState()
 
     fun showMessage(message: String) {
@@ -147,27 +140,12 @@ fun SftpScreenRoute(
         onCancelUpload = viewModel::cancelUpload
     )
 
-    val currentPath = (backStack.last() as SftpFolder).path
-    LaunchedEffect(currentPath) {
-        if (currentPath != viewModel.currentPath) {
-            viewModel.navigateTo(currentPath)
-            isSearchActive = false
-            searchQuery = ""
-        }
-    }
-    // The saved position belongs to the folder the tab was saved on. It is dropped once the user leaves that folder.
-    val savedFolder = remember { currentPath }
-    var savedScroll by remember { mutableStateOf(initialScrollIndex to initialScrollOffset) }
-    LaunchedEffect(currentPath) {
-        if (currentPath != savedFolder) savedScroll = 0 to 0
-    }
-    val (restoredIndex, restoredOffset) = if (currentPath == savedFolder) savedScroll else (0 to 0)
-
     AppNavDisplay(
-        backStack = backStack,
-        onBack = onBack,
+        backStack = folders,
+        // The display only calls this above the root folder; the host handles back at the root.
+        onBack = { viewModel.goBack() },
         entryProvider = entryProvider<NavKey> {
-            entry<SftpFolder> {
+            entry<SftpFolder> { entry ->
                 Scaffold(
                     modifier = Modifier.fillMaxSize(),
                     containerColor = Color.Transparent,
@@ -198,23 +176,15 @@ fun SftpScreenRoute(
                                 .hazeSource(hazeState)
                         ) {
                             SftpBreadcrumbs(
-                                currentPath = currentPath,
+                                currentPath = entry.path,
                                 trailPath = trailPath,
-                                isTabActive = isTabActive,
-                                onSegmentClick = { path ->
-                                    isSearchActive = false
-                                    searchQuery = ""
-                                    onOpenFolder(path)
-                                }
+                                isTabActive = isTabActive && entry.path == currentPath,
+                                onSegmentClick = viewModel::openFolder
                             )
                             SftpDirectory(
                                 state = uiState,
-                                folder = currentPath,
-                                onOpenFolder = { path ->
-                                    isSearchActive = false
-                                    searchQuery = ""
-                                    onOpenFolder(path)
-                                },
+                                folder = entry.path,
+                                onOpenFolder = viewModel::openFolder,
                                 onOpenFile = { file ->
                                     viewModel.downloadAndOpenFile(
                                         file = file,
@@ -248,12 +218,11 @@ fun SftpScreenRoute(
                                 onDelete = { dialog = SftpDialog.Delete(it) },
                                 searchQuery = searchQuery,
                                 onClearSearch = { searchQuery = "" },
-                                treeMode = treeMode,
+                                treeMode = browser.treeMode,
                                 tree = tree,
                                 onToggleFolder = viewModel::toggleExpanded,
-                                initialScrollIndex = restoredIndex,
-                                initialScrollOffset = restoredOffset,
-                                onScrollChanged = onScrollChanged,
+                                initialScroll = browser.scrollOf(entry.path),
+                                onScrollChanged = viewModel::saveScroll,
                                 modifier = Modifier.weight(1f)
                             )
                         }
@@ -264,17 +233,14 @@ fun SftpScreenRoute(
                             onRefresh = viewModel::refresh,
                             isSearchActive = isSearchActive,
                             searchQuery = searchQuery,
-                            treeMode = treeMode,
+                            treeMode = browser.treeMode,
                             onSearchClick = { isSearchActive = true },
                             onCloseSearch = {
                                 isSearchActive = false
                                 searchQuery = ""
                             },
                             onSearchQueryChange = { searchQuery = it },
-                            onToggleTree = {
-                                treeMode = !treeMode
-                                onTreeModeChanged(treeMode)
-                            },
+                            onToggleTree = { viewModel.setTreeMode(!browser.treeMode) },
                             onUploadClick = { uploadPicker.launch("*/*") },
                             hazeState = hazeState,
                             modifier = Modifier

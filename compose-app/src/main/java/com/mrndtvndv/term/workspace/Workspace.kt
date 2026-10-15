@@ -5,9 +5,12 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 @Serializable
+@Suppress("TooManyFunctions")
 data class WorkspaceState(
     val workspaces: List<Workspace> = emptyList(),
     val activeWorkspaceId: String? = null,
+    /** SFTP browsers of remote Herdr workspaces. Ordinary SFTP tabs keep theirs in [Tab.Sftp]. */
+    val herdrBrowsers: List<HerdrSftpBrowser> = emptyList(),
 ) {
     val activeWorkspace: Workspace?
         get() = workspaces.firstOrNull { it.id == activeWorkspaceId }
@@ -43,7 +46,10 @@ data class WorkspaceState(
     }
 
     fun removeServer(serverId: String): WorkspaceState {
-        val remaining = copy(workspaces = workspaces.filter { it.serverId != serverId })
+        val remaining = copy(
+            workspaces = workspaces.filter { it.serverId != serverId },
+            herdrBrowsers = herdrBrowsers.filter { it.scope.serverId != serverId },
+        )
         return if (activeWorkspace?.serverId == serverId) remaining.deactivate() else remaining
     }
 
@@ -103,6 +109,35 @@ data class WorkspaceState(
     fun unbindHerdr(workspaceId: String): WorkspaceState =
         mapWorkspace(workspaceId) { it.copy(herdr = null) }
 
+    fun browser(key: SftpBrowserKey): SftpBrowserState? = when (key) {
+        is SftpBrowserKey.SftpTab -> sftpTab(key)?.browser
+        is SftpBrowserKey.HerdrWorkspace -> herdrBrowsers.firstOrNull { it.scope == key.scope }?.browser
+    }
+
+    /** Creates a Herdr browser at [initialDir] when missing. An ordinary tab's browser exists with its tab. */
+    fun openBrowser(key: SftpBrowserKey, initialDir: String): WorkspaceState = when {
+        browser(key) != null || key !is SftpBrowserKey.HerdrWorkspace -> this
+        else -> copy(herdrBrowsers = herdrBrowsers + HerdrSftpBrowser(key.scope, SftpBrowserState(initialDir)))
+    }
+
+    fun updateBrowser(key: SftpBrowserKey, transform: (SftpBrowserState) -> SftpBrowserState): WorkspaceState =
+        when (key) {
+            is SftpBrowserKey.SftpTab -> if (sftpTab(key) == null) {
+                this
+            } else {
+                updateTab(key.tabId) { tab -> if (tab is Tab.Sftp) tab.withBrowser(transform(tab.browser)) else tab }
+            }
+            is SftpBrowserKey.HerdrWorkspace -> copy(
+                herdrBrowsers = herdrBrowsers.map {
+                    if (it.scope == key.scope) it.copy(browser = transform(it.browser)) else it
+                },
+            )
+        }
+
+    private fun sftpTab(key: SftpBrowserKey.SftpTab): Tab.Sftp? =
+        workspaceOf(key.tabId)?.takeIf { it.serverId == key.serverId }?.tabs?.firstOrNull { it.id == key.tabId }
+            as? Tab.Sftp
+
     private fun mapWorkspace(workspaceId: String, transform: (Workspace) -> Workspace): WorkspaceState =
         copy(workspaces = workspaces.map { if (it.id == workspaceId) transform(it) else it })
 }
@@ -151,18 +186,47 @@ sealed interface Tab {
         val herdrTerminal: HerdrTerminalRef? = null,
     ) : Tab
 
-    /** [back] holds the folders below the top of the nav stack, bottom first. The top is always [dir]. */
+    /**
+     * An SFTP tab's [SftpBrowserState], stored flat. [scrollIndex] and [scrollOffset] are the position in [dir];
+     * [scrolls] holds the other folders. Read and write it through [browser] and [withBrowser].
+     */
     @Serializable @SerialName("sftp")
     data class Sftp(
         override val id: String,
         val dir: String,
         val back: List<String> = emptyList(),
-        /** Expanded tree-mode folders of [dir]. Cleared when [dir] changes. */
         val expanded: List<String> = emptyList(),
+        val collapsed: List<String> = emptyList(),
         val scrollIndex: Int = 0,
         val scrollOffset: Int = 0,
+        val scrolls: Map<String, SftpScroll> = emptyMap(),
         val treeMode: Boolean = false,
-    ) : Tab
+    ) : Tab {
+        val browser: SftpBrowserState
+            get() = SftpBrowserState(
+                dir = dir,
+                // Saves from before navigation became immediate can end back in dir. Keep that folder once.
+                back = if (back.lastOrNull() == dir) back.dropLast(1) else back,
+                treeMode = treeMode,
+                expanded = expanded,
+                collapsed = collapsed,
+                scroll = scrolls + (dir to SftpScroll(scrollIndex, scrollOffset)),
+            )
+
+        fun withBrowser(browser: SftpBrowserState): Sftp {
+            val current = browser.scrollOf(browser.dir)
+            return copy(
+                dir = browser.dir,
+                back = browser.back,
+                expanded = browser.expanded,
+                collapsed = browser.collapsed,
+                scrollIndex = current.index,
+                scrollOffset = current.offset,
+                scrolls = browser.scroll - browser.dir,
+                treeMode = browser.treeMode,
+            )
+        }
+    }
 
     @Serializable @SerialName("git")
     data class Git(override val id: String, val repoDir: String) : Tab

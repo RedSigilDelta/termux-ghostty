@@ -6,23 +6,23 @@ import org.junit.Test
 
 class NotificationStateTest {
     @Test
-    fun `post preserves Herdr terminal destination`() {
+    fun `post preserves the typed destination`() {
         val state = NotificationState()
+        val destination = NotificationDestination.HerdrSession("server-1", "/home/u/.config/herdr/herdr.sock")
 
-        state.post(
-            title = "Build finished",
-            body = "Ready",
-            serverId = "server-1",
-            tabId = "app-tab-1",
-            herdrTerminalId = "terminal-1",
-        )
+        state.post(title = "Build finished", body = "Ready", destination = destination)
 
-        val notification = state.notification.value
-        assertEquals("server-1", notification?.serverId)
-        assertEquals("app-tab-1", notification?.tabId)
-        assertEquals("terminal-1", notification?.herdrTerminalId)
-
+        assertEquals(destination, state.notification.value?.destination)
         state.dismiss()
         assertNull(state.notification.value)
+    }
+
+    @Test
+    fun `app messages have no destination`() {
+        val state = NotificationState()
+
+        state.post("Couldn't focus pane", "Herdr is not connected")
+
+        assertNull(state.notification.value?.destination)
     }
 }

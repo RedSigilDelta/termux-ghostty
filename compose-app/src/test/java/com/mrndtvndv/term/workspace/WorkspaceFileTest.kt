@@ -73,6 +73,50 @@ class WorkspaceFileTest {
     }
 
     @Test
+    fun decodesSavedSftpNavigationIntoItsBrowser() {
+        val file = File(tmp.root, "workspaces.json")
+        file.writeText(
+            """
+            {"workspaces":[{"id":"w1","serverId":"s1","name":"home","root":"/home",
+            "tabs":[{"type":"sftp","id":"f1","dir":"/home/src","back":["/home"],"expanded":["/home/src/app"],
+            "scrollIndex":42,"scrollOffset":17,"treeMode":true}],"activeTabId":"f1"}],"activeWorkspaceId":"w1"}
+            """.trimIndent()
+        )
+
+        val browser = WorkspaceFile(file).read().browser(SftpBrowserKey.SftpTab("s1", "f1"))
+
+        assertEquals(
+            SftpBrowserState(
+                dir = "/home/src",
+                back = listOf("/home"),
+                treeMode = true,
+                expanded = listOf("/home/src/app"),
+                scroll = mapOf("/home/src" to SftpScroll(42, 17)),
+            ),
+            browser,
+        )
+    }
+
+    @Test
+    fun roundTripsHerdrBrowsers() {
+        val browser = HerdrSftpBrowser(
+            scope = HerdrFileScope("s1", "/tmp/herdr.sock", "w1"),
+            browser = SftpBrowserState(
+                dir = "/project/build",
+                back = listOf("/project"),
+                treeMode = true,
+                expanded = listOf("/project/build/out"),
+                collapsed = listOf("/project/build/tmp"),
+                scroll = mapOf("/project" to SftpScroll(3, 4)),
+            ),
+        )
+        val withBrowser = state.copy(herdrBrowsers = listOf(browser))
+        WorkspaceFile(File(tmp.root, "workspaces.json")).write(withBrowser)
+
+        assertEquals(withBrowser, WorkspaceFile(File(tmp.root, "workspaces.json")).read())
+    }
+
+    @Test
     fun writesTabTypeDiscriminator() {
         WorkspaceFile(File(tmp.root, "workspaces.json")).write(state)
 

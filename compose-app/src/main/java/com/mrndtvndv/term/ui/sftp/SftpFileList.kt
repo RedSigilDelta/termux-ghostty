@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
@@ -42,11 +41,13 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -54,7 +55,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import com.mrndtvndv.term.domain.SftpFile
+import com.mrndtvndv.term.workspace.SftpScroll
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -64,6 +68,7 @@ import kotlin.math.pow
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 
 private val TREE_INDENT = 16.dp
 private const val ScrollSaveDelayMs = 500L
@@ -123,14 +128,15 @@ fun SftpDirectory(
     onToggleFolder: (SftpFile) -> Unit = {},
     searchQuery: String = "",
     onClearSearch: () -> Unit = {},
-    initialScrollIndex: Int = 0,
-    initialScrollOffset: Int = 0,
-    onScrollChanged: (Int, Int) -> Unit = { _, _ -> }
+    initialScroll: SftpScroll = SftpScroll(),
+    onScrollChanged: (folder: String, SftpScroll) -> Unit = { _, _ -> }
 ) {
     Box(
         modifier = modifier.fillMaxSize()
     ) {
-        when (state) {
+        // A listing of another folder is never shown as this one's.
+        val shown = state.takeIf { it.path == folder } ?: SftpUiState.Loading(folder)
+        when (shown) {
             is SftpUiState.Loading -> {
                 Box(
                     modifier = Modifier.fillMaxSize(),
@@ -140,7 +146,7 @@ fun SftpDirectory(
                 }
             }
             is SftpUiState.Success -> SftpFileList(
-                state = state,
+                state = shown,
                 folder = folder,
                 treeMode = treeMode,
                 tree = tree,
@@ -152,8 +158,7 @@ fun SftpDirectory(
                 onDownload = onDownload,
                 onRename = onRename,
                 onDelete = onDelete,
-                initialScrollIndex = initialScrollIndex,
-                initialScrollOffset = initialScrollOffset,
+                initialScroll = initialScroll,
                 onScrollChanged = onScrollChanged
             )
             is SftpUiState.Error -> {
@@ -164,7 +169,7 @@ fun SftpDirectory(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = state.message,
+                        text = shown.message,
                         color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.bodyLarge
                     )
@@ -174,6 +179,7 @@ fun SftpDirectory(
     }
 }
 
+@OptIn(FlowPreview::class)
 @Suppress("LongParameterList")
 @Composable
 private fun SftpFileList(
@@ -189,9 +195,8 @@ private fun SftpFileList(
     onDownload: (SftpFile) -> Unit,
     onRename: (SftpFile) -> Unit,
     onDelete: (SftpFile) -> Unit,
-    initialScrollIndex: Int,
-    initialScrollOffset: Int,
-    onScrollChanged: (Int, Int) -> Unit
+    initialScroll: SftpScroll,
+    onScrollChanged: (folder: String, SftpScroll) -> Unit
 ) {
     val filteredFiles = remember(state.files, searchQuery) {
         if (searchQuery.isBlank()) {
@@ -206,8 +211,17 @@ private fun SftpFileList(
     val rows = remember(filteredFiles, tree, showTree) {
         if (showTree) flattenTree(filteredFiles, tree) else filteredFiles.map { SftpRow(it) }
     }
-    // Held here rather than in the list, so an empty result (a search with no matches) keeps the position.
-    val listState = key(folder) { rememberLazyListState(initialScrollIndex, initialScrollOffset) }
+    var restored by remember(folder) { mutableStateOf(false) }
+    if (!restored && treeMode && !tree.hasRestoredChildren(state.files)) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { LoadingIndicator() }
+        return
+    }
+    SideEffect { restored = true }
+    // The repository owns restoration. A second saveable LazyListState could restore an older snapshot over it.
+    val browserListState = rememberBrowserListState(folder, initialScroll, onScrollChanged)
+    val searching = searchQuery.isNotBlank()
+    val searchListState = remember(folder, searchQuery) { LazyListState() }
+    val listState = if (searching) searchListState else browserListState
 
     if (rows.isEmpty()) {
         SftpEmptyList(
@@ -217,8 +231,7 @@ private fun SftpFileList(
     } else {
         SftpFileItems(
             rows = rows,
-            rootPath = state.currentPath,
-            folder = folder,
+            rootPath = state.path,
             showTree = showTree,
             gitStatuses = state.gitStatuses,
             onToggleFolder = onToggleFolder,
@@ -227,10 +240,41 @@ private fun SftpFileList(
             onDownload = onDownload,
             onRename = onRename,
             onDelete = onDelete,
-            listState = listState,
-            onScrollChanged = onScrollChanged
+            listState = listState
         )
     }
+}
+
+@OptIn(FlowPreview::class)
+@Composable
+private fun rememberBrowserListState(
+    folder: String,
+    initialScroll: SftpScroll,
+    onScrollChanged: (String, SftpScroll) -> Unit,
+): LazyListState {
+    val listState = remember(folder) { LazyListState(initialScroll.index, initialScroll.offset) }
+    val scrollSession = remember(folder) { SftpScrollSession(folder) }
+    val writeScroll by rememberUpdatedState(onScrollChanged)
+    LaunchedEffect(listState, scrollSession) {
+        snapshotFlow {
+            SftpScroll(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset) to
+                listState.layoutInfo.totalItemsCount
+        }
+            .distinctUntilChanged()
+            .map { (position, items) -> scrollSession.record(position, items) }
+            .debounce(ScrollSaveDelayMs)
+            .collect { scrollSession.save(writeScroll) }
+    }
+    val saveLatest = {
+        scrollSession.record(
+            SftpScroll(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset),
+            listState.layoutInfo.totalItemsCount,
+        )
+        scrollSession.save(writeScroll)
+    }
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { saveLatest() }
+    DisposableEffect(listState, scrollSession) { onDispose { saveLatest() } }
+    return listState
 }
 
 @Composable
@@ -280,13 +324,11 @@ private fun SftpEmptyList(
     }
 }
 
-@OptIn(FlowPreview::class)
 @Suppress("LongParameterList")
 @Composable
 private fun SftpFileItems(
     rows: List<SftpRow>,
     rootPath: String,
-    folder: String,
     showTree: Boolean,
     gitStatuses: Map<String, String>,
     onToggleFolder: (SftpFile) -> Unit,
@@ -295,19 +337,9 @@ private fun SftpFileItems(
     onDownload: (SftpFile) -> Unit,
     onRename: (SftpFile) -> Unit,
     onDelete: (SftpFile) -> Unit,
-    listState: LazyListState,
-    onScrollChanged: (Int, Int) -> Unit
+    listState: LazyListState
 ) {
     var menuTargetPath by remember { mutableStateOf<String?>(null) }
-    // While a folder loads, the previous folder's rows are shown. Their position is not this folder's, so skip saving.
-    if (rootPath == folder) {
-        LaunchedEffect(folder) {
-            snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
-                .debounce(ScrollSaveDelayMs)
-                .distinctUntilChanged()
-                .collect { (index, offset) -> onScrollChanged(index, offset) }
-        }
-    }
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize(),

@@ -28,7 +28,8 @@ import com.mrndtvndv.term.navigation.AppRoute
 import com.mrndtvndv.term.server.AppSessionManager
 import com.mrndtvndv.term.server.SessionHost
 import com.mrndtvndv.term.ui.TermApp
-import com.mrndtvndv.term.ui.notification.NotificationState
+import com.mrndtvndv.term.ui.notification.NotificationDestination
+import com.mrndtvndv.term.ui.notification.NotificationDestinationCodec
 import com.termux.shared.interact.ShareUtils
 import com.termux.terminal.TerminalSession
 
@@ -39,7 +40,9 @@ class MainActivity : ComponentActivity(), SessionHost {
 
     private val viewModel: AppViewModel by viewModels {
         viewModelFactory {
-            initializer { AppViewModel(sessionManager, NotificationState(), container.workspaceRepository) }
+            initializer {
+                AppViewModel(sessionManager, sessionManager.notificationState, container.workspaceRepository)
+            }
         }
     }
 
@@ -82,14 +85,8 @@ class MainActivity : ComponentActivity(), SessionHost {
     override fun isAtLeast(state: Lifecycle.State): Boolean =
         lifecycle.currentState.isAtLeast(state)
 
-    override fun showInAppNotification(
-        title: String?,
-        body: String?,
-        serverId: String?,
-        tabId: String?,
-        herdrTerminalId: String?,
-    ) {
-        viewModel.notificationState.post(title, body, serverId, tabId, herdrTerminalId)
+    override fun showInAppNotification(title: String?, body: String?, destination: NotificationDestination?) {
+        viewModel.notificationState.post(title, body, destination)
     }
 
     private fun resolveUploadTarget(session: TerminalSession?): UploadTarget {
@@ -138,6 +135,8 @@ class MainActivity : ComponentActivity(), SessionHost {
     override fun onStop() {
         logRetentionLifecycle("stopped")
         super.onStop()
+        // ON_STOP listeners publish the latest browser scroll before the repository's app-scoped write runs.
+        container.workspaceRepository.flush()
     }
 
     private fun logRetentionLifecycle(event: String) {
@@ -176,13 +175,11 @@ class MainActivity : ComponentActivity(), SessionHost {
     }
 
     private fun handleNotificationTap(intent: Intent?) {
-        val serverId = intent?.getStringExtra(AppSessionManager.EXTRA_NOTIFICATION_SERVER_ID) ?: return
-        val tabId = intent.getStringExtra(AppSessionManager.EXTRA_NOTIFICATION_TAB_ID)
-        val herdrTerminalId = intent.getStringExtra(AppSessionManager.EXTRA_NOTIFICATION_HERDR_TERMINAL_ID)
-        intent.removeExtra(AppSessionManager.EXTRA_NOTIFICATION_SERVER_ID)
-        intent.removeExtra(AppSessionManager.EXTRA_NOTIFICATION_TAB_ID)
-        intent.removeExtra(AppSessionManager.EXTRA_NOTIFICATION_HERDR_TERMINAL_ID)
-        viewModel.focusTerminalNotification(serverId, tabId, herdrTerminalId)
+        intent ?: return
+        val destination = NotificationDestinationCodec.decode(intent::getStringExtra)
+        // Consumed once, so a recreated activity does not replay the tap.
+        NotificationDestinationCodec.KEYS.forEach(intent::removeExtra)
+        destination?.let(viewModel::openNotification)
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {

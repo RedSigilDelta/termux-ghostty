@@ -5,14 +5,18 @@ import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
-import com.mrndtvndv.term.navigation.SftpFolder
+import com.mrndtvndv.term.domain.SftpFile
 import com.mrndtvndv.term.server.AppSessionManagerAccess
 import com.mrndtvndv.term.server.FakeSharedPreferences
 import com.mrndtvndv.term.server.Server
 import com.mrndtvndv.term.server.ServerCoordinatorAccess
 import com.mrndtvndv.term.server.ServerRepository
 import com.mrndtvndv.term.ui.notification.NotificationState
-import com.mrndtvndv.term.ui.workspace.HerdrSftpNavigation
+import com.mrndtvndv.term.ui.sftp.FakeSftpClient
+import com.mrndtvndv.term.ui.sftp.SftpViewModel
+import com.mrndtvndv.term.workspace.HerdrFileScope
+import com.mrndtvndv.term.workspace.SftpBrowserKey
+import com.mrndtvndv.term.workspace.SftpScroll
 import com.mrndtvndv.term.workspace.Tab
 import com.mrndtvndv.term.workspace.WorkspaceFile
 import com.mrndtvndv.term.workspace.WorkspaceRepository
@@ -37,7 +41,7 @@ class AppViewModelConnectionStateTest {
     val temporaryFolder = TemporaryFolder()
 
     @Test
-    fun activityReplacementKeepsBrowserUntilConnectionEnds() = runTest {
+    fun browserControllerFollowsConnectionAndNavigationOutlivesIt() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         val manager = FakeSessionManager()
         val repository = WorkspaceRepository(
@@ -57,31 +61,40 @@ class AppViewModelConnectionStateTest {
             )[AppViewModel::class]
         }
 
-        fun browser(activity: AppViewModel): HerdrSftpNavigation = ViewModelProvider.create(
+        val key = SftpBrowserKey.HerdrWorkspace(HerdrFileScope("server", "/tmp/herdr.sock", "workspace"))
+        val folders = mapOf("/project" to emptyList(), "/project/build" to emptyList<SftpFile>())
+
+        fun browser(activity: AppViewModel, initialDir: String): SftpViewModel = ViewModelProvider.create(
             activity.connectionStore("server", "sftp:workspace"),
-            viewModelFactory { initializer { HerdrSftpNavigation("/project") } },
-        )[HerdrSftpNavigation::class]
+            viewModelFactory {
+                initializer {
+                    SftpViewModel(FakeSftpClient(folders), { "" }, null, "server", repository, key, initialDir)
+                }
+            },
+        )[SftpViewModel::class]
 
         try {
             val originalActivity = newActivity()
-            val originalBrowser = browser(originalActivity)
-            originalBrowser.backStack.add(SftpFolder("/project/build/outputs"))
-            originalBrowser.saveScrollPosition("/project/build/outputs", 7, 23)
-            originalBrowser.treeMode = true
+            val originalBrowser = browser(originalActivity, "/project")
+            originalBrowser.openFolder("/project/build")
+            originalBrowser.saveScroll("/project/build", SftpScroll(7, 23))
+            originalBrowser.setTreeMode(true)
 
             activities.first().viewModelStore.clear()
             val replacementActivity = newActivity()
-            val resumedBrowser = browser(replacementActivity)
+            val resumedBrowser = browser(replacementActivity, "/elsewhere")
 
             assertSame(originalBrowser, resumedBrowser)
-            assertEquals(SftpFolder("/project/build/outputs"), resumedBrowser.backStack.last())
-            assertEquals(7 to 23, resumedBrowser.scrollPosition("/project/build/outputs"))
-            assertEquals(true, resumedBrowser.treeMode)
 
             manager.disconnect("server")
-            val reconnectedBrowser = browser(replacementActivity)
+            val reconnectedBrowser = browser(replacementActivity, "/elsewhere")
             assertNotSame(originalBrowser, reconnectedBrowser)
-            assertEquals(SftpFolder("/project"), reconnectedBrowser.backStack.last())
+            // Only the connection's listings went away. Navigation, scroll and tree mode are kept.
+            val kept = checkNotNull(repository.browser(key))
+            assertEquals("/project/build", kept.dir)
+            assertEquals(listOf("/project"), kept.back)
+            assertEquals(SftpScroll(7, 23), kept.scrollOf("/project/build"))
+            assertEquals(true, kept.treeMode)
         } finally {
             activities.forEach { it.viewModelStore.clear() }
             manager.connectionStores.clearAll()

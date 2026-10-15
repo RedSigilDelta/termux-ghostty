@@ -39,6 +39,7 @@ import kotlin.coroutines.coroutineContext
  * Topology events invalidate, and refetches are coalesced: at most one in flight, and starts at least
  * [MIN_REFRESH_INTERVAL_MILLIS] apart. Every completed fetch refreshes status and re-arms the sample timer.
  */
+@Suppress("TooManyFunctions")
 class HerdrControlClient(
     private val session: SshSession,
     private val socketPath: String,
@@ -89,6 +90,46 @@ class HerdrControlClient(
         synchronized(lock) {
             if (closed) return
             connection?.invalidate()
+        }
+    }
+
+    /**
+     * Invalidates through the coalesced refresh loop, then waits for a snapshot whose fetch started after that
+     * invalidation. A fetch already in flight and the last-known snapshot kept across a reconnect never satisfy it.
+     * While disconnected, the next connection's bootstrap snapshot does. Events after the fetch started may already
+     * have made the result stale; callers that act on IDs from it must verify the reply.
+     */
+    suspend fun awaitFreshSnapshot(
+        timeoutMillis: Long = FRESH_SNAPSHOT_TIMEOUT_MILLIS,
+        requireCoherent: Boolean = false,
+    ): HerdrFreshSnapshot {
+        val token = synchronized(lock) {
+            if (closed) return HerdrFreshSnapshot.Unavailable(closedError().error)
+            // Connected: the generation this invalidation reached. Otherwise the next connection's bootstrap.
+            val conn = connection
+            if (conn != null) {
+                conn.invalidate()
+                eventGeneration.get()
+            } else {
+                eventGeneration.get() + 1
+            }
+        }
+        val state = withTimeoutOrNull(timeoutMillis) {
+            _state.first {
+                it.phase in TERMINAL_PHASES || (
+                    it.snapshot != null && it.snapshotGeneration >= token && (!requireCoherent || it.snapshotFresh)
+                )
+            }
+        } ?: return HerdrFreshSnapshot.Unavailable(
+            HerdrError(HerdrErrorKind.Timeout, "Timed out waiting for a fresh Herdr snapshot"),
+        )
+        val snapshot = state.snapshot
+        return if (state.phase in TERMINAL_PHASES || snapshot == null) {
+            HerdrFreshSnapshot.Unavailable(
+                state.error ?: HerdrError(HerdrErrorKind.Disconnected, "Herdr control is ${state.phase}"),
+            )
+        } else {
+            HerdrFreshSnapshot.Ready(state, snapshot)
         }
     }
 
@@ -254,6 +295,7 @@ class HerdrControlClient(
                         phase = HerdrPhase.Live,
                         snapshot = snapshot,
                         snapshotFresh = generation == eventGeneration.get(),
+                        snapshotGeneration = generation,
                         agentStatusSampledAtMillis = System.currentTimeMillis(),
                         error = null,
                         attempt = 0,
@@ -391,6 +433,10 @@ class HerdrControlClient(
         /** Minimum gap between snapshot fetch starts, so an event burst cannot drive one fetch per event. */
         const val MIN_REFRESH_INTERVAL_MILLIS = 250L
 
+        /** Upper bound for [awaitFreshSnapshot]: one coalescing delay plus a request, with room for a reconnect. */
+        const val FRESH_SNAPSHOT_TIMEOUT_MILLIS = 15_000L
+
+        private val TERMINAL_PHASES = setOf(HerdrPhase.Unsupported, HerdrPhase.Failed, HerdrPhase.Closed)
         private val OUTCOME_PHASES = setOf(
             HerdrPhase.Live,
             HerdrPhase.Reconnecting,
