@@ -9,6 +9,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -66,7 +67,15 @@ class ModifierKeys {
 
     fun tapCtrl() {
         ctrlConsumed = false
-        ctrl = nextTapState(ctrl)
+        ctrl = when (ctrl) {
+            KeyModifierState.OFF -> KeyModifierState.ARMED
+            KeyModifierState.ARMED, KeyModifierState.LOCKED -> KeyModifierState.OFF
+        }
+    }
+
+    fun holdCtrl() {
+        ctrlConsumed = false
+        ctrl = KeyModifierState.LOCKED
     }
 
     fun tapAlt() {
@@ -351,7 +360,12 @@ fun KeyBar(
 ) {
     FloatingBar(tabsButton = tabsButton, modifier = modifier, pillModifier = pillModifier) {
         KeyButton(label = "Esc", onClick = { onKey(KeyEvent.KEYCODE_ESCAPE) })
-        ModifierKeyButton(label = "Ctrl", state = modifiers.ctrl, onClick = modifiers::tapCtrl)
+        ModifierKeyButton(
+            label = "Ctrl",
+            state = modifiers.ctrl,
+            onClick = modifiers::tapCtrl,
+            onLongClick = modifiers::holdCtrl,
+        )
         ModifierKeyButton(label = "Alt", state = modifiers.alt, onClick = modifiers::tapAlt)
         ArrowJoystick(mode = joystickMode, onArrow = { onKey(it.keyCode) })
         KeyButton(label = "Tab", onClick = { onKey(KeyEvent.KEYCODE_TAB) })
@@ -382,20 +396,32 @@ fun KeyBarIcon(icon: ImageVector, contentDescription: String, onClick: () -> Uni
 }
 
 @Composable
-private fun ModifierKeyButton(label: String, state: KeyModifierState, onClick: () -> Unit) {
+private fun ModifierKeyButton(
+    label: String,
+    state: KeyModifierState,
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
+) {
     val colors = MaterialTheme.colorScheme
     val (containerColor, contentColor) = when (state) {
         KeyModifierState.OFF -> Color.Transparent to colors.onSurface
         KeyModifierState.ARMED -> colors.secondaryContainer to colors.onSecondaryContainer
         KeyModifierState.LOCKED -> colors.primary to colors.onPrimary
     }
-    KeyButton(label = label, onClick = onClick, containerColor = containerColor, contentColor = contentColor)
+    KeyButton(
+        label = label,
+        onClick = onClick,
+        onLongClick = onLongClick,
+        containerColor = containerColor,
+        contentColor = contentColor,
+    )
 }
 
 @Composable
 private fun KeyButton(
     label: String,
     onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
     containerColor: Color = Color.Transparent,
     contentColor: Color = MaterialTheme.colorScheme.onSurface,
 ) {
@@ -413,10 +439,11 @@ private fun KeyButton(
             .focusProperties { canFocus = false }
             .clip(RoundedCornerShape(percent = 50))
             .background(containerColor)
-            .clickable(
+            .combinedClickable(
                 interactionSource = interactionSource,
                 indication = LocalIndication.current,
                 onClick = onClick,
+                onLongClick = onLongClick,
             )
             .defaultMinSize(minWidth = 44.dp, minHeight = 36.dp)
             .padding(horizontal = 10.dp),

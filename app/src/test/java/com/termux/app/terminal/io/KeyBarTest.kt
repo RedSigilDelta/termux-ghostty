@@ -118,18 +118,30 @@ class KeyBarTest {
     }
 
     @Test
-    fun modifierTapCyclesOffArmedLocked() {
+    fun ctrlTapArmsThenCancelsWithoutLocking() {
         val keys = ModifierKeys()
 
         keys.tapCtrl()
         assertEquals(KeyModifierState.ARMED, keys.ctrl)
         keys.tapCtrl()
-        assertEquals(KeyModifierState.LOCKED, keys.ctrl)
-        keys.tapCtrl()
         assertEquals(KeyModifierState.OFF, keys.ctrl)
 
         keys.tapAlt()
         assertEquals(KeyModifierState.ARMED, keys.alt)
+    }
+
+    @Test
+    fun holdingCtrlLocksUntilTappedAgain() {
+        val keys = ModifierKeys()
+
+        keys.holdCtrl()
+        assertEquals(KeyModifierState.LOCKED, keys.ctrl)
+        assertTrue(keys.readCtrl())
+        keys.clearConsumed()
+        assertEquals(KeyModifierState.LOCKED, keys.ctrl)
+
+        keys.tapCtrl()
+        assertEquals(KeyModifierState.OFF, keys.ctrl)
     }
 
     @Test
@@ -157,8 +169,7 @@ class KeyBarTest {
     @Test
     fun lockedModifierSurvivesMetaState() {
         val keys = ModifierKeys()
-        keys.tapCtrl()
-        keys.tapCtrl()
+        keys.holdCtrl()
 
         assertEquals(KeyEvent.META_CTRL_ON or KeyEvent.META_CTRL_LEFT_ON, keys.metaState())
         assertEquals(KeyModifierState.LOCKED, keys.ctrl)
