@@ -10,7 +10,6 @@ import androidx.compose.foundation.pager.PagerDefaults
 import androidx.compose.foundation.pager.PagerSnapDistance
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -50,17 +49,6 @@ fun WorkspacePager(
         pagerSnapDistance = PagerSnapDistance.atMost(1),
     )
 
-    // On non-first pages, rightward swipes near the left screen edge would be
-    // captured by the system back gesture (predictive back, API 29+) instead of the
-    // pager — e.g. SFTP→Git becomes a back press that navigates to the previous tab.
-    // Hand the edge zone to the pager so those swipes always switch pages.
-    // NOTE: keyed on settledPage, not currentPage. currentPage flips mid-swipe while
-    // the pager is still placing pages; toggling systemGestureExclusion then replaces
-    // the pager's LayoutNode mid-placement ("LayoutNode should be attached to an
-    // owner" during dispatchDraw). settledPage only flips after the scroll settles,
-    // when the pager is idle.
-    val excludeFromSystemGesture = pagerState.settledPage != 0
-
     val pageNestedScrollConnection = rememberHorizontalDominantConnection(pagerState)
 
     PagerSyncEffects(pagerState, tabs, currentTabId, onSelectTab, LocalAnimationsEnabled.current)
@@ -85,9 +73,7 @@ fun WorkspacePager(
             // Lazy layouts route page keys through SaveableStateProvider, which crashes
             // on arbitrary objects.
             key = { index -> tabs.getOrNull(index)?.id ?: "page:$index" },
-            modifier = pageModifier
-                .clipToBounds()
-                .then(if (excludeFromSystemGesture) Modifier.systemGestureExclusion() else Modifier)
+            modifier = pageModifier.clipToBounds(),
         ) { page ->
             tabs.getOrNull(page)?.let { tab ->
                 val isActive = tab.id == currentTabId &&
