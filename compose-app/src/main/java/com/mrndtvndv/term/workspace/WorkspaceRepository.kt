@@ -70,6 +70,10 @@ class WorkspaceRepository(private val file: WorkspaceFile, private val scope: Co
         _state.update { it.closeTab(tabId) }
     }
 
+    fun moveTab(tabId: String, toIndex: Int) {
+        _state.update { it.moveTab(tabId, toIndex) }
+    }
+
     fun renameTerminal(tabId: String, name: String?) {
         _state.update { it.updateTab(tabId) { tab -> if (tab is Tab.Terminal) tab.copy(name = name) else tab } }
     }

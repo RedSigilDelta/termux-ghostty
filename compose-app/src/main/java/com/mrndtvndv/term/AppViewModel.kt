@@ -330,6 +330,10 @@ class AppViewModel(
         repository.closeTab(tabId)
     }
 
+    fun moveTab(tabId: String, toIndex: Int) {
+        repository.moveTab(tabId, toIndex)
+    }
+
     fun activateTab(tabId: String) {
         repository.activateTab(tabId)
     }

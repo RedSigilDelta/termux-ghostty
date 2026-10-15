@@ -69,6 +69,47 @@ class WorkspaceStateTest {
     }
 
     @Test
+    fun moveTabForwardInsertsAtTargetIndex() {
+        val state = stateWithTabs("t1", "t2", "t3").moveTab("t1", 2)
+
+        assertEquals(listOf("t2", "t3", "t1"), tabIds(state))
+    }
+
+    @Test
+    fun moveTabBackwardInsertsAtTargetIndex() {
+        val state = stateWithTabs("t1", "t2", "t3").moveTab("t3", 0)
+
+        assertEquals(listOf("t3", "t1", "t2"), tabIds(state))
+    }
+
+    @Test
+    fun moveTabClampsIndexToRange() {
+        assertEquals(listOf("t2", "t3", "t1"), tabIds(stateWithTabs("t1", "t2", "t3").moveTab("t1", 99)))
+        assertEquals(listOf("t3", "t1", "t2"), tabIds(stateWithTabs("t1", "t2", "t3").moveTab("t3", -5)))
+    }
+
+    @Test
+    fun moveTabKeepsActiveTab() {
+        val state = stateWithTabs("t1", "t2", "t3").activateTab("t2").moveTab("t1", 2)
+
+        assertEquals("t2", state.activeWorkspace?.activeTabId)
+    }
+
+    @Test
+    fun moveTabToSameIndexLeavesOrderAlone() {
+        val state = stateWithTabs("t1", "t2", "t3")
+
+        assertEquals(state, state.moveTab("t2", 1))
+    }
+
+    @Test
+    fun moveUnknownTabIsNoOp() {
+        val state = stateWithTabs("t1", "t2")
+
+        assertEquals(state, state.moveTab("missing", 0))
+    }
+
+    @Test
     fun activateTabSwitchesActiveWorkspace() {
         val state = stateWithTabs("t1")
             .addWorkspace(Workspace(id = "w2", serverId = "s1", name = "other", root = "/other"))

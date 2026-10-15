@@ -84,6 +84,16 @@ data class WorkspaceState(
         return mapWorkspace(owner.id) { it.copy(tabs = tabs, activeTabId = activeTabId) }
     }
 
+    /** Moves a tab to [toIndex] within its workspace; the index is clamped. Active tab is unchanged. */
+    fun moveTab(tabId: String, toIndex: Int): WorkspaceState {
+        val owner = workspaceOf(tabId) ?: return this
+        val from = owner.tabs.indexOfFirst { it.id == tabId }
+        val tabs = owner.tabs.toMutableList()
+        val tab = tabs.removeAt(from)
+        tabs.add(toIndex.coerceIn(0, tabs.size), tab)
+        return mapWorkspace(owner.id) { it.copy(tabs = tabs) }
+    }
+
     private fun mapWorkspace(workspaceId: String, transform: (Workspace) -> Workspace): WorkspaceState =
         copy(workspaces = workspaces.map { if (it.id == workspaceId) transform(it) else it })
 }

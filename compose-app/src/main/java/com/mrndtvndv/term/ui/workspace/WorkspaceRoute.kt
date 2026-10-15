@@ -160,6 +160,10 @@ fun WorkspaceRoute(
             appViewModel.closeTab(id)
         }
 
+        override fun onMoveTab(id: String, toIndex: Int) {
+            appViewModel.moveTab(id, toIndex)
+        }
+
         override fun onRenameTab(id: String) {
             val tab = workspace.tabs.firstOrNull { it.id == id } as? Tab.Terminal ?: return
             dialog = WorkspaceDialogs.RenameTerminal(tab.id, tab.name)

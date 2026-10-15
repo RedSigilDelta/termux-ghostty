@@ -10,6 +10,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Arrangement
@@ -44,6 +47,7 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.DragIndicator
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.UnfoldMore
@@ -60,6 +64,7 @@ import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -70,11 +75,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import com.mrndtvndv.processicons.commandIconResource
 import com.mrndtvndv.term.TabType
 import com.mrndtvndv.term.ui.components.FloatingPill
@@ -102,6 +112,7 @@ data class WorkspaceItem(val id: String, val name: String, val root: String, val
 interface TabsGridActions {
     fun onSelectTab(id: String)
     fun onCloseTab(id: String)
+    fun onMoveTab(id: String, toIndex: Int)
     fun onRenameTab(id: String)
     fun onNewTab(type: TabType)
     fun onSelectWorkspace(id: String)
@@ -127,6 +138,8 @@ fun TabsGrid(
     val gridState = rememberLazyGridState()
     LaunchedEffect(visible) { if (visible && tabs.isNotEmpty()) gridState.scrollToItem(tabs.lastIndex) }
 
+    val reorder = rememberTabReorderState(gridState, tabs, visible, actions::onMoveTab)
+
     AnimatedVisibility(
         visible = visible,
         enter = fadeIn() + slideInVertically { it / 4 },
@@ -136,7 +149,10 @@ fun TabsGrid(
             Box(modifier = Modifier.fillMaxSize()) {
                 LazyVerticalGrid(
                     columns = GridCells.Adaptive(minSize = 150.dp),
-                    modifier = Modifier.fillMaxSize().hazeSource(hazeState),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .hazeSource(hazeState)
+                        .onGloballyPositioned { reorder.viewport = it },
                     state = gridState,
                     contentPadding = PaddingValues(
                         start = 12.dp,
@@ -149,9 +165,10 @@ fun TabsGrid(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.Bottom),
                 ) {
-                    items(tabs, key = { it.id }) { tab ->
+                    items(reorder.arrange(tabs), key = { it.id }) { tab ->
                         SwipeableTabCard(
                             tab = tab,
+                            reorder = reorder,
                             onSelect = { actions.onSelectTab(tab.id) },
                             onClose = { actions.onCloseTab(tab.id) },
                             onRename = { if (tab.kind == TabKind.Terminal) actions.onRenameTab(tab.id) },
@@ -319,6 +336,7 @@ private fun NewTabButton(canAddSftp: Boolean, canAddGit: Boolean, onNewTab: (Tab
 @Composable
 private fun LazyGridItemScope.SwipeableTabCard(
     tab: TabCard,
+    reorder: TabReorderState,
     onSelect: () -> Unit,
     onClose: () -> Unit,
     onRename: () -> Unit,
@@ -328,9 +346,20 @@ private fun LazyGridItemScope.SwipeableTabCard(
     LaunchedEffect(dismissState.currentValue) {
         if (dismissState.currentValue != SwipeToDismissBoxValue.Settled) onClose()
     }
+    val dragging = reorder.draggingId == tab.id
     SwipeToDismissBox(
         state = dismissState,
-        modifier = Modifier.animateItem(),
+        modifier = Modifier
+            // The dragged card keeps its slot without animating, so the translation below is its only motion.
+            .then(if (dragging) Modifier.zIndex(1f).animateItem(placementSpec = null) else Modifier.animateItem())
+            .graphicsLayer {
+                val offset = reorder.translationOf(tab.id)
+                translationX = offset.x
+                translationY = offset.y
+                val lift = if (dragging) 1.04f else 1f
+                scaleX = lift
+                scaleY = lift
+            },
         backgroundContent = {
             Box(
                 modifier = Modifier
@@ -340,13 +369,21 @@ private fun LazyGridItemScope.SwipeableTabCard(
             )
         },
     ) {
-        TabCardContent(tab = tab, onClick = onSelect, onLongClick = onRename, onClose = onClose, preview = preview)
+        TabCardContent(
+            tab = tab,
+            reorder = reorder,
+            onClick = onSelect,
+            onLongClick = onRename,
+            onClose = onClose,
+            preview = preview,
+        )
     }
 }
 
 @Composable
 private fun TabCardContent(
     tab: TabCard,
+    reorder: TabReorderState,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onClose: () -> Unit,
@@ -371,7 +408,13 @@ private fun TabCardContent(
             .combinedClickable(onClick = onClick, onLongClick = onLongClick),
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            TabCardHeader(tab = tab, finished = finished, contentColor = contentColor, onClose = onClose)
+            TabCardHeader(
+                tab = tab,
+                finished = finished,
+                contentColor = contentColor,
+                onClose = onClose,
+                reorder = reorder,
+            )
             preview(
                 tab,
                 Modifier
@@ -385,12 +428,20 @@ private fun TabCardContent(
 }
 
 @Composable
-private fun TabCardHeader(tab: TabCard, finished: Boolean, contentColor: Color, onClose: () -> Unit) {
+private fun TabCardHeader(
+    tab: TabCard,
+    finished: Boolean,
+    contentColor: Color,
+    onClose: () -> Unit,
+    reorder: TabReorderState,
+) {
     val colorScheme = MaterialTheme.colorScheme
     Row(
-        modifier = Modifier.fillMaxWidth().padding(start = 10.dp, top = 8.dp, end = 2.dp),
+        modifier = Modifier.fillMaxWidth().padding(start = 2.dp, top = 8.dp, end = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        DragHandle(tabId = tab.id, reorder = reorder)
+        Spacer(Modifier.width(2.dp))
         TabIcon(
             kind = tab.kind,
             title = tab.title,
@@ -424,6 +475,39 @@ private fun TabCardHeader(tab: TabCard, finished: Boolean, contentColor: Color, 
                 modifier = Modifier.size(18.dp),
             )
         }
+    }
+}
+
+/** Grip that drags the card. Keyed on [tabId] so a swap doesn't restart the gesture mid-drag. */
+@Composable
+private fun DragHandle(tabId: String, reorder: TabReorderState) {
+    var coords by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    DisposableEffect(tabId) { onDispose { reorder.release(tabId) } }
+    Box(
+        modifier = Modifier
+            .size(28.dp)
+            .onGloballyPositioned { coords = it }
+            // Taking the press here keeps the card's long-press rename from firing while the grip is held.
+            .pointerInput(Unit) { awaitEachGesture { awaitFirstDown(requireUnconsumed = false).consume() } }
+            .pointerInput(tabId) {
+                detectDragGestures(
+                    onDragStart = { at -> reorder.start(tabId, coords, at) },
+                    onDrag = { change, _ ->
+                        change.consume()
+                        reorder.move(coords, change.position)
+                    },
+                    onDragEnd = { reorder.drop() },
+                    onDragCancel = { reorder.cancel() },
+                )
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            Icons.Rounded.DragIndicator,
+            contentDescription = "Reorder tab",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(18.dp),
+        )
     }
 }
 
