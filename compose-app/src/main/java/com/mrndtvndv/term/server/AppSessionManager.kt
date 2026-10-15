@@ -50,7 +50,7 @@ class AppSessionManager private constructor(context: Context) : AppSessionManage
             onServiceBind = { bindTerminalSession(it) },
         )
     }
-    private val serverManager by lazy { ServerManager(serverFactory) }
+    private val serverManager by lazy { ServerManager(serverFactory::create) }
     override val coordinator by lazy {
         ServerCoordinator(
             serverManager = serverManager,
