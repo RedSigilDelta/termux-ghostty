@@ -47,7 +47,7 @@ class AppSessionManager private constructor(context: Context) : AppSessionManage
         ServerFactory(
             context = appContext,
             onSessionClientCreated = { createDefaultSessionClient() },
-            onServiceBind = { bindTerminalSession(it) },
+            onServiceBind = { session, serverId -> bindTerminalSession(session, serverId) },
         )
     }
     private val serverManager by lazy { ServerManager(serverFactory::create) }
@@ -128,6 +128,7 @@ class AppSessionManager private constructor(context: Context) : AppSessionManage
         synchronized(this) {
             activeSessions.clear()
             pendingSessions.clear()
+            connectionOfSession.clear()
             sshService?.stopIfIdle()
             unbindServiceIfNeeded()
         }
@@ -307,6 +308,8 @@ class AppSessionManager private constructor(context: Context) : AppSessionManage
     private var sshService: SshSessionService? = null
     private val activeSessions = mutableSetOf<TerminalSession>()
     private val pendingSessions = mutableSetOf<TerminalSession>()
+    /** SSH connection each terminal session runs on, so the notification can count connections. */
+    private val connectionOfSession = mutableMapOf<TerminalSession, String>()
     private var isBound = false
 
     private val connection = object : ServiceConnection {
@@ -315,7 +318,7 @@ class AppSessionManager private constructor(context: Context) : AppSessionManage
             val s = binder.getService()
             synchronized(this@AppSessionManager) {
                 sshService = s
-                pendingSessions.forEach { s.addSession(it) }
+                pendingSessions.forEach { s.addSession(it, connectionOfSession.getValue(it)) }
                 pendingSessions.clear()
                 if (activeSessions.isEmpty()) {
                     s.stopIfIdle()
@@ -333,8 +336,9 @@ class AppSessionManager private constructor(context: Context) : AppSessionManage
     }
 
     @Synchronized
-    private fun bindTerminalSession(termSession: TerminalSession) {
+    private fun bindTerminalSession(termSession: TerminalSession, serverId: String) {
         activeSessions.add(termSession)
+        connectionOfSession[termSession] = serverId
         val intent = Intent(appContext, SshSessionService::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             appContext.startForegroundService(intent)
@@ -343,7 +347,7 @@ class AppSessionManager private constructor(context: Context) : AppSessionManage
         }
         val service = sshService
         if (service != null) {
-            service.addSession(termSession)
+            service.addSession(termSession, serverId)
         } else {
             pendingSessions.add(termSession)
         }
@@ -355,6 +359,7 @@ class AppSessionManager private constructor(context: Context) : AppSessionManage
     @Synchronized
     private fun unbindTerminalSession(termSession: TerminalSession) {
         activeSessions.remove(termSession)
+        connectionOfSession.remove(termSession)
         pendingSessions.remove(termSession)
         sshService?.removeSession(termSession.mHandle)
         if (activeSessions.isEmpty()) {

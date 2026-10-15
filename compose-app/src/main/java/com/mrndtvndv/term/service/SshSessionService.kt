@@ -23,6 +23,8 @@ class SshSessionService : Service() {
 
     private val binder = LocalBinder()
     private val sessions = ConcurrentHashMap<String, TerminalSession>()
+    /** SSH connection id per session handle. Local sessions have none. */
+    private val connections = ConcurrentHashMap<String, String>()
     private var wakeLock: PowerManager.WakeLock? = null
 
     companion object {
@@ -76,12 +78,14 @@ class SshSessionService : Service() {
 
     fun getSessions(): Map<String, TerminalSession> = sessions
 
-    fun addSession(session: TerminalSession) {
+    fun addSession(session: TerminalSession, connectionId: String) {
         sessions[session.mHandle] = session
+        connections[session.mHandle] = connectionId
         updateNotification()
     }
 
     fun removeSession(handle: String) {
+        connections.remove(handle)
         sessions.remove(handle)?.finishIfRunning()
         updateNotification()
     }
@@ -92,6 +96,7 @@ class SshSessionService : Service() {
             try { it.close() } catch (_: Exception) { }
         }
         sessions.clear()
+        connections.clear()
         updateNotification()
     }
 
@@ -173,10 +178,14 @@ class SshSessionService : Service() {
 
     private fun getNotificationTitleAndText(): Pair<String, String> {
         val activeSessions = sessions.values
-        val sshCount = activeSessions.count { it.sshShellHandle != 0L }
+        val sshConnectionCount = activeSessions
+            .filter { it.sshShellHandle != 0L }
+            .map { connections[it.mHandle] ?: it.mHandle }
+            .toSet()
+            .size
         val localCount = activeSessions.count { it.sshShellHandle == 0L }
         val wakeLockHeld = wakeLock?.isHeld == true
-        return SshSessionNotificationFormatter.formatTitleAndText(sshCount, localCount, wakeLockHeld)
+        return SshSessionNotificationFormatter.formatTitleAndText(sshConnectionCount, localCount, wakeLockHeld)
     }
 
     private fun buildNotification(): Notification {

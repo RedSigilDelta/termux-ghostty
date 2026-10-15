@@ -22,7 +22,7 @@ import java.io.File
 class ServerFactory(
     private val context: Context,
     private val onSessionClientCreated: () -> TermuxTerminalSessionClientBase,
-    private val onServiceBind: (TerminalSession) -> Unit,
+    private val onServiceBind: (TerminalSession, serverId: String) -> Unit,
 ) {
     /**
      * Connect to the server and return a Server with no terminals yet.
@@ -92,7 +92,7 @@ class ServerFactory(
             built.setSshShellHandle((channel as NativeSshShellChannel).handle)
             val wrappedClient = wrapSessionClient(sessionClient) { onFinished(built) }
             built.updateTerminalSessionClient(wrappedClient)
-            onServiceBind(built)
+            onServiceBind(built, server.config.id)
             built
         }.onFailure { channel.close() }.getOrThrow()
 
@@ -325,7 +325,7 @@ class ServerFactory(
             session = terminalSession,
         )
         terminalSession.updateTerminalSessionClient(wrappedClient)
-        onServiceBind(terminalSession)
+        onServiceBind(terminalSession, server.config.id)
 
         server.putTerminal(tab.id, terminalSession, null)
         return terminalSession
