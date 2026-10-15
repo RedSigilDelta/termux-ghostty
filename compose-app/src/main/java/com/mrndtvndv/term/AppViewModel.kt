@@ -42,6 +42,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 data class ServerListUiState(
     val servers: List<ServerConfig> = emptyList(),
@@ -632,10 +633,15 @@ class AppViewModel(
         herdrFullUiTab(serverId)?.let { activateTab(it.id) }
     }
 
-    /** Restarts the control client after a failure. Only the user's explicit Retry calls this. */
-    fun retryHerdr(serverId: String) {
-        val herdr = coordinator.getServer(serverId)?.herdr ?: return
-        viewModelScope.launch { runCatching { herdr.start() } }
+    /**
+     * Restarts the control client after a failure and waits for its first outcome, bounded. Only the user's explicit
+     * Retry calls this. Throws on a missing client, a closed client or a timeout; external cancellation propagates.
+     */
+    suspend fun restartHerdr(serverId: String) {
+        val herdr = checkNotNull(coordinator.getServer(serverId)?.herdr) { "Herdr is not available" }
+        checkNotNull(withTimeoutOrNull(HERDR_RESTART_TIMEOUT_MS) { herdr.start() }) {
+            "Timed out restarting Herdr control"
+        }
     }
 
     private fun herdrViewerTabs(state: WorkspaceState, serverId: String, scope: HerdrFileScope?): List<Tab.Viewer> {
@@ -650,5 +656,6 @@ class AppViewModel(
     private companion object {
         const val LOCAL_TERMINAL_ID = "local_terminal"
         const val STOP_TIMEOUT_MS = 5_000L
+        const val HERDR_RESTART_TIMEOUT_MS = 10_000L
     }
 }

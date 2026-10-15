@@ -3,20 +3,31 @@
 package com.mrndtvndv.term.ui.workspace
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.ModalBottomSheetProperties
-import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.Text
+import androidx.compose.material3.SheetValue
+import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.SaveableStateHolder
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -58,58 +69,186 @@ data class HerdrSheetCapture(
 )
 
 /**
- * A full-screen sheet for Git or SFTP at the captured directory. Back pops the sheet's inner stack first, then
- * dismisses it. [onViewerOpened] receives the collection a previewed file was opened in, not the current one.
+ * The full-screen modal for Git or SFTP. One modal serves Opening, Ready and Error, so a finished capture never
+ * dismisses or re-animates it. Ready shows the sheet at the captured directory; back pops its inner stack first,
+ * then dismisses. [onViewerOpened] receives the collection a previewed file was opened in, not the current one.
+ * The modal is keyed by the server and [HerdrSheetState.presentationId], so a sheet opened after another closed is
+ * a new modal even within one frame. [onBeginDismiss] invalidates pending work when a dismissal starts and says
+ * whether to hide; [onDismiss] removes the sheet once the hide ended. Every callback is bound to the request of the
+ * composition that created it, so a late download or hide callback of an older request cannot start or finish a
+ * newer one.
  */
 @Suppress("LongParameterList")
 @Composable
 fun HerdrSheetHost(
-    capture: HerdrSheetCapture,
+    state: HerdrSheetState,
     serverId: String,
     server: Server,
     appViewModel: AppViewModel,
     browsers: SftpBrowserStore,
     onViewerOpened: (scopeKey: String, tabId: String) -> Unit,
-    onDismiss: () -> Unit,
+    onRetry: (requestId: Long) -> Unit,
+    onBeginDismiss: (requestId: Long) -> Boolean,
+    onDismiss: (requestId: Long) -> Unit,
+    savedState: SaveableStateHolder,
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    // The request counter restarts per server, so presentationId alone could reuse another server's modal.
+    key(serverId, state.presentationId) {
+        HerdrSheetModal(
+            state = state,
+            serverId = serverId,
+            server = server,
+            appViewModel = appViewModel,
+            browsers = browsers,
+            onViewerOpened = onViewerOpened,
+            onRetry = onRetry,
+            onBeginDismiss = onBeginDismiss,
+            onDismiss = onDismiss,
+            savedState = savedState,
+        )
+    }
+}
+
+@Suppress("LongParameterList")
+@Composable
+private fun HerdrSheetModal(
+    state: HerdrSheetState,
+    serverId: String,
+    server: Server,
+    appViewModel: AppViewModel,
+    browsers: SftpBrowserStore,
+    onViewerOpened: (scopeKey: String, tabId: String) -> Unit,
+    onRetry: (requestId: Long) -> Unit,
+    onBeginDismiss: (requestId: Long) -> Boolean,
+    onDismiss: (requestId: Long) -> Unit,
+    savedState: SaveableStateHolder,
+) {
+    val sheetState = rememberBottomSheetState(
+        initialValue = SheetValue.Hidden,
+        enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
+    )
     val scope = rememberCoroutineScope()
-    // A download that completes after this sheet closed must not dismiss a newer sheet.
+    // Set false when this modal leaves composition, so its late callbacks do nothing.
     val shown = remember { AtomicBoolean(true) }
     DisposableEffect(Unit) {
         onDispose { shown.set(false) }
     }
+    val requestId = state.requestId
     val dismiss: () -> Unit = {
-        if (shown.get()) {
-            scope.launch { sheetState.hide() }.invokeOnCompletion { if (shown.get()) onDismiss() }
+        // The owner refuses a stale request or a second hide, so only the current request starts the animation.
+        if (shown.get() && onBeginDismiss(requestId)) {
+            scope.launch { sheetState.hide() }.invokeOnCompletion { cause ->
+                finishHideIfCompleted(cause, shown.get()) { onDismiss(requestId) }
+            }
         }
     }
 
     ModalBottomSheet(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (shown.get()) onDismiss(requestId) },
         sheetState = sheetState,
         properties = ModalBottomSheetProperties(shouldDismissOnBackPress = false),
         containerColor = MaterialTheme.colorScheme.surface,
     ) {
         KeepSheetAboveIme()
         Box(modifier = Modifier.fillMaxHeight()) {
-            when (capture.kind) {
-                HerdrSheetKind.Git -> HerdrGitContent(
-                    serverId = serverId,
-                    server = server,
-                    capture = capture,
-                    appViewModel = appViewModel,
+            when (state) {
+                is HerdrSheetState.Opening -> HerdrSheetMessage(
+                    kind = state.kind,
+                    message = null,
+                    onRetry = null,
                     dismiss = dismiss,
                 )
-                HerdrSheetKind.Sftp -> HerdrSftpContent(
+                is HerdrSheetState.Error -> HerdrSheetMessage(
+                    kind = state.kind,
+                    message = state.message,
+                    onRetry = { if (!state.exiting) onRetry(requestId) },
+                    retryEnabled = !state.exiting,
+                    dismiss = dismiss,
+                )
+                is HerdrSheetState.Ready -> HerdrReadyContent(
+                    capture = state.capture,
                     serverId = serverId,
                     server = server,
-                    capture = capture,
                     appViewModel = appViewModel,
                     browsers = browsers,
                     onViewerOpened = onViewerOpened,
                     dismiss = dismiss,
+                    savedState = savedState,
                 )
+            }
+        }
+    }
+}
+
+@Suppress("LongParameterList")
+@Composable
+private fun HerdrReadyContent(
+    capture: HerdrSheetCapture,
+    serverId: String,
+    server: Server,
+    appViewModel: AppViewModel,
+    browsers: SftpBrowserStore,
+    onViewerOpened: (scopeKey: String, tabId: String) -> Unit,
+    dismiss: () -> Unit,
+    savedState: SaveableStateHolder,
+) {
+    savedState.SaveableStateProvider(herdrSheetTabId(capture.kind.key, capture.scopeKey)) {
+        when (capture.kind) {
+            HerdrSheetKind.Git -> HerdrGitContent(
+                serverId = serverId,
+                server = server,
+                capture = capture,
+                appViewModel = appViewModel,
+                dismiss = dismiss,
+            )
+            HerdrSheetKind.Sftp -> HerdrSftpContent(
+                serverId = serverId,
+                server = server,
+                capture = capture,
+                appViewModel = appViewModel,
+                browsers = browsers,
+                onViewerOpened = onViewerOpened,
+                dismiss = dismiss,
+            )
+        }
+    }
+}
+
+/** Opening (spinner) and Error (message with Retry) share one layout, labelled with the action being opened. */
+@Composable
+private fun HerdrSheetMessage(
+    kind: HerdrSheetKind,
+    message: String?,
+    onRetry: (() -> Unit)?,
+    dismiss: () -> Unit,
+    retryEnabled: Boolean = true,
+) {
+    BackHandler(onBack = dismiss)
+    Column(
+        modifier = Modifier.fillMaxSize().padding(24.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        val action = if (kind == HerdrSheetKind.Git) "Git" else "Files"
+        if (message == null) {
+            CircularProgressIndicator()
+            Text(
+                text = "Opening $action…",
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(top = 16.dp),
+            )
+        } else {
+            Text(text = "Couldn't open $action", style = MaterialTheme.typography.titleMedium)
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+            onRetry?.let {
+                Button(onClick = it, enabled = retryEnabled, modifier = Modifier.padding(top = 16.dp)) {
+                    Text("Retry")
+                }
             }
         }
     }

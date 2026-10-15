@@ -21,10 +21,10 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
@@ -50,7 +50,6 @@ import com.termux.terminal.TerminalSession
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.launch
 
 /**
  * A server's Herdr session: one full-screen terminal running Herdr's own UI, the Git and SFTP sheets from the key
@@ -84,12 +83,30 @@ fun HerdrSessionRoute(
     }
     val viewers by viewersFlow.collectAsStateWithLifecycle()
     val currentScopeKey by rememberUpdatedState(scopeKey)
-    var sheet by remember { mutableStateOf<HerdrSheetCapture?>(null) }
-    var openingSheet by remember { mutableStateOf(false) }
-    var sheetIntent by remember { mutableLongStateOf(0L) }
+    val coroutineScope = rememberCoroutineScope()
+    // Composition-scoped: nothing outside this route holds the request, so it cannot outlive the route.
+    val sheetRequests = remember(serverId) {
+        HerdrSheetRequests(
+            scope = coroutineScope,
+            // Server-global snapshot focus captured coherently, not a verified client focus.
+            capture = { appViewModel.captureHerdrContext(serverId) },
+            restartControl = { appViewModel.restartHerdr(serverId) },
+            // Git starts at the captured cwd; SFTP resumes this workspace's existing browser.
+            prepare = { kind, scopeKey ->
+                if (kind == HerdrSheetKind.Git) {
+                    appViewModel.connectionStore(serverId, herdrSheetTabId(kind.key, scopeKey)).viewModelStore.clear()
+                }
+            },
+            homeDir = { appViewModel.getServer(serverId)?.homeDir.orEmpty() },
+            newOpenId = ::newId,
+        )
+    }
+    val sheet by sheetRequests.state.collectAsStateWithLifecycle()
+    DisposableEffect(sheetRequests) {
+        onDispose { sheetRequests.cancel() }
+    }
     var agentsVisible by remember { mutableStateOf(false) }
     val sheetStates = rememberSaveableStateHolder()
-    val coroutineScope = rememberCoroutineScope()
     val herdrState by (server?.herdr?.state ?: flowOf(HerdrState()))
         .collectAsStateWithLifecycle(initialValue = HerdrState())
     val sessionWorkspace = workspaceState.workspaces.firstOrNull {
@@ -123,38 +140,9 @@ fun HerdrSessionRoute(
         if (activeTabId == tabId) appViewModel.activateTab(next?.id ?: tab.id)
     }
 
+    // The sheet shows at once as Opening; the coherent capture runs in parallel with its entrance animation.
     fun openSheet(kind: HerdrSheetKind) {
-        if (openingSheet || sheet != null) return
-        val request = ++sheetIntent
-        openingSheet = true
-        coroutineScope.launch {
-            try {
-                // Null: a newer Herdr focus intent arrived while capturing, so this sheet no longer opens.
-                val refreshed = appViewModel.captureHerdrContext(serverId) ?: return@launch
-                // The Agents sheet opened meanwhile is the newer intent.
-                if (agentsVisible || sheetIntent != request) return@launch
-                // Captured only after the control cache has consumed pending topology invalidations.
-                val current = refreshed as? HerdrFileContext.Ready
-                if (current == null) {
-                    val message = (refreshed as? HerdrFileContext.Unavailable)?.message ?: "No focused workspace"
-                    appViewModel.notificationState.post("herdr unavailable", message)
-                    return@launch
-                }
-                // Git starts at the captured cwd; SFTP resumes this workspace's existing browser.
-                if (kind == HerdrSheetKind.Git) {
-                    appViewModel.connectionStore(serverId, herdrSheetTabId(kind.key, current.scopeKey))
-                        .viewModelStore.clear()
-                }
-                sheet = HerdrSheetCapture(
-                    kind = kind,
-                    scopeKey = current.scopeKey,
-                    cwd = current.cwd.ifBlank { server.homeDir },
-                    openId = newId(),
-                )
-            } finally {
-                openingSheet = false
-            }
-        }
+        if (!agentsVisible) sheetRequests.open(kind)
     }
 
     val keyBarActions: @Composable () -> Unit = {
@@ -170,7 +158,8 @@ fun HerdrSessionRoute(
             shadowElevation = 3.dp,
         ) {
             IconButton(onClick = {
-                sheetIntent++
+                // The Agents sheet is the newer intent: it drops a sheet that is still opening.
+                sheetRequests.cancel()
                 appViewModel.refreshHerdrContext(serverId)
                 agentsVisible = true
             }) {
@@ -180,13 +169,6 @@ fun HerdrSessionRoute(
     }
     val paneCallbacks: (TerminalSession) -> TerminalPaneCallbacks = { session ->
         host.paneCallbacks(session, container.preferences::update)
-    }
-
-    val unavailable = fileContext as? HerdrFileContext.Unavailable
-    val banner = when {
-        unavailable != null -> unavailable.message
-        ready?.stale == true -> "Refreshing Herdr context · showing the last known workspace"
-        else -> null
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -236,14 +218,6 @@ fun HerdrSessionRoute(
                 else -> Unit
             }
         }
-        banner?.let { message ->
-            Text(
-                text = message,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 8.dp),
-            )
-        }
         if (agentsVisible) {
             sheetStates.SaveableStateProvider("agents:$serverId") {
                 HerdrAgentsSheet(
@@ -276,23 +250,26 @@ fun HerdrSessionRoute(
                 )
             }
         }
-        sheet?.let { capture ->
-            sheetStates.SaveableStateProvider(herdrSheetTabId(capture.kind.key, capture.scopeKey)) {
-                HerdrSheetHost(
-                    capture = capture,
-                    serverId = serverId,
-                    server = server,
-                    appViewModel = appViewModel,
-                    browsers = container.workspaceRepository,
-                    // Show the preview only if its captured collection is still current.
-                    onViewerOpened = { openedScope, tabId ->
-                        if (openedScope == currentScopeKey && sheet?.openId == capture.openId) {
-                            appViewModel.activateTab(tabId)
-                        }
-                    },
-                    onDismiss = { if (sheet?.openId == capture.openId) sheet = null },
-                )
-            }
+        // One host for every phase keeps the same modal, so a finished capture neither dismisses nor re-animates it.
+        sheet?.let { current ->
+            HerdrSheetHost(
+                state = current,
+                serverId = serverId,
+                server = server,
+                appViewModel = appViewModel,
+                browsers = container.workspaceRepository,
+                // Show the preview only if its captured collection is still current.
+                onViewerOpened = { openedScope, tabId ->
+                    val eligible = sheetRequests.canSelectPreview(current.requestId, openedScope)
+                    if (openedScope == currentScopeKey && eligible) {
+                        appViewModel.activateTab(tabId)
+                    }
+                },
+                onRetry = sheetRequests::retry,
+                onBeginDismiss = sheetRequests::beginDismiss,
+                onDismiss = sheetRequests::dismiss,
+                savedState = sheetStates,
+            )
         }
     }
 }
