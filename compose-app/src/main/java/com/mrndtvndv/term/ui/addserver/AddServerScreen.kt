@@ -128,12 +128,25 @@ fun AddServerScreen(
                             onClick = { persistence = option },
                             shape = SegmentedButtonDefaults.itemShape(index, persistenceOptions.size),
                         ) {
-                            Text(if (option == TerminalPersistenceKind.None) "None" else "dtach")
+                            Text(
+                                when (option) {
+                                    TerminalPersistenceKind.None -> "None"
+                                    TerminalPersistenceKind.Dtach -> "dtach"
+                                    TerminalPersistenceKind.Herdr -> "herdr"
+                                },
+                            )
                         }
                     }
                 }
                 Text(
-                    "dtach keeps shells running on the server between connections (must be installed there)",
+                    when (persistence) {
+                        TerminalPersistenceKind.None -> "Shells end when the connection closes"
+                        TerminalPersistenceKind.Dtach ->
+                            "Shells keep running on the server between connections (dtach must be installed there)"
+                        TerminalPersistenceKind.Herdr ->
+                            "Each tab is a herdr terminal on the server, reattached on reconnect " +
+                                "(herdr must be installed there)"
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
