@@ -14,10 +14,10 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.Icon
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -54,6 +54,7 @@ import com.mrndtvndv.term.ui.sftp.transfer.SftpTransferManager
 import com.mrndtvndv.term.workspace.Tab
 import com.termux.terminal.TerminalSession
 import com.termux.terminal.compose.TerminalThumbnail
+import java.io.File
 import kotlinx.coroutines.flow.MutableStateFlow
 
 class TerminalHostCallbacks(
@@ -141,7 +142,6 @@ fun WorkspaceRoute(
     val tabsButton: @Composable () -> Unit = {
         TabsButton(
             tabCount = workspace.tabs.size,
-            tabIcon = { Icon(activeTab?.icon() ?: Icons.Default.Terminal, contentDescription = null) },
             onOpenTabs = {
                 // The IME is its own window and would cover the grid, so drop focus and hide it first.
                 focusManager.clearFocus(force = true)
@@ -252,6 +252,7 @@ fun WorkspaceRoute(
                         client = server.sftpClient,
                         tab = tab,
                         onClose = { appViewModel.closeTab(tab.id) },
+                        tabsButton = tabsButton,
                     )
                 }
             }
@@ -275,26 +276,35 @@ fun WorkspaceRoute(
             canAddSftp = canAddSftp,
             canAddGit = canAddGit,
             actions = gridActions,
-            preview = { tab, modifier ->
-                if (tab.kind == TabKind.Terminal) TerminalThumbnail(thumbnails.frames[tab.id], modifier)
+            preview = { card, modifier ->
+                when (val tab = workspace.tabs.firstOrNull { it.id == card.id }) {
+                    is Tab.Terminal -> TerminalThumbnail(thumbnails.frames[tab.id], modifier)
+                    is Tab.Sftp -> IconPreview(Icons.Default.Folder, modifier)
+                    is Tab.Git -> IconPreview(tab.icon(), modifier)
+                    is Tab.Viewer -> ViewerPreview(
+                        file = File(LocalContext.current.cacheDir, "viewer/${tab.id}/${File(tab.path).name}"),
+                        modifier = modifier,
+                    )
+                    null -> Unit
+                }
             },
         )
     }
 }
 
 /**
- * Terminal panes carry the tabs button in their key bar and Sftp/Git in their action pill;
- * viewers, the empty state, opening terminals and Git diffs (no action pill) need the overlay.
+ * Terminal panes carry the tabs button in their key bar, Sftp and Git in their action pill, and viewers
+ * render it themselves; the empty state, opening terminals and Git diffs (no action pill) need the overlay.
  */
 private fun needsOverlayTabsButton(
     activeTab: Tab?,
     terminals: Map<String, TerminalEntry>,
     navigator: WorkspaceNavigator,
 ): Boolean = when (activeTab) {
-    null, is Tab.Viewer -> true
+    null -> true
     is Tab.Terminal -> terminals[activeTab.id] == null
     is Tab.Git -> navigator.reviewStack(activeTab.id).size > 1
-    is Tab.Sftp -> false
+    is Tab.Sftp, is Tab.Viewer -> false
 }
 
 private fun tabCard(tab: Tab, terminals: Map<String, TerminalEntry>, current: Boolean): TabCard {

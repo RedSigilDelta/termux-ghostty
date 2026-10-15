@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -33,6 +32,7 @@ import androidx.compose.ui.platform.UriHandler
 import androidx.compose.ui.platform.rememberNestedScrollInteropConnection
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -54,7 +54,7 @@ private const val MermaidLanguage = "mermaid"
 private const val MermaidInitialHeight = 160
 
 @Composable
-internal fun SftpMarkdownViewer(markdown: String) {
+internal fun SftpMarkdownViewer(markdown: String, bottomPadding: Dp) {
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val systemUriHandler = LocalUriHandler.current
     val webLinksOnly = remember(systemUriHandler) {
@@ -100,7 +100,7 @@ internal fun SftpMarkdownViewer(markdown: String) {
                 modifier = Modifier
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState())
-                    .navigationBarsPadding()
+                    .padding(bottom = bottomPadding)
                     .padding(16.dp),
             )
         }

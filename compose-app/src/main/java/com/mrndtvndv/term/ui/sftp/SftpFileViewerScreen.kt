@@ -15,28 +15,37 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Article
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.mrndtvndv.term.ui.components.FloatingPill
+import com.mrndtvndv.term.ui.components.PillActions
+import com.mrndtvndv.term.ui.components.PillDivider
+import com.mrndtvndv.term.ui.components.PillIconButton
 import com.mrndtvndv.term.ui.highlightCode
 import com.mrndtvndv.term.ui.theme.codeFontFamily
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
 import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SftpFileViewerScreen(file: File, onClose: () -> Unit) {
+fun SftpFileViewerScreen(file: File, tabsButton: (@Composable () -> Unit)? = null) {
     var content by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     val isMarkdown = file.extension.lowercase() in MarkdownExtensions
     var showSource by remember { mutableStateOf(false) }
+    val hazeState = rememberHazeState()
+    val bottomPadding = 96.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
     LaunchedEffect(file) {
         try {
@@ -46,47 +55,74 @@ fun SftpFileViewerScreen(file: File, onClose: () -> Unit) {
         }
     }
 
-    Scaffold(
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        topBar = {
-            TopAppBar(
-                title = { Text(file.name) },
-                navigationIcon = {
-                    IconButton(onClick = onClose) {
-                        Icon(Icons.Default.Close, contentDescription = "Close")
-                    }
-                },
-                actions = {
-                    if (isMarkdown) {
-                        IconButton(onClick = { showSource = !showSource }) {
-                            Icon(
-                                imageVector = if (showSource) Icons.AutoMirrored.Filled.Article else Icons.Default.Code,
-                                contentDescription = if (showSource) "Show rendered" else "Show source"
-                            )
-                        }
-                    }
-                }
-            )
-        }
-    ) { padding ->
+    Box(modifier = Modifier.fillMaxSize()) {
         Surface(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(top = padding.calculateTopPadding())
+                .hazeSource(hazeState)
         ) {
             when {
                 error != null -> {
                     Text(text = error!!, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp))
                 }
                 content != null && isMarkdown && !showSource -> {
-                    SftpMarkdownViewer(markdown = content!!)
+                    SftpMarkdownViewer(markdown = content!!, bottomPadding = bottomPadding)
                 }
                 content != null -> {
-                    CodeViewer(code = content!!)
+                    CodeViewer(code = content!!, bottomPadding = bottomPadding)
                 }
                 else -> {
                     LoadingIndicator(modifier = Modifier.padding(16.dp))
                 }
+            }
+        }
+
+        FileViewerPill(
+            name = file.name,
+            isMarkdown = isMarkdown,
+            showSource = showSource,
+            onToggleSource = { showSource = !showSource },
+            hazeState = hazeState,
+            trailing = tabsButton
+        )
+    }
+}
+
+/** Floating pill with the file name and, for markdown, the source/rendered toggle. */
+@Composable
+private fun BoxScope.FileViewerPill(
+    name: String,
+    isMarkdown: Boolean,
+    showSource: Boolean,
+    onToggleSource: () -> Unit,
+    hazeState: HazeState,
+    trailing: (@Composable () -> Unit)?
+) {
+    FloatingPill(
+        state = showSource,
+        hazeState = hazeState,
+        modifier = Modifier
+            .align(Alignment.BottomCenter)
+            .navigationBarsPadding()
+            .padding(bottom = 16.dp),
+        label = "FileViewerBar",
+        trailing = trailing
+    ) {
+        PillActions {
+            Text(
+                text = name,
+                style = MaterialTheme.typography.titleSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(horizontal = 8.dp).widthIn(max = 200.dp)
+            )
+            if (isMarkdown) {
+                PillDivider()
+                PillIconButton(
+                    icon = if (showSource) Icons.AutoMirrored.Filled.Article else Icons.Default.Code,
+                    contentDescription = if (showSource) "Show rendered" else "Show source",
+                    onClick = onToggleSource
+                )
             }
         }
     }
@@ -94,7 +130,7 @@ fun SftpFileViewerScreen(file: File, onClose: () -> Unit) {
 
 @Suppress("LongMethod")
 @Composable
-private fun CodeViewer(code: String) {
+private fun CodeViewer(code: String, bottomPadding: Dp) {
     var fontScale by remember { mutableFloatStateOf(1f) }
     val transformState = rememberTransformableState { _, zoomChange, _, _ ->
         fontScale = (fontScale * zoomChange).coerceIn(0.6f, 3.0f)
@@ -126,7 +162,7 @@ private fun CodeViewer(code: String) {
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(scrollState)
-                .navigationBarsPadding()
+                .padding(bottom = bottomPadding)
                 .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.1f))
         ) {
             Row(modifier = Modifier.fillMaxWidth()) {
@@ -193,8 +229,7 @@ private fun CodeViewer(code: String) {
                 shape = RoundedCornerShape(16.dp),
                 shadowElevation = 4.dp,
                 modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .navigationBarsPadding()
+                    .align(Alignment.TopEnd)
                     .padding(16.dp)
                     .clickable { fontScale = 1f }
             ) {

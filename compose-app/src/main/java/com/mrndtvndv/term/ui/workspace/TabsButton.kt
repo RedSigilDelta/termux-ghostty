@@ -1,5 +1,8 @@
 package com.mrndtvndv.term.ui.workspace
 
+import androidx.compose.material3.Icon
+import androidx.compose.material.icons.filled.Tab
+import androidx.compose.material.icons.Icons
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -15,9 +18,9 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 
-/** Opens the tabs grid. Shows the tab count as a badge over [tabIcon]. */
+/** Opens the tabs grid. Shows the tab count as a badge over a fixed tabs icon. */
 @Composable
-fun TabsButton(tabCount: Int, tabIcon: @Composable () -> Unit, onOpenTabs: () -> Unit) {
+fun TabsButton(tabCount: Int, onOpenTabs: () -> Unit) {
     Surface(
         onClick = onOpenTabs,
         modifier = Modifier.size(48.dp).semantics { contentDescription = "Tabs" },
@@ -28,7 +31,7 @@ fun TabsButton(tabCount: Int, tabIcon: @Composable () -> Unit, onOpenTabs: () ->
     ) {
         Box(contentAlignment = Alignment.Center) {
             BadgedBox(badge = { Badge { Text(tabCount.toString()) } }) {
-                tabIcon()
+                Icon(Icons.Default.Tab, contentDescription = null)
             }
         }
     }
