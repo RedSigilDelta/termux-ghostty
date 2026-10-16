@@ -16,6 +16,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Commit
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -45,6 +48,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import com.mrndtvndv.term.data.prefs.KeyBarAction
+import com.mrndtvndv.term.data.prefs.KeyBarHostAction
 import com.mrndtvndv.term.data.prefs.KeyBarItem
 import com.mrndtvndv.term.data.prefs.KeyBarKeyCatalog
 import com.mrndtvndv.term.data.prefs.MacroKeyCatalog
@@ -147,12 +151,14 @@ internal fun SwipeKeyButton(
     val swipeNames = KeySwipe.entries.mapNotNull { swipe ->
         item.swipeAction(swipe)?.let { swipe to "Swipe ${swipe.name.lowercase()}: ${it.spokenName()}" }
     }.toMap()
-    val tapName = "Send ${item.tap.spokenName()}"
+    val hostKind = (item.tap as? KeyBarAction.Host)?.kind
+    val tapName = hostKind?.spokenName() ?: "Send ${item.tap.spokenName()}"
     DisposableEffect(item.id, preview) {
         onDispose { preview?.clear(item.id) }
     }
     KeyFace(
         label = item.label,
+        hostAction = hostKind,
         interactionSource = interactionSource,
         gestures = Modifier
             .onGloballyPositioned { bounds.rect = it.boundsInWindow() }
@@ -190,6 +196,7 @@ private fun KeyFace(
     containerColor: Color = Color.Transparent,
     contentColor: Color = MaterialTheme.colorScheme.onSurface,
     stateLabel: String? = null,
+    hostAction: KeyBarHostAction? = null,
 ) {
     val pressed by interactionSource.collectIsPressedAsState()
     val pressScale by animateFloatAsState(
@@ -223,7 +230,16 @@ private fun KeyFace(
             .padding(horizontal = 10.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(text = label, style = MaterialTheme.typography.labelLarge, color = contentColor)
+        if (hostAction != null) {
+            Icon(
+                imageVector = hostAction.icon,
+                contentDescription = hostAction.spokenName(),
+                modifier = Modifier.size(20.dp),
+                tint = contentColor,
+            )
+        } else {
+            Text(text = label, style = MaterialTheme.typography.labelLarge, color = contentColor)
+        }
     }
 }
 
@@ -234,6 +250,19 @@ private const val PressFeedbackMillis = 80
 private const val SpokenTextLength = 24
 private const val SpokenMacroLength = 80
 
+/** The icon for a host action. The fixed host icons and the key-bar items that run them share it. */
+internal val KeyBarHostAction.icon: ImageVector
+    get() = when (this) {
+        KeyBarHostAction.Git -> Icons.Default.Commit
+        KeyBarHostAction.Sftp -> Icons.Default.Folder
+    }
+
+/** The accessible name of a host action, which also names its fixed icon. */
+internal fun KeyBarHostAction.spokenName(): String = when (this) {
+    KeyBarHostAction.Git -> "Open Git sheet"
+    KeyBarHostAction.Sftp -> "Open SFTP browser"
+}
+
 /** What TalkBack says for an action: a key's spoken name, a text's first line, a macro's steps, or a modifier. */
 internal fun KeyBarAction.spokenName(): String = when (this) {
     is KeyBarAction.Key -> KeyBarKeyCatalog.firstOrNull { it.keyCode == this.keyCode }?.spokenName ?: "key"
@@ -241,6 +270,7 @@ internal fun KeyBarAction.spokenName(): String = when (this) {
     is KeyBarAction.Macro -> "macro " + steps.joinToString(", ") { it.spokenName() }.take(SpokenMacroLength)
     KeyBarAction.Ctrl -> "Control"
     KeyBarAction.Alt -> "Alt"
+    is KeyBarAction.Host -> kind.spokenName()
     KeyBarAction.Joystick -> "arrow keys"
 }
 

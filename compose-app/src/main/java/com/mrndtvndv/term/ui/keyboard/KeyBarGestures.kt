@@ -48,6 +48,20 @@ internal fun KeyBarItem.swipeAction(swipe: KeySwipe): KeyBarAction? = when (swip
     KeySwipe.Right -> swipeRight
 }
 
+/**
+ * The item as it can run here. Outside Herdr a host swipe has no target, so it is cleared. That direction then stays
+ * unassigned, is never claimed, and a horizontal drag on it scrolls the strip.
+ */
+internal fun KeyBarItem.withHostAvailability(hostAvailable: Boolean): KeyBarItem =
+    if (hostAvailable) this else copy(
+        swipeUp = swipeUp.unlessHost(),
+        swipeDown = swipeDown.unlessHost(),
+        swipeLeft = swipeLeft.unlessHost(),
+        swipeRight = swipeRight.unlessHost(),
+    )
+
+private fun KeyBarAction?.unlessHost(): KeyBarAction? = this?.takeUnless { it is KeyBarAction.Host }
+
 /** How a press on a key ended. Only [Tap] and [Swipe] execute anything. */
 private sealed interface KeyPressEnd {
     data object Cancelled : KeyPressEnd

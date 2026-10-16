@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.mrndtvndv.term.data.prefs.ArrowJoystickMode
 import com.mrndtvndv.term.data.prefs.KeyBarAction
+import com.mrndtvndv.term.data.prefs.KeyBarHostAction
 import com.mrndtvndv.term.data.prefs.KeyBarItem
 import com.mrndtvndv.term.data.prefs.KeyBarLayout
 import com.mrndtvndv.term.data.prefs.MacroStep
@@ -424,8 +425,10 @@ private fun FloatingBar(
 }
 
 /**
- * Bottom key bar for the terminal: the customizable [layout] in a horizontal strip, then [agents] and
- * [extraActions] as fixed host actions. [tabsButton] sits beside the pill.
+ * Bottom key bar for the terminal: the customizable [layout] in a horizontal strip, then [agents] and the fixed host
+ * icons. [onHostAction] runs Herdr host actions. It is null outside the Herdr route, so host items are hidden and
+ * their swipes are never claimed. A fixed host icon is shown only when no item in the layout binds that action.
+ * [tabsButton] sits beside the pill.
  */
 @Composable
 @Suppress("LongParameterList")
@@ -438,7 +441,7 @@ fun KeyBar(
     joystickMode: ArrowJoystickMode,
     tabsButton: (@Composable () -> Unit)?,
     agents: (@Composable () -> Unit)?,
-    extraActions: (@Composable () -> Unit)? = null,
+    onHostAction: ((KeyBarHostAction) -> Unit)? = null,
     modifier: Modifier = Modifier,
     pillModifier: Modifier = Modifier,
 ) {
@@ -447,11 +450,17 @@ fun KeyBar(
             is KeyBarAction.Key -> onKey(action.keyCode)
             is KeyBarAction.Text -> onText(action.text)
             is KeyBarAction.Macro -> onMacro(action.steps)
+            is KeyBarAction.Host -> onHostAction?.invoke(action.kind)
             KeyBarAction.Ctrl -> modifiers.tapCtrl()
             KeyBarAction.Alt -> modifiers.tapAlt()
             KeyBarAction.Joystick -> Unit
         }
     }
+    val hostAvailable = onHostAction != null
+    val boundHostKinds = layout.items
+        .flatMap { listOfNotNull(it.tap, it.swipeUp, it.swipeDown, it.swipeLeft, it.swipeRight) }
+        .filterIsInstance<KeyBarAction.Host>()
+        .mapTo(HashSet()) { it.kind }
     val preview = remember { KeySwipePreviewHost() }
     CompositionLocalProvider(LocalKeySwipePreview provides preview) {
         Box(modifier = modifier.onGloballyPositioned { preview.barBounds = it.boundsInWindow() }) {
@@ -459,15 +468,27 @@ fun KeyBar(
                 tabsButton = tabsButton,
                 pillModifier = pillModifier,
                 keys = {
-                    layout.items.forEach { item ->
-                        key(item.id) {
-                            KeyBarItemButton(item, modifiers, joystickMode, onKey, dispatch)
+                    layout.items
+                        .filter { item -> item.tap !is KeyBarAction.Host || hostAvailable }
+                        .forEach { item ->
+                            key(item.id) {
+                                KeyBarItemButton(
+                                    item.withHostAvailability(hostAvailable),
+                                    modifiers,
+                                    joystickMode,
+                                    onKey,
+                                    dispatch,
+                                )
+                            }
                         }
-                    }
                 },
                 hostActions = {
                     agents?.invoke()
-                    extraActions?.invoke()
+                    onHostAction?.let { open ->
+                        KeyBarHostAction.entries.filter { it !in boundHostKinds }.forEach { kind ->
+                            KeyBarIcon(icon = kind.icon, contentDescription = kind.spokenName()) { open(kind) }
+                        }
+                    }
                 },
             )
             preview.target?.let { KeySwipePreviewOverlay(it, preview) }
@@ -508,7 +529,7 @@ private fun KeyBarItemButton(
                 }
             },
         )
-        is KeyBarAction.Key, is KeyBarAction.Text, is KeyBarAction.Macro -> SwipeKeyButton(
+        is KeyBarAction.Key, is KeyBarAction.Text, is KeyBarAction.Macro, is KeyBarAction.Host -> SwipeKeyButton(
             item = item,
             onTap = { dispatch(tap) },
             onSwipe = { swipe -> item.swipeAction(swipe)?.takeIf { it.isSwipeable() }?.let(dispatch) },

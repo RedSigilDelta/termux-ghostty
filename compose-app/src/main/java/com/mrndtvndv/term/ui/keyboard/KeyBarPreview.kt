@@ -29,6 +29,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import com.mrndtvndv.term.data.prefs.KeyBarAction
+import com.mrndtvndv.term.data.prefs.KeyBarHostAction
 import com.mrndtvndv.term.data.prefs.MacroKeyCatalog
 import com.mrndtvndv.term.data.prefs.MacroStep
 import com.mrndtvndv.term.ui.components.tintedGlassPill
@@ -159,6 +160,10 @@ internal fun KeyBarAction.previewLabel(): String = when (this) {
     KeyBarAction.Ctrl -> "Ctrl"
     KeyBarAction.Alt -> "Alt"
     KeyBarAction.Joystick -> "Arrows"
+    is KeyBarAction.Host -> when (kind) {
+        KeyBarHostAction.Git -> "Git"
+        KeyBarHostAction.Sftp -> "SFTP"
+    }
 }
 
 private fun MacroStep.previewLabel(): String = when (this) {

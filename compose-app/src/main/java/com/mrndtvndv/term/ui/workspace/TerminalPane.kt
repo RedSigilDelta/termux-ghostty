@@ -37,6 +37,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.mrndtvndv.term.data.prefs.AppSettings
+import com.mrndtvndv.term.data.prefs.KeyBarHostAction
 import com.mrndtvndv.term.server.TerminalProgress
 import com.mrndtvndv.term.ui.keyboard.KeyBar
 import com.mrndtvndv.term.ui.keyboard.ModifierKeys
@@ -116,7 +117,7 @@ fun TerminalPane(
     onProgramStatusOpened: () -> Unit,
     tabsButton: (@Composable () -> Unit)?,
     callbacks: TerminalPaneCallbacks,
-    keyBarActions: (@Composable () -> Unit)? = null,
+    onHostAction: ((KeyBarHostAction) -> Unit)? = null,
 ) {
     val modifierKeys = remember { ModifierKeys() }
     val imeController = remember(session) { TerminalImeController() }
@@ -167,7 +168,7 @@ fun TerminalPane(
                 showAgents = true
                 onProgramStatusOpened()
             },
-            extraActions = keyBarActions,
+            onHostAction = onHostAction,
             modifier = Modifier.align(Alignment.BottomCenter).keyBarLayout { keyBarTop = it },
             pillModifier = Modifier.onGloballyPositioned { keyBarPill = it.boundsInRoot() },
         )

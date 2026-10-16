@@ -37,6 +37,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.mrndtvndv.term.data.prefs.KeyBarAction
+import com.mrndtvndv.term.data.prefs.KeyBarHostAction
 import com.mrndtvndv.term.data.prefs.KeyBarKeyCatalog
 import com.mrndtvndv.term.data.prefs.KeyBarLimits
 import com.mrndtvndv.term.data.prefs.KeyBarPunctuation
@@ -47,6 +48,8 @@ private enum class ActionKind(val label: String) {
     Key("Key"),
     Text("Text"),
     Sequence("Sequence"),
+    GitSheet("Open Git sheet"),
+    SftpBrowser("Open SFTP browser"),
     Ctrl("Ctrl"),
     Alt("Alt"),
     Joystick("Joystick"),
@@ -56,17 +59,27 @@ private val TapKinds = listOf(
     ActionKind.Key,
     ActionKind.Text,
     ActionKind.Sequence,
+    ActionKind.GitSheet,
+    ActionKind.SftpBrowser,
     ActionKind.Ctrl,
     ActionKind.Alt,
     ActionKind.Joystick,
 )
-private val SwipeKinds = listOf(ActionKind.None, ActionKind.Key, ActionKind.Text, ActionKind.Sequence)
+private val SwipeKinds = listOf(
+    ActionKind.None,
+    ActionKind.Key,
+    ActionKind.Text,
+    ActionKind.Sequence,
+    ActionKind.GitSheet,
+    ActionKind.SftpBrowser,
+)
 
 private fun KeyBarAction?.kind(): ActionKind = when (this) {
     null -> ActionKind.None
     is KeyBarAction.Key -> ActionKind.Key
     is KeyBarAction.Text -> ActionKind.Text
     is KeyBarAction.Macro -> ActionKind.Sequence
+    is KeyBarAction.Host -> if (this.kind == KeyBarHostAction.Git) ActionKind.GitSheet else ActionKind.SftpBrowser
     KeyBarAction.Ctrl -> ActionKind.Ctrl
     KeyBarAction.Alt -> ActionKind.Alt
     KeyBarAction.Joystick -> ActionKind.Joystick
@@ -77,6 +90,8 @@ private fun ActionKind.defaultAction(): KeyBarAction? = when (this) {
     ActionKind.Key -> KeyBarAction.Key(KeyEvent.KEYCODE_ESCAPE)
     ActionKind.Text -> KeyBarAction.Text("")
     ActionKind.Sequence -> KeyBarAction.Macro(emptyList())
+    ActionKind.GitSheet -> KeyBarAction.Host(KeyBarHostAction.Git)
+    ActionKind.SftpBrowser -> KeyBarAction.Host(KeyBarHostAction.Sftp)
     ActionKind.Ctrl -> KeyBarAction.Ctrl
     ActionKind.Alt -> KeyBarAction.Alt
     ActionKind.Joystick -> KeyBarAction.Joystick
@@ -155,7 +170,10 @@ private fun SwipesCard(draft: KeyBarItemDraft, onEdit: ((KeyBarItemDraft) -> Key
     EditorCard {
         Text("SWIPES", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
         if (!draft.tap.isSwipeable()) {
-            Description("Swipes work on key and macro taps only. Joystick, Ctrl and Alt keep their own gestures.")
+            Description(
+                "Swipes work on keys, macros and Git/SFTP icons. " +
+                    "Joystick, Ctrl and Alt keep their own gestures.",
+            )
             return@EditorCard
         }
         Text(
@@ -211,6 +229,7 @@ private fun ActionValue(action: KeyBarAction?, onChange: (KeyBarAction?) -> Unit
             onSelect = { onChange(KeyBarAction.Key(it)) },
         )
         is KeyBarAction.Text -> MacroField(text = action.text, onChange = onChange)
+        is KeyBarAction.Host -> HostActionPreview(kind = action.kind)
         is KeyBarAction.Macro -> SequenceEditor(
             steps = action.steps,
             onChange = { steps -> onChange(KeyBarAction.Macro(steps)) },

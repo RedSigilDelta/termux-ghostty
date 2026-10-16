@@ -5,7 +5,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
-/** What a key-bar item does. Swipe directions accept only [Key], [Text] and [Macro]. */
+/** What a key-bar item does. Swipe directions accept only [Key], [Text], [Macro] and [Host]. */
 @Serializable
 sealed interface KeyBarAction {
     /** A terminal key from [KeyBarKeyCatalog], encoded by the existing key path. */
@@ -36,6 +36,21 @@ sealed interface KeyBarAction {
     @Serializable
     @SerialName("macro")
     data class Macro(val steps: List<MacroStep>) : KeyBarAction
+
+    /** Opens a Herdr host sheet. Only the Herdr terminal route can run it; elsewhere it is not offered. */
+    @Serializable
+    @SerialName("host")
+    data class Host(val kind: KeyBarHostAction) : KeyBarAction
+}
+
+/** The Herdr host sheets a key-bar item can open: Git and the SFTP file browser. */
+@Serializable
+enum class KeyBarHostAction {
+    @SerialName("git")
+    Git,
+
+    @SerialName("sftp")
+    Sftp,
 }
 
 /** One step of a [KeyBarAction.Macro]. Ctrl, Alt and Shift on a key step apply to that step only. */
@@ -125,7 +140,7 @@ object KeyBarLimits {
 }
 
 fun KeyBarAction.isSwipeable(): Boolean =
-    this is KeyBarAction.Key || this is KeyBarAction.Text || this is KeyBarAction.Macro
+    this is KeyBarAction.Key || this is KeyBarAction.Text || this is KeyBarAction.Macro || this is KeyBarAction.Host
 
 /**
  * True when [normalized] would change nothing. Save paths use this as a gate and reject a layout that is not valid,
@@ -174,6 +189,7 @@ private fun KeyBarAction.bounded(): KeyBarAction? = when (this) {
     is KeyBarAction.Key -> takeIf { key -> KeyBarKeyCatalog.any { it.keyCode == key.keyCode } }
     is KeyBarAction.Text -> takeIf { KeyBarLimits.isValidText(it.text) }
     is KeyBarAction.Macro -> takeIf { isValidMacro(it.steps) }
+    is KeyBarAction.Host -> this
     KeyBarAction.Ctrl, KeyBarAction.Alt, KeyBarAction.Joystick -> this
 }
 

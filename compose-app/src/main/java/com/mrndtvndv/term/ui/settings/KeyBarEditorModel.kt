@@ -23,6 +23,7 @@ fun KeyBarAction.defaultLabel(): String? = when (this) {
     is KeyBarAction.Key -> keyLabel(keyCode)
     is KeyBarAction.Text -> null
     is KeyBarAction.Macro -> null
+    is KeyBarAction.Host -> kind.displayName()
     KeyBarAction.Ctrl -> "Ctrl"
     KeyBarAction.Alt -> "Alt"
     KeyBarAction.Joystick -> "Arrows"

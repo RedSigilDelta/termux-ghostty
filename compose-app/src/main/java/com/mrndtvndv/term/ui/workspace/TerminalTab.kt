@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mrndtvndv.term.AppViewModel
 import com.mrndtvndv.term.data.prefs.AppSettings
+import com.mrndtvndv.term.data.prefs.KeyBarHostAction
 import com.mrndtvndv.term.server.TerminalEntry
 import com.mrndtvndv.term.workspace.Tab
 import com.mrndtvndv.term.workspace.remoteAttachmentEndText
@@ -55,7 +56,7 @@ fun TerminalTab(
     appearance: TerminalAppearance,
     paneCallbacks: (TerminalSession) -> TerminalPaneCallbacks,
     tabsButton: (@Composable () -> Unit)?,
-    keyBarActions: (@Composable () -> Unit)? = null,
+    onHostAction: ((KeyBarHostAction) -> Unit)? = null,
 ) {
     val opening = entry == null
     var attempt by remember { mutableIntStateOf(0) }
@@ -83,7 +84,7 @@ fun TerminalTab(
                 appearance = appearance,
                 workspaceViewModel = workspaceViewModel,
                 tabsButton = tabsButton,
-                keyBarActions = keyBarActions,
+                onHostAction = onHostAction,
                 callbacks = paneCallbacks(entry.session),
             )
             if (!entry.running) {
@@ -122,7 +123,7 @@ private fun TerminalSessionPane(
     appearance: TerminalAppearance,
     workspaceViewModel: WorkspaceViewModel,
     tabsButton: (@Composable () -> Unit)?,
-    keyBarActions: (@Composable () -> Unit)?,
+    onHostAction: ((KeyBarHostAction) -> Unit)?,
     callbacks: TerminalPaneCallbacks,
 ) {
     val progress by workspaceViewModel.observeTerminalProgress(session).collectAsStateWithLifecycle()
@@ -136,7 +137,7 @@ private fun TerminalSessionPane(
         programStatus = programStatus,
         onProgramStatusOpened = { workspaceViewModel.markProgramStatusSeen(session) },
         tabsButton = tabsButton,
-        keyBarActions = keyBarActions,
+        onHostAction = onHostAction,
         callbacks = callbacks,
     )
 }

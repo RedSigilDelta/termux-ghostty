@@ -10,8 +10,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Commit
-import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material3.Icon
@@ -38,10 +36,10 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.mrndtvndv.term.AppContainer
 import com.mrndtvndv.term.AppViewModel
 import com.mrndtvndv.term.data.prefs.AppSettings
+import com.mrndtvndv.term.data.prefs.KeyBarHostAction
 import com.mrndtvndv.term.server.TerminalEntry
 import com.mrndtvndv.term.herdr.HerdrState
 import com.mrndtvndv.term.herdr.panesIn
-import com.mrndtvndv.term.ui.keyboard.KeyBarIcon
 import com.mrndtvndv.term.workspace.HerdrFileContext
 import com.mrndtvndv.term.workspace.Tab
 import com.mrndtvndv.term.workspace.herdrSheetTabId
@@ -145,10 +143,10 @@ fun HerdrSessionRoute(
         if (!agentsVisible) sheetRequests.open(kind)
     }
 
-    val keyBarActions: @Composable () -> Unit = {
-        KeyBarIcon(icon = Icons.Default.Commit, contentDescription = "Git") { openSheet(HerdrSheetKind.Git) }
-        KeyBarIcon(icon = Icons.Default.Folder, contentDescription = "Files over SFTP") {
-            openSheet(HerdrSheetKind.Sftp)
+    val onHostAction: (KeyBarHostAction) -> Unit = { kind ->
+        when (kind) {
+            KeyBarHostAction.Git -> openSheet(HerdrSheetKind.Git)
+            KeyBarHostAction.Sftp -> openSheet(HerdrSheetKind.Sftp)
         }
     }
     val agentsButton: @Composable () -> Unit = {
@@ -190,7 +188,7 @@ fun HerdrSessionRoute(
                     appearance = appearance,
                     paneCallbacks = paneCallbacks,
                     tabsButton = agentsButton,
-                    keyBarActions = keyBarActions,
+                    onHostAction = onHostAction,
                 )
                 is Tab.Viewer -> Column(
                     modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)
