@@ -343,7 +343,7 @@ private fun FloatingBar(
 }
 
 /**
- * Bottom key bar for the terminal: Esc, Ctrl, Alt, the arrow joystick, Tab, then [agents] and [extraActions].
+ * Bottom key bar for the terminal: Esc, Ctrl, Alt, Tab, the arrow joystick, then [agents] and [extraActions].
  * [tabsButton] sits beside the pill.
  */
 @Composable
@@ -367,8 +367,8 @@ fun KeyBar(
             onLongClick = modifiers::holdCtrl,
         )
         ModifierKeyButton(label = "Alt", state = modifiers.alt, onClick = modifiers::tapAlt)
-        ArrowJoystick(mode = joystickMode, onArrow = { onKey(it.keyCode) })
         KeyButton(label = "Tab", onClick = { onKey(KeyEvent.KEYCODE_TAB) })
+        ArrowJoystick(mode = joystickMode, onArrow = { onKey(it.keyCode) })
         agents?.invoke()
         extraActions?.invoke()
     }

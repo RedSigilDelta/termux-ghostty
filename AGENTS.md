@@ -38,7 +38,7 @@ All fork-specific docs go under `docs/fork/`. Do not add `.md` files to the repo
 
 ## Linting & Static Analysis
 
-Two Kotlin linters are configured in `compose-app/build.gradle` (the only Kotlin module):
+Kotlin formatting, static analysis, and Android Lint are available through Gradle:
 
 | Tool | Purpose | Command |
 |---|---|---|
@@ -49,6 +49,8 @@ Two Kotlin linters are configured in `compose-app/build.gradle` (the only Kotlin
 **Quick combo:** `./gradlew ktlintFormat detekt` — fix style then run analysis.
 
 **Required after any code changes:** Run `./gradlew ktlintFormat detekt` before committing. ktlint auto-fixes formatting; detekt catches code smells. Both must pass.
+
+**Known ktlint coverage gap:** Current tasks do not cover `compose-app` Kotlin sources and may report only Kotlin-script tasks with `NO-SOURCE`. A successful `ktlintFormat`/`ktlintCheck` is not proof those sources were formatted or checked. Verify source-task coverage before claiming it.
 
 Config files:
 - `.editorconfig` — ktlint rules (shared with EditorConfig)
@@ -70,3 +72,14 @@ Config files:
 - A workspace belongs to one server and has a root dir; its tabs (Terminal, SFTP, Git, Viewer) live in `workspaces.json` (`compose-app/.../workspace/`).
 - Each SFTP tab owns its directory (`Tab.Sftp.dir`). The app never overwrites the user's manual navigation.
 - Closing a terminal is always `TerminalSession.close()` before `SshShellChannel.close()`: the channel close frees the native shell handle.
+
+### Herdr integration
+- Only Herdr-enabled servers use the single-session route: one terminal runs Herdr's full normal UI. Herdr owns remote workspaces, tabs, and panes; do not restore app-managed remote terminal cards or per-pane attachments. Plain SSH/local retain app workspaces and multiple terminals.
+- Git/SFTP open full-screen bottom sheets without disposing the terminal. Capture the originating remote workspace and pane cwd (`foregroundCwd`, then `cwd`) when opening; never follow live cwd changes while a sheet is open.
+- File collections and SFTP browser state are scoped by server + control socket/session + remote Herdr workspace ID. Retain SFTP navigation, scroll, tree mode, and expanded folders across sheet dismiss/reopen while connected. Use pane cwd only to initialize a new browser, never to overwrite resumed navigation.
+- Each preview open creates a new viewer, including repeated paths. Async completions retain their originating collection. Browse previews by horizontal swiping and close them with the top close button; there is no Herdr file grid.
+- The Agents button replaces the tabs button. Retain collapsed workspace groups and keyboard visibility across the Agents sheet. Group panes by tab without numbered tab headings. Start focus requests concurrently with the sheet's hide animation; remove the sheet only after animation completes.
+- Context uses server-global snapshot focus, not verified client-specific focus. Agent statuses are sampled every 5 seconds; terminal output remains live. Keep this limitation explicit and route refreshes through `HerdrControlClient.refresh()`'s existing coalesced loop, not independent snapshot fetches.
+
+### SSH command execution
+- `SshSession.execCommand` accepts POSIX scripts and executes them through `/bin/sh`, independent of the account's login shell (which may be fish). Preserve this at the SSH transport layer rather than adding consumer-specific shell workarounds.

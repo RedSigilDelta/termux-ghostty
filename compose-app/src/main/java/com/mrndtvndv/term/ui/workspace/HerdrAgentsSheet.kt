@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -20,6 +21,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.SmartToy
@@ -32,6 +34,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SheetValue
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.material3.SplitButtonDefaults
 import androidx.compose.material3.SplitButtonLayout
 import androidx.compose.material3.Text
@@ -297,6 +302,37 @@ private fun HerdrTabGroup(
 
 @Composable
 private fun HerdrAgentRow(pane: HerdrPane, title: String, onFocus: () -> Unit, onClose: () -> Unit) {
+    val swipeState = rememberSwipeToDismissBoxState(
+        confirmValueChange = {
+            if (it != SwipeToDismissBoxValue.Settled) onClose()
+            false
+        },
+    )
+    SwipeToDismissBox(
+        state = swipeState,
+        backgroundContent = {
+            Box(
+                modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.errorContainer)
+                    .padding(horizontal = 24.dp),
+                contentAlignment = if (swipeState.dismissDirection == SwipeToDismissBoxValue.StartToEnd) {
+                    Alignment.CenterStart
+                } else {
+                    Alignment.CenterEnd
+                },
+            ) {
+                Icon(
+                    Icons.Default.Close, contentDescription = "Close pane",
+                    tint = MaterialTheme.colorScheme.onErrorContainer,
+                )
+            }
+        },
+    ) {
+        HerdrAgentRowContent(pane, title, onFocus, onClose)
+    }
+}
+
+@Composable
+private fun HerdrAgentRowContent(pane: HerdrPane, title: String, onFocus: () -> Unit, onClose: () -> Unit) {
     var menuVisible by remember(pane.terminalId) { mutableStateOf(false) }
     val statusColor = when (pane.agentStatus) {
         HerdrAgentStatus.Working -> MaterialTheme.colorScheme.primary
