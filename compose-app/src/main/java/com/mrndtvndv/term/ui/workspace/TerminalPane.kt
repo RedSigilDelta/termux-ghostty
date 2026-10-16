@@ -68,12 +68,15 @@ class TerminalPaneCallbacks(
     val onUpdateSettings: ((AppSettings) -> AppSettings) -> Unit,
 )
 
-/** Gap between the key bar and the bottom inset, also the rows' clearance above the bar. */
-private val KeyBarGap = 6.dp
+/** Keeps the key bar clear of the navigation bar or keyboard. */
+private val KeyBarBottomGap = 6.dp
+
+/** Let the last terminal row use the space right up to the key bar. */
+private val TerminalKeyBarClearance = 0.dp
 
 /** Overlay mode keeps the canvas grid under the bar; otherwise rows stop above it. */
-internal fun keyBarInsetPx(canvas: Rect, keyBarTop: Float, gapPx: Float, overlay: Boolean): Int =
-    if (!overlay && keyBarTop > 0f) (canvas.bottom - keyBarTop + gapPx).roundToInt().coerceAtLeast(0) else 0
+internal fun keyBarInsetPx(canvas: Rect, keyBarTop: Float, clearancePx: Float, overlay: Boolean): Int =
+    if (!overlay && keyBarTop > 0f) (canvas.bottom - keyBarTop + clearancePx).roundToInt().coerceAtLeast(0) else 0
 
 /** The pill is blurred in the canvas's own coordinates. */
 private fun keyBarBlurRegions(pill: Rect, canvas: Rect): List<TerminalBlurRegion> =
@@ -97,7 +100,7 @@ private fun Modifier.terminalCanvasLayout(onBounds: (Rect) -> Unit): Modifier = 
 @Composable
 private fun Modifier.keyBarLayout(onTop: (Float) -> Unit): Modifier = this
     .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))
-    .padding(bottom = KeyBarGap)
+    .padding(bottom = KeyBarBottomGap)
     .onGloballyPositioned { onTop(it.boundsInRoot().top) }
 
 /**
@@ -122,7 +125,7 @@ fun TerminalPane(
     val modifierKeys = remember { ModifierKeys() }
     val imeController = remember(session) { TerminalImeController() }
     val density = LocalDensity.current
-    val keyBarGapPx = with(density) { KeyBarGap.toPx() }
+    val terminalKeyBarClearancePx = with(density) { TerminalKeyBarClearance.toPx() }
     var canvasBounds by remember { mutableStateOf(Rect.Zero) }
     var keyBarTop by remember { mutableFloatStateOf(0f) }
     var keyBarPill by remember { mutableStateOf(Rect.Zero) }
@@ -152,7 +155,12 @@ fun TerminalPane(
             imeController = imeController,
             wallpaperConfig = appearance.wallpaper,
             contentTopInsetPx = WindowInsets.statusBars.getTop(density),
-            contentBottomInsetPx = keyBarInsetPx(canvasBounds, keyBarTop, keyBarGapPx, settings.overlayKeyBar),
+            contentBottomInsetPx = keyBarInsetPx(
+                canvasBounds,
+                keyBarTop,
+                terminalKeyBarClearancePx,
+                settings.overlayKeyBar,
+            ),
             blurRegions = keyBarBlurRegions(keyBarPill, canvasBounds),
             modifier = Modifier.terminalCanvasLayout { canvasBounds = it },
         )
