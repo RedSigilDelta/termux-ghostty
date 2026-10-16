@@ -155,9 +155,40 @@ public final class KeyHandler {
     }
 
     /**
-     * Encodes a key using the Kitty keyboard protocol when its escape
-     * disambiguation flag is active.
+     * The ASCII control code that Ctrl produces for {@code codePoint}, or null when Ctrl has no mapping for it, so
+     * callers choose their own fallback. Shared by the Compose input translator and macro encoding.
      */
+    public static Integer getControlCode(int codePoint) {
+        if (codePoint >= 'a' && codePoint <= 'z') return codePoint - 'a' + 1;
+        if (codePoint >= 'A' && codePoint <= 'Z') return codePoint - 'A' + 1;
+        switch (codePoint) {
+            case ' ':
+            case '2':
+                return 0;
+            case '[':
+            case '3':
+                return 27;
+            case '\\':
+            case '4':
+                return 28;
+            case ']':
+            case '5':
+                return 29;
+            case '^':
+            case '6':
+                return 30;
+            case '_':
+            case '7':
+            case '/':
+                return 31;
+            case '8':
+                return 127;
+            default:
+                return null;
+        }
+    }
+
+    /** Encodes Escape with Kitty disambiguation when the terminal enables it. */
     public static String getCode(int keyCode, int keyMode, boolean cursorApp, boolean keypadApplication, int kittyKeyboardFlags) {
         String code = getCode(keyCode, keyMode, cursorApp, keypadApplication);
         if (code == null) return null;

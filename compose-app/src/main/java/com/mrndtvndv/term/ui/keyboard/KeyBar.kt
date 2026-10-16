@@ -6,44 +6,53 @@ import androidx.compose.animation.core.AnimationVector2D
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.spring
-import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.PressInteraction
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.mrndtvndv.term.data.prefs.ArrowJoystickMode
+import com.mrndtvndv.term.data.prefs.KeyBarAction
+import com.mrndtvndv.term.data.prefs.KeyBarItem
+import com.mrndtvndv.term.data.prefs.KeyBarLayout
+import com.mrndtvndv.term.data.prefs.MacroStep
+import com.mrndtvndv.term.data.prefs.isSwipeable
 import com.mrndtvndv.term.ui.components.tintedGlassPill
 import com.termux.terminal.KeyHandler
 import com.termux.terminal.TerminalSession
@@ -138,6 +147,17 @@ fun sendKeyCode(session: TerminalSession, keyCode: Int, modifiers: ModifierKeys)
     } finally {
         modifiers.clearConsumed()
     }
+}
+
+/**
+ * Writes [text] as literal terminal input through the session's ordered input path. Nothing is appended,
+ * and armed Ctrl or Alt stay armed because the text is not a key.
+ */
+fun sendKeyBarText(session: TerminalSession, text: String) {
+    if (text.isEmpty()) return
+    session.setGhosttyTopRow(0)
+    session.setCursorBlinkState(true)
+    session.write(text)
 }
 
 enum class ArrowDirection(val keyCode: Int) {
@@ -310,16 +330,75 @@ fun ArrowJoystick(mode: ArrowJoystickMode, onArrow: (ArrowDirection) -> Unit, mo
 
 private val BarHeight = 48.dp
 
+/** Width of the fade that marks more keys off the end of the scrolling strip. */
+private val EdgeFadeWidth = 16.dp
+
+/**
+ * Fades the strip's edges where keys continue off screen. The mask is drawing only, so pointer input passes
+ * through.
+ */
+private fun Modifier.edgeFade(fadeStart: Boolean, fadeEnd: Boolean): Modifier =
+    if (!fadeStart && !fadeEnd) {
+        this
+    } else {
+        graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+            .drawWithContent {
+                drawContent()
+                val fade = EdgeFadeWidth.toPx()
+                if (fadeStart) {
+                    drawRect(
+                        brush = Brush.horizontalGradient(listOf(Color.Transparent, Color.Black), 0f, fade),
+                        blendMode = BlendMode.DstIn,
+                    )
+                }
+                if (fadeEnd) {
+                    drawRect(
+                        brush = Brush.horizontalGradient(
+                            listOf(Color.Black, Color.Transparent),
+                            size.width - fade,
+                            size.width,
+                        ),
+                        blendMode = BlendMode.DstIn,
+                    )
+                }
+            }
+    }
+
+/**
+ * The customizable keys in a strip that takes the pill's width left after the host actions, and scrolls
+ * when they overflow. Under RTL the strip scrolls from the right, and the fades follow the scroll direction.
+ */
+@Composable
+private fun RowScope.KeyStrip(content: @Composable RowScope.() -> Unit) {
+    val scrollState = rememberScrollState()
+    val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+    val fadeStart = if (isRtl) scrollState.canScrollForward else scrollState.canScrollBackward
+    val fadeEnd = if (isRtl) scrollState.canScrollBackward else scrollState.canScrollForward
+    val preview = LocalKeySwipePreview.current
+    Row(
+        modifier = Modifier
+            .weight(1f, fill = false)
+            .fillMaxHeight()
+            .horizontalScroll(scrollState, reverseScrolling = isRtl)
+            .edgeFade(fadeStart = fadeStart, fadeEnd = fadeEnd)
+            .onGloballyPositioned { preview?.stripBounds = it.boundsInWindow() },
+        verticalAlignment = Alignment.CenterVertically,
+        content = content,
+    )
+}
+
 /**
  * Floating glass bar with the key row and the tabs button beside it. The terminal renderer blurs
- * the area under [pillModifier], so the pill is tinted rather than sampled.
+ * the area under [pillModifier], so the pill is tinted rather than sampled. [hostActions] sit after
+ * the scrolling [keys] and stay fixed when the strip overflows.
  */
 @Composable
 private fun FloatingBar(
     tabsButton: (@Composable () -> Unit)?,
     modifier: Modifier = Modifier,
     pillModifier: Modifier = Modifier,
-    content: @Composable RowScope.() -> Unit,
+    keys: @Composable RowScope.() -> Unit,
+    hostActions: @Composable RowScope.() -> Unit,
 ) {
     Row(
         modifier = modifier,
@@ -327,7 +406,7 @@ private fun FloatingBar(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Surface(
-            modifier = pillModifier.tintedGlassPill(CircleShape),
+            modifier = Modifier.weight(1f, fill = false).then(pillModifier.tintedGlassPill(CircleShape)),
             shape = CircleShape,
             color = Color.Transparent,
             contentColor = MaterialTheme.colorScheme.onSurface,
@@ -335,22 +414,27 @@ private fun FloatingBar(
             Row(
                 modifier = Modifier.height(BarHeight).padding(horizontal = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                content = content,
-            )
+            ) {
+                KeyStrip(content = keys)
+                hostActions()
+            }
         }
         tabsButton?.invoke()
     }
 }
 
 /**
- * Bottom key bar for the terminal: Esc, Ctrl, Alt, Tab, the arrow joystick, then [agents] and [extraActions].
- * [tabsButton] sits beside the pill.
+ * Bottom key bar for the terminal: the customizable [layout] in a horizontal strip, then [agents] and
+ * [extraActions] as fixed host actions. [tabsButton] sits beside the pill.
  */
 @Composable
 @Suppress("LongParameterList")
 fun KeyBar(
     modifiers: ModifierKeys,
+    layout: KeyBarLayout,
     onKey: (keyCode: Int) -> Unit,
+    onText: (text: String) -> Unit,
+    onMacro: (steps: List<MacroStep>) -> Unit,
     joystickMode: ArrowJoystickMode,
     tabsButton: (@Composable () -> Unit)?,
     agents: (@Composable () -> Unit)?,
@@ -358,97 +442,76 @@ fun KeyBar(
     modifier: Modifier = Modifier,
     pillModifier: Modifier = Modifier,
 ) {
-    FloatingBar(tabsButton = tabsButton, modifier = modifier, pillModifier = pillModifier) {
-        KeyButton(label = "Esc", onClick = { onKey(KeyEvent.KEYCODE_ESCAPE) })
-        ModifierKeyButton(
-            label = "Ctrl",
+    val dispatch: (KeyBarAction) -> Unit = { action ->
+        when (action) {
+            is KeyBarAction.Key -> onKey(action.keyCode)
+            is KeyBarAction.Text -> onText(action.text)
+            is KeyBarAction.Macro -> onMacro(action.steps)
+            KeyBarAction.Ctrl -> modifiers.tapCtrl()
+            KeyBarAction.Alt -> modifiers.tapAlt()
+            KeyBarAction.Joystick -> Unit
+        }
+    }
+    val preview = remember { KeySwipePreviewHost() }
+    CompositionLocalProvider(LocalKeySwipePreview provides preview) {
+        Box(modifier = modifier.onGloballyPositioned { preview.barBounds = it.boundsInWindow() }) {
+            FloatingBar(
+                tabsButton = tabsButton,
+                pillModifier = pillModifier,
+                keys = {
+                    layout.items.forEach { item ->
+                        key(item.id) {
+                            KeyBarItemButton(item, modifiers, joystickMode, onKey, dispatch)
+                        }
+                    }
+                },
+                hostActions = {
+                    agents?.invoke()
+                    extraActions?.invoke()
+                },
+            )
+            preview.target?.let { KeySwipePreviewOverlay(it, preview) }
+        }
+    }
+}
+
+/**
+ * Renders one item. The joystick and modifiers keep their own gestures. Key, Text and Macro items get tap and swipe,
+ * and every action goes through [dispatch].
+ */
+@Composable
+private fun KeyBarItemButton(
+    item: KeyBarItem,
+    modifiers: ModifierKeys,
+    joystickMode: ArrowJoystickMode,
+    onKey: (keyCode: Int) -> Unit,
+    dispatch: (KeyBarAction) -> Unit,
+) {
+    when (val tap = item.tap) {
+        KeyBarAction.Ctrl -> ModifierKeyButton(
+            label = item.label,
             state = modifiers.ctrl,
             onClick = modifiers::tapCtrl,
             onLongClick = modifiers::holdCtrl,
         )
-        ModifierKeyButton(label = "Alt", state = modifiers.alt, onClick = modifiers::tapAlt)
-        KeyButton(label = "Tab", onClick = { onKey(KeyEvent.KEYCODE_TAB) })
-        ArrowJoystick(mode = joystickMode, onArrow = { onKey(it.keyCode) })
-        agents?.invoke()
-        extraActions?.invoke()
-    }
-}
-
-/** An icon key on the key bar pill, for actions the terminal adds, such as the Herdr Git and SFTP sheets. */
-@Composable
-fun KeyBarIcon(icon: ImageVector, contentDescription: String, onClick: () -> Unit) {
-    Box(
-        Modifier
-            .focusProperties { canFocus = false }
-            .clip(CircleShape)
-            .clickable(onClick = onClick)
-            .defaultMinSize(minWidth = 36.dp, minHeight = 36.dp)
-            .padding(horizontal = 8.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = contentDescription,
-            modifier = Modifier.size(20.dp),
-            tint = MaterialTheme.colorScheme.onSurface,
+        KeyBarAction.Alt -> ModifierKeyButton(label = item.label, state = modifiers.alt, onClick = modifiers::tapAlt)
+        KeyBarAction.Joystick -> ArrowJoystick(
+            mode = joystickMode,
+            onArrow = { onKey(it.keyCode) },
+            modifier = Modifier.semantics {
+                contentDescription = "Arrow keys"
+                customActions = ArrowDirection.entries.map { direction ->
+                    CustomAccessibilityAction("Arrow ${direction.name.lowercase()}") {
+                        onKey(direction.keyCode)
+                        true
+                    }
+                }
+            },
         )
-    }
-}
-
-@Composable
-private fun ModifierKeyButton(
-    label: String,
-    state: KeyModifierState,
-    onClick: () -> Unit,
-    onLongClick: (() -> Unit)? = null,
-) {
-    val colors = MaterialTheme.colorScheme
-    val (containerColor, contentColor) = when (state) {
-        KeyModifierState.OFF -> Color.Transparent to colors.onSurface
-        KeyModifierState.ARMED -> colors.secondaryContainer to colors.onSecondaryContainer
-        KeyModifierState.LOCKED -> colors.primary to colors.onPrimary
-    }
-    KeyButton(
-        label = label,
-        onClick = onClick,
-        onLongClick = onLongClick,
-        containerColor = containerColor,
-        contentColor = contentColor,
-    )
-}
-
-@Composable
-private fun KeyButton(
-    label: String,
-    onClick: () -> Unit,
-    onLongClick: (() -> Unit)? = null,
-    containerColor: Color = Color.Transparent,
-    contentColor: Color = MaterialTheme.colorScheme.onSurface,
-) {
-    val haptics = LocalHapticFeedback.current
-    val interactionSource = remember { MutableInteractionSource() }
-    LaunchedEffect(interactionSource) {
-        interactionSource.interactions.collect { interaction ->
-            if (interaction is PressInteraction.Press) {
-                haptics.performHapticFeedback(HapticFeedbackType.VirtualKey)
-            }
-        }
-    }
-    Box(
-        Modifier
-            .focusProperties { canFocus = false }
-            .clip(RoundedCornerShape(percent = 50))
-            .background(containerColor)
-            .combinedClickable(
-                interactionSource = interactionSource,
-                indication = LocalIndication.current,
-                onClick = onClick,
-                onLongClick = onLongClick,
-            )
-            .defaultMinSize(minWidth = 44.dp, minHeight = 36.dp)
-            .padding(horizontal = 10.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(text = label, style = MaterialTheme.typography.labelLarge, color = contentColor)
+        is KeyBarAction.Key, is KeyBarAction.Text, is KeyBarAction.Macro -> SwipeKeyButton(
+            item = item,
+            onTap = { dispatch(tap) },
+            onSwipe = { swipe -> item.swipeAction(swipe)?.takeIf { it.isSwipeable() }?.let(dispatch) },
+        )
     }
 }

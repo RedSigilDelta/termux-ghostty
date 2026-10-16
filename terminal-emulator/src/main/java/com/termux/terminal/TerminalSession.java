@@ -684,6 +684,18 @@ public final class TerminalSession extends TerminalOutput implements AutoCloseab
         return mGhosttyCursorVisible;
     }
 
+    /**
+     * Writes {@code items} in order as one input write. Special keys are encoded on the Ghostty worker, after output
+     * already queued for parsing, from the terminal's live cursor, keypad and Kitty modes. Returns false, and sends
+     * nothing, when no worker is running.
+     */
+    public boolean sendInputSequence(List<TerminalInputItem> items) {
+        GhosttySessionWorker worker = mGhosttySessionWorker;
+        if (worker == null) return false;
+        worker.sendInput(items.toArray(new TerminalInputItem[0]));
+        return true;
+    }
+
     public void setGhosttyTopRow(int topRow) {
         if (mGhosttySessionWorker != null) {
             mGhosttySessionWorker.setTopRow(topRow);

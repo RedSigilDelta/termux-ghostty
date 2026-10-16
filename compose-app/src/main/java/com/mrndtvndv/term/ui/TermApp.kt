@@ -42,6 +42,8 @@ import com.mrndtvndv.term.server.TerminalEntry
 import com.mrndtvndv.term.ui.addserver.AddServerScreen
 import com.mrndtvndv.term.ui.notification.InAppNotificationBanner
 import com.mrndtvndv.term.ui.serverlist.ServerListScreen
+import com.mrndtvndv.term.ui.settings.KeyBarEditorRoute
+import com.mrndtvndv.term.ui.settings.KeyBarItemEditorRoute
 import com.mrndtvndv.term.ui.settings.SettingsRoute
 import com.mrndtvndv.term.ui.settings.SettingsViewModel
 import com.mrndtvndv.term.ui.theme.TerminalThemeSync
@@ -217,6 +219,28 @@ fun TermApp(
                                     viewModel = settingsViewModel,
                                     wallpaperController = wallpaperController,
                                     notificationState = appViewModel.notificationState,
+                                    onEditKeyBar = { navigator.navigate(AppRoute.KeyBarEditor) },
+                                    onBack = onBack,
+                                )
+                            }
+
+                            entry<AppRoute.KeyBarEditor> {
+                                KeyBarEditorRoute(
+                                    settingsViewModel = viewModel {
+                                        SettingsViewModel(container.preferences, container.fontStore)
+                                    },
+                                    onAddItem = { navigator.navigate(AppRoute.KeyBarItemEditor()) },
+                                    onEditItem = { itemId -> navigator.navigate(AppRoute.KeyBarItemEditor(itemId)) },
+                                    onBack = onBack,
+                                )
+                            }
+
+                            entry<AppRoute.KeyBarItemEditor> { route ->
+                                KeyBarItemEditorRoute(
+                                    settingsViewModel = viewModel {
+                                        SettingsViewModel(container.preferences, container.fontStore)
+                                    },
+                                    itemId = route.itemId,
                                     onBack = onBack,
                                 )
                             }

@@ -30,12 +30,19 @@ private object Key {
     const val LastSoftKeyboardState = "last_soft_keyboard_state"
     const val ArrowJoystickMode = "arrow_joystick_mode"
     const val OverlayKeyBar = "overlay_key_bar"
+    const val KeyBarLayout = "key_bar_layout"
     const val WallpaperUri = "terminal_wallpaper_uri"
     const val WallpaperName = "terminal_wallpaper_name"
     const val WallpaperEnabled = "terminal_wallpaper_enabled"
     const val WallpaperOpacity = "terminal_wallpaper_opacity"
     const val WallpaperScaling = "terminal_wallpaper_scaling"
     const val WallpaperId = "terminal_wallpaper_id"
+}
+
+/** Absent or unreadable data yields the default layout; the default is never stored, so later default changes apply. */
+private fun loadKeyBarLayout(prefs: SharedPreferences): KeyBarLayout {
+    val raw = runCatching { prefs.getString(Key.KeyBarLayout, null) }.getOrNull()
+    return raw?.let(::decodeKeyBarLayout) ?: defaultKeyBarLayout()
 }
 
 // "Black" was the old default theme. It is now Dark with AMOLED black on, which looks the same.
@@ -64,6 +71,11 @@ private fun SharedPreferences.Editor.write(settings: AppSettings) {
     }
     putString(Key.ArrowJoystickMode, settings.arrowJoystickMode.name)
     putBoolean(Key.OverlayKeyBar, settings.overlayKeyBar)
+    if (settings.keyBarLayout == defaultKeyBarLayout()) {
+        remove(Key.KeyBarLayout)
+    } else {
+        putString(Key.KeyBarLayout, encodeKeyBarLayout(settings.keyBarLayout))
+    }
     putString(Key.WallpaperUri, settings.wallpaperUri)
     putString(Key.WallpaperName, settings.wallpaperName)
     putBoolean(Key.WallpaperEnabled, settings.wallpaperEnabled)
@@ -80,13 +92,20 @@ class AppPreferences(
     private val _settings = MutableStateFlow(load())
     val settings: StateFlow<AppSettings> = _settings.asStateFlow()
 
+    /**
+     * Applies [transform] and saves the result. Returns false and saves nothing when the resulting key-bar layout
+     * is not valid, so an unsupported macro step is rejected before it reaches preferences.
+     */
     @Synchronized
-    fun update(transform: (AppSettings) -> AppSettings) {
+    fun update(transform: (AppSettings) -> AppSettings): Boolean {
         val old = _settings.value
-        val new = normalize(transform(old))
-        if (new == old) return
+        val proposed = transform(old)
+        if (!proposed.keyBarLayout.isValid()) return false
+        val new = normalize(proposed)
+        if (new == old) return true
         _settings.value = new
         prefs.edit().apply { write(new) }.apply()
+        return true
     }
 
     private fun load(): AppSettings = normalize(
@@ -113,6 +132,7 @@ class AppPreferences(
                 it.name == prefs.getString(Key.ArrowJoystickMode, null)
             } ?: ArrowJoystickMode.Swipe,
             overlayKeyBar = prefs.getBoolean(Key.OverlayKeyBar, false),
+            keyBarLayout = loadKeyBarLayout(prefs),
             wallpaperUri = prefs.getString(Key.WallpaperUri, null),
             wallpaperName = prefs.getString(Key.WallpaperName, null),
             wallpaperEnabled = prefs.getBoolean(Key.WallpaperEnabled, true),
@@ -128,5 +148,6 @@ class AppPreferences(
         lastSoftKeyboardState = settings.lastSoftKeyboardState.takeIf { settings.rememberSoftKeyboardState }
             ?: SoftKeyboardState.UNKNOWN,
         wallpaperOpacity = settings.wallpaperOpacity.coerceIn(0f, 1f),
+        keyBarLayout = settings.keyBarLayout.normalized(),
     )
 }

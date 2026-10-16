@@ -2,6 +2,7 @@ package com.termux.terminal.compose.internal
 
 import android.view.KeyCharacterMap
 import android.view.KeyEvent
+import com.termux.terminal.KeyHandler
 import com.termux.terminal.compose.ModifierKeyReader
 import com.termux.terminal.compose.TerminalCommand
 import com.termux.terminal.compose.TerminalCommandResult
@@ -170,19 +171,11 @@ internal class TerminalInputTranslator(
     }
 }
 
-/** Port of the emulator's control-key translation for character input. */
+/**
+ * Control-key translation for character input. The mapping lives in the emulator's [KeyHandler.getControlCode];
+ * characters it does not map pass through unchanged.
+ */
 internal fun applyControlMapping(codePoint: Int, controlHeld: Boolean): Int {
     if (!controlHeld) return codePoint
-    return when (codePoint) {
-        in 'a'.code..'z'.code -> codePoint - 'a'.code + 1
-        in 'A'.code..'Z'.code -> codePoint - 'A'.code + 1
-        ' '.code, '2'.code -> 0
-        '['.code, '3'.code -> 27
-        '\\'.code, '4'.code -> 28
-        ']'.code, '5'.code -> 29
-        '^'.code, '6'.code -> 30
-        '_'.code, '7'.code, '/'.code -> 31
-        '8'.code -> 127
-        else -> codePoint
-    }
+    return KeyHandler.getControlCode(codePoint) ?: codePoint
 }

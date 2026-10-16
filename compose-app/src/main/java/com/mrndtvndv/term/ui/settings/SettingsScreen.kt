@@ -1,11 +1,13 @@
 package com.mrndtvndv.term.ui.settings
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -34,6 +36,7 @@ fun SettingsScreen(
     onClearFont: () -> Unit,
     onSelectWallpaper: () -> Unit,
     onClearWallpaper: () -> Unit,
+    onEditKeyBar: () -> Unit,
     onBack: () -> Unit
 ) {
     val scrollState = rememberScrollState()
@@ -781,6 +784,31 @@ fun SettingsScreen(
                         Switch(
                             checked = settings.overlayKeyBar,
                             onCheckedChange = { enabled -> onUpdate { it.copy(overlayKeyBar = enabled) } }
+                        )
+                    }
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(onClickLabel = "Edit key bar", onClick = onEditKeyBar),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Key Bar", style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                text = "${settings.keyBarLayout.items.size} keys. " +
+                                    "Customize the keys above the keyboard",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }

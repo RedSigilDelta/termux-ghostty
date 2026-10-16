@@ -18,6 +18,13 @@ sealed interface AppRoute : NavKey {
     data object Settings : AppRoute
 
     @Serializable
+    data object KeyBarEditor : AppRoute
+
+    /** Editor for one key bar item. A null [itemId] adds a new item. */
+    @Serializable
+    data class KeyBarItemEditor(val itemId: String? = null) : AppRoute
+
+    @Serializable
     data class Workspace(val workspaceId: String) : AppRoute
 
     /** A server's Herdr session: its one full-UI terminal and file tabs. Its workspace is looked up from [serverId]. */

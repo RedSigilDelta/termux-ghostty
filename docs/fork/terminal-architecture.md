@@ -176,7 +176,9 @@ Required ordering for any input whose bytes depend on native modes:
 4. choose/encode the input route;
 5. emit bytes or mutate viewport on that same worker turn.
 
-Scroll, mouse/tap, and focus follow this rule. Never route them from a rendered frame or `TerminalSession` mode cache.
+Scroll, mouse/tap, and focus follow this rule. Never route them from a rendered frame or
+`TerminalSession` mode cache. Macro key chords use `TerminalSession.sendInputSequence`, which
+applies the same rule to special keys.
 
 Pointer commands must carry event-time pixel/cell geometry. Resize coalescing may intentionally leave the last PTY resize pixel dimensions older than the current canvas.
 
@@ -233,7 +235,8 @@ The current Java/Compose seam materializes a complete snapshot as `byte[]`. Stre
 ## Known architectural debt
 
 1. `TerminalSessionCommandAdapter` still encodes ordinary key/cursor commands from cached cursor/keypad modes on the main thread.
-2. `ExtraKeysToolbar` encodes special keys/macros from cached cursor/keypad/Kitty modes and writes directly to the session.
+2. `KeyBar.sendKeyCode` still encodes individual special keys from cached cursor/keypad/Kitty modes;
+   macro sequences now use worker-owned mode-sensitive encoding.
 3. `TerminalSession.paste()` reads cached bracketed-paste mode outside the worker.
 4. full selected-text extraction synchronously enters native content from the main thread.
 5. `TerminalSessionIOBridge.pendingOperations` is unbounded when an SSH channel stalls.

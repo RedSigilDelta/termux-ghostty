@@ -42,6 +42,8 @@ import com.mrndtvndv.term.ui.keyboard.KeyBar
 import com.mrndtvndv.term.ui.keyboard.ModifierKeys
 import com.mrndtvndv.term.ui.keyboard.SoftKeyboardState
 import com.mrndtvndv.term.ui.keyboard.SoftKeyboardVisibilityTracker
+import com.mrndtvndv.term.ui.keyboard.sendKeyBarMacro
+import com.mrndtvndv.term.ui.keyboard.sendKeyBarText
 import com.mrndtvndv.term.ui.keyboard.sendKeyCode
 import com.termux.terminal.TerminalSession
 import com.termux.terminal.compose.TerminalBlurRegion
@@ -102,7 +104,7 @@ private fun Modifier.keyBarLayout(onTop: (Float) -> Unit): Modifier = this
  * The key bar floats above the navigation bar and the keyboard. Rows stop above the bar through
  * the canvas's bottom inset unless overlay is enabled; the top inset keeps them below the status bar.
  */
-@Suppress("LongParameterList")
+@Suppress("LongParameterList", "LongMethod")
 @Composable
 fun TerminalPane(
     session: TerminalSession,
@@ -155,7 +157,10 @@ fun TerminalPane(
         )
         KeyBar(
             modifiers = modifierKeys,
+            layout = settings.keyBarLayout,
             onKey = { keyCode -> sendKeyCode(session, keyCode, modifierKeys) },
+            onText = { text -> sendKeyBarText(session, text) },
+            onMacro = { steps -> sendKeyBarMacro(session, steps) },
             joystickMode = settings.arrowJoystickMode,
             tabsButton = tabsButton,
             agents = agentsSlot(programStatus) {

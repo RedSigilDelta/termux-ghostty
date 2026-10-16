@@ -10,6 +10,7 @@ import android.view.KeyEvent;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -50,6 +51,7 @@ final class GhosttySessionWorker extends Thread {
     private static final int MSG_CAPTURE_STATE_SNAPSHOT = 17;
     private static final int MSG_RESTORE_STATE_SNAPSHOT = 18;
     private static final int MSG_PROGRAM_STATUS_PROCESS_ENDED = 19;
+    private static final int MSG_INPUT = 20;
     static final int SCROLL_ROUTE_VIEWPORT = 0;
     static final int SCROLL_ROUTE_KEYS = 1;
     static final int SCROLL_ROUTE_MOUSE = 2;
@@ -255,6 +257,10 @@ final class GhosttySessionWorker extends Thread {
 
     void reset() {
         getWorkerHandler().sendEmptyMessage(MSG_RESET);
+    }
+
+    void sendInput(TerminalInputItem[] items) {
+        getWorkerHandler().obtainMessage(MSG_INPUT, items).sendToTarget();
     }
 
     void sendMouseEvent(GhosttyMouseEvent event) {
@@ -599,6 +605,39 @@ final class GhosttySessionWorker extends Thread {
         if (appendedBytes > 0) {
             drainPendingOutput();
         }
+    }
+
+    /**
+     * Parses output queued before this input, then encodes special keys from the live modes of this turn. The whole
+     * sequence is written once, so an unencodable key sends nothing.
+     */
+    private void handleInput(TerminalInputItem[] items) {
+        boolean appendedOutput = appendQueuedOutputBeforeInput();
+        byte[] bytes = encodeInput(
+            items,
+            mContent.isCursorKeysApplicationMode(),
+            mContent.isKeypadApplicationMode(),
+            mContent.getKittyKeyboardFlags());
+        if (bytes == null) {
+            GhosttyLog.error("Ghostty input sequence has a key with no encoding session=" + mSession.mHandle);
+        } else {
+            mSession.write(bytes, 0, bytes.length);
+        }
+        publishPredrainedOutput(appendedOutput);
+    }
+
+    private static byte[] encodeInput(TerminalInputItem[] items, boolean cursorApp, boolean keypadApp, int kittyFlags) {
+        StringBuilder out = new StringBuilder();
+        for (TerminalInputItem item : items) {
+            if (!item.isKey()) {
+                out.append(item.text);
+                continue;
+            }
+            String sequence = KeyHandler.getCode(item.keyCode, item.keyModifiers, cursorApp, keypadApp, kittyFlags);
+            if (sequence == null) return null;
+            out.append(sequence);
+        }
+        return out.toString().getBytes(StandardCharsets.UTF_8);
     }
 
     private void handleFocusEvent(boolean focused) {
@@ -995,6 +1034,9 @@ final class GhosttySessionWorker extends Thread {
                     break;
                 case MSG_FOCUS_EVENT:
                     handleFocusEvent(msg.arg1 != 0);
+                    break;
+                case MSG_INPUT:
+                    handleInput((TerminalInputItem[]) msg.obj);
                     break;
                 case MSG_PROGRESS_TIMEOUT:
                     handleProgressTimeout((Long) msg.obj);

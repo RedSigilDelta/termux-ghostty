@@ -28,6 +28,7 @@ fun SettingsRoute(
     viewModel: SettingsViewModel,
     wallpaperController: WallpaperController,
     notificationState: NotificationState,
+    onEditKeyBar: () -> Unit,
     onBack: () -> Unit,
 ) {
     val settings by viewModel.settings.collectAsStateWithLifecycle()
@@ -43,6 +44,7 @@ fun SettingsRoute(
         onClearFont = viewModel::clearFont,
         onSelectWallpaper = wallpaperPicker.select,
         onClearWallpaper = wallpaperPicker.clear,
+        onEditKeyBar = onEditKeyBar,
         onBack = onBack,
     )
 }
