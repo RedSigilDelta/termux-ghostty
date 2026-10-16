@@ -22,8 +22,10 @@ import kotlinx.serialization.json.put
  * Actions run one at a time in submission order, so the steps of one action never interleave with another's. Each
  * focus-changing submission is a new intent and supersedes earlier ones: a superseded action completes as
  * [HerdrActionFailure.Superseded] and stops before its next send. A request already sent is allowed to finish, so
- * the server sees requests in submission order. Pane and tab IDs are resolved from stable terminal IDs against a
- * snapshot fetched after the action started, never from IDs captured when the user tapped.
+ * the server sees requests in submission order. Pane and tab IDs are resolved from stable terminal IDs, never from IDs
+ * captured when the user tapped. Focus takes its pane from the last-known snapshot of a live client without waiting,
+ * and retries once from a fresh snapshot when a reply shows the ID is stale. Other actions resolve from a snapshot
+ * fetched after the action started.
  *
  * Submit from the main thread. Lock order is this owner's lock, then the client's.
  */
@@ -52,13 +54,28 @@ class HerdrActions(
     /** Records a newer local intent with no remote step, such as a notification opening the session. */
     fun supersede(): Long = synchronized(lock) { newIntentLocked() }
 
-    /** Focuses the pane running [terminalId]. Upstream `pane.focus` also selects its workspace and tab. */
-    fun focusTerminal(terminalId: String): Ticket = submit(focusIntent = true) {
-        val acked = withResolvedPane(terminalId) { pane ->
-            val info = HerdrWire.decodePaneInfo(send("pane.focus", buildJsonObject { put("pane_id", pane.id) }))
-            // Pane IDs are positional upstream, so a stale ID can name another terminal's pane.
-            if (info.terminalId != terminalId) throw HerdrException(MISMATCH_ERROR)
-            info
+    /**
+     * Focuses the pane running [terminalId]. Upstream `pane.focus` also selects its workspace and tab. The first send
+     * uses the last-known snapshot, so a stale ID can focus another pane before its acknowledgment shows the mismatch.
+     * A terminal missing from that snapshot ends as [HerdrActionFailure.TargetGone] with no remote request, and that
+     * outcome is not reported. A focus that may have landed on another pane is reported instead.
+     */
+    fun focusTerminal(terminalId: String): Ticket = submit(focusIntent = true, notifyTargetGone = false) {
+        // Set before a mismatched acknowledgment throws, so a later not-found is known to follow a wrong-pane focus.
+        var focusedWrongPane = false
+        val acked = try {
+            withResolvedPane(terminalId, cached = true) { pane ->
+                val info = HerdrWire.decodePaneInfo(send("pane.focus", buildJsonObject { put("pane_id", pane.id) }))
+                // Pane IDs are positional upstream, so a stale ID can name another terminal's pane.
+                if (info.terminalId != terminalId) {
+                    focusedWrongPane = true
+                    throw HerdrException(MISMATCH_ERROR)
+                }
+                info
+            }
+        } catch (error: HerdrException) {
+            if (focusedWrongPane && error.error.serverCode in NOT_FOUND_CODES) throw HerdrException(MISMATCH_ERROR)
+            throw error
         }
         focused(acked.tabId) { it.focusedPane()?.terminalId == terminalId }
     }
@@ -138,12 +155,18 @@ class HerdrActions(
     }
 
     @Suppress("TooGenericExceptionCaught")
-    private fun submit(focusIntent: Boolean, body: suspend Step.() -> HerdrActionResult): Ticket {
+    private fun submit(
+        focusIntent: Boolean,
+        notifyTargetGone: Boolean = true,
+        body: suspend Step.() -> HerdrActionResult,
+    ): Ticket {
         val result = CompletableDeferred<HerdrActionResult>()
         fun finish(outcome: HerdrActionResult) {
             if (!result.complete(outcome)) return
             if (outcome is HerdrActionResult.Failed && outcome.reason != HerdrActionFailure.Superseded) {
-                onFailure(outcome)
+                // A focus whose pane is gone is an expected result when panes move or close, so it is not reported.
+                val quiet = !notifyTargetGone && outcome.reason == HerdrActionFailure.TargetGone
+                if (!quiet) onFailure(outcome)
             }
         }
         synchronized(lock) {
@@ -200,13 +223,35 @@ class HerdrActions(
         }
 
         /**
-         * Runs [action] on the pane that runs [terminalId] in a fresh snapshot. A not-found or mismatched reply means
-         * the ID went stale between the snapshot and the request, so the pane is resolved once more from a newer one.
+         * The pane for [terminalId] in the last-known snapshot, with no wait. Only the Live phase qualifies: it is
+         * published with a snapshot from the current connection, so a snapshot kept from a lost connection is never
+         * used. `snapshotFresh` is deliberately ignored, since a stale ID is caught by the reply. Any other phase fails
+         * as disconnected without a remote request.
          */
-        suspend fun <T> withResolvedPane(terminalId: String, action: suspend (HerdrPane) -> T): T {
+        private fun lastKnownPane(terminalId: String): HerdrPane? {
+            checkpoint()
+            val state = client.state.value
+            if (state.phase != HerdrPhase.Live) {
+                throw HerdrException(HerdrError(HerdrErrorKind.Disconnected, "Herdr is not connected"))
+            }
+            return state.snapshot?.paneForTerminal(terminalId)
+        }
+
+        /**
+         * Runs [action] on the pane that runs [terminalId]. With [cached], the first attempt takes the pane from the
+         * last-known snapshot without waiting; otherwise it takes it from a fresh one. A not-found or mismatched reply
+         * means the ID went stale, so the pane is resolved once more from a fresh snapshot.
+         */
+        suspend fun <T> withResolvedPane(
+            terminalId: String,
+            cached: Boolean = false,
+            action: suspend (HerdrPane) -> T,
+        ): T {
             var attempt = 1
             while (true) {
-                val pane = fresh().paneForTerminal(terminalId) ?: throw targetGone()
+                val lastKnown = cached && attempt == 1
+                val pane = (if (lastKnown) lastKnownPane(terminalId) else fresh().paneForTerminal(terminalId))
+                    ?: throw targetGone()
                 try {
                     return action(pane)
                 } catch (error: HerdrException) {
@@ -260,7 +305,8 @@ class HerdrActions(
 
         fun failureOf(error: HerdrError): HerdrActionResult.Failed {
             val reason = when {
-                error.serverCode in RETRY_CODES -> HerdrActionFailure.TargetGone
+                // A mismatch is not a missing pane: another pane may hold focus, so it falls through and is reported.
+                error.serverCode in NOT_FOUND_CODES -> HerdrActionFailure.TargetGone
                 error.kind == HerdrErrorKind.Timeout -> HerdrActionFailure.Timeout
                 error.kind in DISCONNECT_KINDS -> HerdrActionFailure.Disconnected
                 else -> HerdrActionFailure.Rejected

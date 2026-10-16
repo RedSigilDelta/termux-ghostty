@@ -28,7 +28,8 @@ class HerdrActionsTest {
         val actions = HerdrActions(client, this, onFailure = { failure.complete(it) })
         val gate = CompletableDeferred<Unit>()
         server.gateNextSnapshot(gate)
-        val ticket = actions.focusTerminal("missing-terminal")
+        // A close is used because a focus on a missing terminal is not reported.
+        val ticket = actions.closePane("missing-terminal")
         val activity = launch { ticket.result.await() }
         awaitUntil { server.requestCount("session.snapshot") == 2 }
         activity.cancelAndJoin()
@@ -95,32 +96,55 @@ class HerdrActionsTest {
     // ---- Focus resolution ------------------------------------------------------------------------
 
     @Test
-    fun `focus resolves a pane that moved after the tap from its stable terminal`() = withScope {
+    fun `focus of a cached pane that moves mid-send lands on its stable terminal`() = withScope {
         val server = serverWith(FakePane("p-1", terminalId = "t-agent"), FakePane("p-2"))
         server.focusedPaneId = "p-2"
         val (client, actions) = started(server, this)
-        // The user tapped p-1, then Herdr renumbered it before the action ran.
+        val reply = CompletableDeferred<Unit>()
+        server.gateNextReply("pane.focus", reply)
+
+        // The cached snapshot maps the terminal to p-1 when the focus is sent. Herdr renumbers
+        // it while that request is held.
+        val ticket = actions.focusTerminal("t-agent")
+        awaitUntil { server.requestCount("pane.focus") == 1 }
         server.movePane("p-1", "p-5")
+        reply.complete(Unit)
+        val result = ticket.result.await()
 
-        val result = actions.focusTerminal("t-agent").result.await()
-
-        assertEquals(listOf("p-5"), server.paramsOf("pane.focus").map { it.getValue("pane_id").jsonPrimitive.content })
         assertEquals(HerdrActionResult.Focused("tab-1", GlobalFocus.Observed), result)
+        // The stale ID is rejected, then the retry from a fresh snapshot focuses the terminal's new pane.
+        assertEquals(
+            listOf("p-1", "p-5"),
+            server.paramsOf("pane.focus").map { it.getValue("pane_id").jsonPrimitive.content },
+        )
+        assertEquals("p-5", server.focusedPaneId)
         // pane.focus alone selects workspace, tab and pane upstream; no stale tab.focus follows it.
         assertEquals(0, server.requestCount("tab.focus"))
         client.close()
     }
 
     @Test
-    fun `focus of a closed pane fails without sending a focus`() = withScope {
+    fun `focus of a pane that closes mid-send is rejected once and then reported gone`() = withScope {
         val server = serverWith(FakePane("p-1"), FakePane("p-2"))
-        val (client, actions) = started(server, this)
-        server.removePane("p-1")
+        val failures = java.util.concurrent.CopyOnWriteArrayList<HerdrActionResult.Failed>()
+        val (client, actions) = started(server, this, onFailure = { failures.add(it) })
+        val reply = CompletableDeferred<Unit>()
+        server.gateNextReply("pane.focus", reply)
 
-        val result = actions.focusTerminal("t-p-1").result.await()
+        val ticket = actions.focusTerminal("t-p-1")
+        awaitUntil { server.requestCount("pane.focus") == 1 }
+        server.removePane("p-1")
+        reply.complete(Unit)
+        val result = ticket.result.await()
 
         assertEquals(HerdrActionFailure.TargetGone, (result as HerdrActionResult.Failed).reason)
-        assertEquals(0, server.requestCount("pane.focus"))
+        // Panes close in normal use, so a focus that finds its pane gone is not reported.
+        assertTrue(failures.isEmpty())
+        // The cached ID is sent once. The retry resolves from a fresh snapshot, which no longer has the pane.
+        assertEquals(
+            listOf("p-1"),
+            server.paramsOf("pane.focus").map { it.getValue("pane_id").jsonPrimitive.content },
+        )
         client.close()
     }
 
@@ -128,13 +152,17 @@ class HerdrActionsTest {
     fun `an acknowledgment for another terminal is retried once and then reported`() = withScope {
         val server = serverWith(FakePane("p-1"), FakePane("p-2"))
         server.focusAckPaneOverride = "p-2"
-        val (client, actions) = started(server, this)
+        val failures = java.util.concurrent.CopyOnWriteArrayList<HerdrActionResult.Failed>()
+        val (client, actions) = started(server, this, onFailure = { failures.add(it) })
 
         val result = actions.focusTerminal("t-p-1").result.await() as HerdrActionResult.Failed
 
-        assertEquals(HerdrActionFailure.TargetGone, result.reason)
+        // Another pane may hold focus, so this is a rejection and not a quiet missing pane.
+        assertEquals(HerdrActionFailure.Rejected, result.reason)
         assertTrue(result.message.contains("another pane may now be focused"))
         assertEquals(2, server.requestCount("pane.focus"))
+        awaitUntil { failures.isNotEmpty() }
+        assertEquals(result, failures.single())
         client.close()
     }
 
@@ -167,38 +195,43 @@ class HerdrActionsTest {
     // ---- Reconnects and missing snapshots --------------------------------------------------------
 
     @Test
-    fun `focus during a reconnect waits for the new bootstrap snapshot, not the last known one`() = withScope {
+    fun `focus during a reconnect fails at once without using the snapshot of the lost connection`() = withScope {
         val server = serverWith(FakePane("p-1", terminalId = "t-agent"))
-        val (client, actions) = started(server, this)
+        val failures = java.util.concurrent.CopyOnWriteArrayList<HerdrActionResult.Failed>()
+        val (client, actions) = started(server, this, onFailure = { failures.add(it) })
         val bootstrap = CompletableDeferred<Unit>()
         server.gateNextSnapshot(bootstrap)
         server.topologySubscriptions().single().channel.finish()
         awaitUntil { server.requestCount("session.snapshot") == 2 }
-        // While reconnecting, the last-known snapshot still says p-1.
+        // While reconnecting, the last-known snapshot still says p-1, but that connection is gone.
         assertEquals("p-1", client.state.value.snapshot?.panes?.single()?.id)
         server.movePane("p-1", "p-7")
 
-        val ticket = actions.focusTerminal("t-agent")
+        val result = actions.focusTerminal("t-agent").result.await()
         bootstrap.complete(Unit)
-        val result = ticket.result.await()
 
-        assertTrue(result is HerdrActionResult.Focused)
-        assertEquals(listOf("p-7"), server.paramsOf("pane.focus").map { it.getValue("pane_id").jsonPrimitive.content })
+        assertEquals(HerdrActionFailure.Disconnected, (result as HerdrActionResult.Failed).reason)
+        assertEquals(0, server.requestCount("pane.focus"))
+        awaitUntil { failures.isNotEmpty() }
+        assertEquals(result, failures.single())
         client.close()
     }
 
     @Test
-    fun `focus without any snapshot times out instead of guessing`() = withScope {
+    fun `focus without a live client fails at once instead of guessing`() = withScope {
         val server = serverWith(FakePane("p-1"))
         server.replies["session.snapshot"] = { null }
         val client = clientFor(server, this)
         launch { runCatching { client.start() } }
-        val actions = HerdrActions(client, this, freshTimeoutMillis = SHORT_TIMEOUT_MILLIS)
+        val failures = java.util.concurrent.CopyOnWriteArrayList<HerdrActionResult.Failed>()
+        val actions = HerdrActions(client, this, onFailure = { failures.add(it) })
 
         val result = actions.focusTerminal("t-p-1").result.await() as HerdrActionResult.Failed
 
-        assertEquals(HerdrActionFailure.Timeout, result.reason)
+        assertEquals(HerdrActionFailure.Disconnected, result.reason)
         assertEquals(0, server.requestCount("pane.focus"))
+        awaitUntil { failures.isNotEmpty() }
+        assertEquals(result, failures.single())
         client.close()
     }
 
@@ -206,15 +239,18 @@ class HerdrActionsTest {
 
     @Test
     fun `a newer focus supersedes an earlier one before it sends anything`() = withScope {
-        val server = serverWith(FakePane("p-1"), FakePane("p-2"))
+        val server = serverWith(FakePane("p-1"), FakePane("p-2"), FakePane("p-3"))
         val (client, actions) = started(server, this)
-        val gate = CompletableDeferred<Unit>()
-        server.gateNextSnapshot(gate)
+        val reply = CompletableDeferred<Unit>()
+        server.gateNextReply("pane.close", reply)
+        // The close holds the serial queue while its request is in flight, so both focuses wait behind it.
+        // The close targets a third pane, so neither focus races it.
+        actions.closePane("t-p-3")
+        awaitUntil { server.requestCount("pane.close") == 1 }
 
         val first = actions.focusTerminal("t-p-1")
-        awaitUntil { server.requestCount("session.snapshot") == 2 }
         val second = actions.focusTerminal("t-p-2")
-        gate.complete(Unit)
+        reply.complete(Unit)
 
         assertEquals(HerdrActionFailure.Superseded, (first.result.await() as HerdrActionResult.Failed).reason)
         assertTrue(second.result.await() is HerdrActionResult.Focused)
@@ -304,7 +340,12 @@ class HerdrActionsTest {
         assertFalse(actions.isLatest(focus.intent))
         val late = actions.focusTerminal("t-p-1").result.await() as HerdrActionResult.Failed
         assertEquals(HerdrActionFailure.Disconnected, late.reason)
-        assertEquals(0, server.requestCount("pane.focus") + server.requestCount("pane.close"))
+        // The focus was acknowledged before close, so it stays sent. Nothing queued behind it, or after close, is sent.
+        assertEquals(
+            listOf("p-1"),
+            server.paramsOf("pane.focus").map { it.getValue("pane_id").jsonPrimitive.content },
+        )
+        assertEquals(0, server.requestCount("pane.close"))
         client.close()
     }
 
@@ -350,11 +391,12 @@ class HerdrActionsTest {
     private suspend fun started(
         server: FakeHerdrServer,
         scope: CoroutineScope,
+        onFailure: (HerdrActionResult.Failed) -> Unit = {},
     ): Pair<HerdrControlClient, HerdrActions> {
         val client = clientFor(server, scope)
         client.start()
         client.state.first { it.phase == HerdrPhase.Live }
-        return client to HerdrActions(client, scope, freshTimeoutMillis = TIMEOUT_MILLIS)
+        return client to HerdrActions(client, scope, freshTimeoutMillis = TIMEOUT_MILLIS, onFailure = onFailure)
     }
 
     private suspend fun awaitUntil(condition: () -> Boolean) = withTimeout(TIMEOUT_MILLIS) {
@@ -363,7 +405,6 @@ class HerdrActionsTest {
 
     private companion object {
         const val TIMEOUT_MILLIS = 5_000L
-        const val SHORT_TIMEOUT_MILLIS = 300L
         const val TEST_TIMEOUT_MILLIS = 20_000L
         const val SOCKET_PATH = "/run/user/501/herdr.sock"
     }
