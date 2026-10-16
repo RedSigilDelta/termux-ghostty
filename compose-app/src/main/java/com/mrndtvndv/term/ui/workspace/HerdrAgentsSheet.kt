@@ -50,6 +50,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.PopupProperties
 import com.mrndtvndv.processicons.agentIconResource
 import com.mrndtvndv.term.herdr.HerdrAgentStatus
 import com.mrndtvndv.term.herdr.HerdrPane
@@ -185,6 +186,7 @@ fun HerdrAgentsSheet(
 }
 
 @Composable
+@Suppress("LongMethod")
 private fun AgentsSplitButton(
     enabled: Boolean,
     workspaceId: String?,
@@ -225,7 +227,12 @@ private fun AgentsSplitButton(
                         modifier = Modifier.size(SplitButtonDefaults.trailingButtonIconSizeFor(height)),
                     )
                 }
-                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                DropdownMenu(
+                    expanded = menuOpen,
+                    onDismissRequest = { menuOpen = false },
+                    // Keep terminal IME focus while showing actions above the sheet.
+                    properties = PopupProperties(focusable = false),
+                ) {
                     DropdownMenuItem(text = { Text("New workspace") }, onClick = {
                         menuOpen = false
                         workspaceId?.let { id -> onNewWorkspace(id) }
@@ -333,7 +340,11 @@ private fun HerdrAgentRow(pane: HerdrPane, title: String, onFocus: () -> Unit, o
                 color = statusColor, style = MaterialTheme.typography.labelMedium,
             )
         }
-        DropdownMenu(expanded = menuVisible, onDismissRequest = { menuVisible = false }) {
+        DropdownMenu(
+            expanded = menuVisible,
+            onDismissRequest = { menuVisible = false },
+            properties = PopupProperties(focusable = false),
+        ) {
             DropdownMenuItem(text = { Text("Close pane") }, onClick = {
                 menuVisible = false
                 onClose()
