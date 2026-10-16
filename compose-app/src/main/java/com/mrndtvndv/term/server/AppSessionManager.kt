@@ -16,6 +16,7 @@ import androidx.lifecycle.Lifecycle
 import com.mrndtvndv.term.ConnectionViewModelStores
 import com.mrndtvndv.term.R
 import com.mrndtvndv.term.herdr.HerdrActions
+import com.mrndtvndv.term.herdr.HerdrEndpointWire
 import com.mrndtvndv.term.service.SshSessionService
 import com.mrndtvndv.term.ui.notification.NotificationDestination
 import com.mrndtvndv.term.ui.notification.NotificationDestinationCodec
@@ -29,6 +30,7 @@ import com.termux.terminal.TerminalSession
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.StateFlow
 import java.io.IOException
 import java.lang.ref.WeakReference
@@ -59,9 +61,12 @@ class AppSessionManager private constructor(context: Context) : AppSessionManage
             onServiceBind = { session, serverId -> bindTerminalSession(session, serverId) },
         )
     }
-    private val serverManager by lazy {
+    private val serverManager: ServerManager by lazy {
         ServerManager(create = { config ->
             serverFactory.create(config).also { server ->
+                server.herdr?.onEndpointNotification = { message ->
+                    handleHerdrEndpointNotification(server, message)
+                }
                 server.onDisconnect {
                     connectionStores.clear(config.id)
                     // Only this connection's actions end. A replacement connection keeps its own.
@@ -82,6 +87,22 @@ class AppSessionManager private constructor(context: Context) : AppSessionManage
             serverManager = serverManager,
             serverRepository = serverRepository,
         )
+    }
+
+    private fun handleHerdrEndpointNotification(server: Server, message: HerdrEndpointWire.Message.Notification) {
+        appScope.launch {
+            if (coordinator.getServer(server.config.id) !== server) return@launch
+            val pane = server.herdr?.state?.value?.snapshot?.panes?.firstOrNull {
+                it.id == message.paneId && it.workspaceId == message.workspaceId && it.tabId == message.tabId
+            }
+            val socket = herdrControlSocketPath(server.config.herdrSocketPath, server.homeDir)
+            val destination = if (pane != null) {
+                NotificationDestination.HerdrPane(server.config.id, socket, pane.terminalId)
+            } else {
+                NotificationDestination.HerdrSession(server.config.id, socket)
+            }
+            deliverTerminalNotification(message.title, message.body, destination)
+        }
     }
 
     private val finishedSessions = SessionFinishedEvents()
@@ -267,15 +288,22 @@ class AppSessionManager private constructor(context: Context) : AppSessionManage
     // ── Terminal protocol notifications ──────────────────────────────
 
     /**
-     * Shows a terminal's OSC notification. The destination is the emitting terminal only: a notification from the
-     * Herdr session terminal names the session, never a remote pane, because the OSC carries no pane identity.
+     * Shows a terminal's OSC notification. The OSC itself identifies only the emitting terminal. Pane-aware
+     * notifications are delivered separately through Herdr's semantic endpoint message.
      */
     fun handleTerminalNotification(title: String?, body: String?, location: SessionLocation?) {
         val destination = location?.let { (serverId, tabId) ->
             val server = coordinator.getServer(serverId)
             val socket = server?.let { herdrControlSocketPath(it.config.herdrSocketPath, it.homeDir) }.orEmpty()
+            if (tabId == com.mrndtvndv.term.workspace.herdrFullUiTabId(serverId) &&
+                server?.herdr?.isDuplicateEndpointNotification(title, body) == true
+            ) return
             notificationDestination(serverId, tabId, socket)
         }
+        deliverTerminalNotification(title, body, destination)
+    }
+
+    private fun deliverTerminalNotification(title: String?, body: String?, destination: NotificationDestination?) {
         val host = hostRef?.get()
         if (host != null && host.isAtLeast(Lifecycle.State.RESUMED)) {
             Log.i("NotifRoute", "deliver in-app destination=$destination")

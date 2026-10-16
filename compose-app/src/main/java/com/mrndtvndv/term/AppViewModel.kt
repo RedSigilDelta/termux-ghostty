@@ -206,9 +206,8 @@ class AppViewModel(
         connectionStores.owner(serverId, tabId)
 
     /**
-     * Opens a tapped terminal notification's destination. A Herdr notification opens the session's full-UI terminal
-     * and focuses no remote pane, because its origin pane is unknown. It is a newer intent for that session, so a
-     * pending Agents-sheet focus can no longer move the view afterwards.
+     * Opens a tapped notification. Pane-aware endpoint events focus their stable terminal identity; plain OSC
+     * notifications still open only the Herdr session because their origin is unknown.
      */
     fun openNotification(destination: NotificationDestination) {
         val serverId = destination.serverId
@@ -222,6 +221,14 @@ class AppViewModel(
                 NotificationRoute.HerdrSession -> {
                     sessionManager.herdrActions(serverId)?.supersede()
                     ensureHerdrSession(serverId)?.let { openWorkspace(it, herdrFullUiTab(serverId)?.id) }
+                }
+                is NotificationRoute.HerdrPane -> {
+                    ensureHerdrSession(serverId)?.let { workspaceId ->
+                        openWorkspace(workspaceId, herdrFullUiTab(serverId)?.id)
+                        val stillExists = server.herdr?.state?.value?.snapshot?.panes
+                            ?.any { it.terminalId == route.terminalId } == true
+                        if (stillExists) focusHerdrTerminal(serverId, route.terminalId)
+                    }
                 }
                 NotificationRoute.Server -> openServer(server)
             }

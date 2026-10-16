@@ -50,6 +50,31 @@ class HerdrControlClient(
     private val _state = MutableStateFlow(HerdrState())
     val state: StateFlow<HerdrState> = _state.asStateFlow()
 
+    /** Called on the IO scope. Only semantic endpoint notifications carry trustworthy pane provenance. */
+    @Volatile internal var onEndpointNotification: ((HerdrEndpointWire.Message.Notification) -> Unit)? = null
+    private data class EndpointNotificationRecord(
+        val notification: HerdrEndpointWire.Message.Notification,
+        val receivedAtNanos: Long,
+    )
+
+    private val deliveredEndpointNotifications = ArrayDeque<EndpointNotificationRecord>()
+
+    /** OSC is only deduplicated, never used to infer a pane. Unmatched OSC remains session-scoped. */
+    fun isDuplicateEndpointNotification(title: String?, body: String?): Boolean = synchronized(lock) {
+        val cutoff = System.nanoTime() - 30_000_000_000L
+        while (deliveredEndpointNotifications.firstOrNull()?.receivedAtNanos?.let { it < cutoff } == true) {
+            deliveredEndpointNotifications.removeFirst()
+        }
+        val match = deliveredEndpointNotifications.firstOrNull { record ->
+            val notification = record.notification
+            (title == notification.title && body == notification.body) ||
+                (title.isNullOrEmpty() && body == listOfNotNull(notification.title, notification.body)
+                    .joinToString(": "))
+        } ?: return@synchronized false
+        deliveredEndpointNotifications.remove(match)
+        true
+    }
+
     private val requestIds = AtomicLong()
     private val eventGeneration = AtomicLong()
     private val requestPermits = Semaphore(config.maxConcurrentRequests)
@@ -168,6 +193,7 @@ class HerdrControlClient(
             _state.value = _state.value
                 .copy(phase = HerdrPhase.Closed, snapshotFresh = false, error = null)
                 .withFreshness()
+            deliveredEndpointNotifications.clear()
             owned
         }
         channels.forEach { it.close() }
@@ -218,6 +244,9 @@ class HerdrControlClient(
                 }
                 conn.invalidate()
                 launch { refreshLoop(conn) }
+                if (server?.capabilities?.endpointProtocolGeneration == 1L) {
+                    launch { watchEndpointStatuses() }
+                }
                 readStream(topology.subscription.reader) { conn.invalidate() }
             }
         } finally {
@@ -314,6 +343,60 @@ class HerdrControlClient(
         }
     }
 
+    /** Passive shell endpoint: pushed status changes wake the authoritative JSON snapshot loop. */
+    private suspend fun watchEndpointStatuses() {
+        val parent = socketPath.substringBeforeLast('/')
+        val name = socketPath.substringAfterLast('/').substringBeforeLast('.')
+        val clientSocket = "$parent/$name-client.sock"
+        while (coroutineContext.isActive) {
+            var channel: SshStreamChannel? = null
+            try {
+                channel = openChannel(clientSocket)
+                channel.write(HerdrEndpointWire.hello())
+                HerdrEndpointWire.validateWelcome(HerdrEndpointWire.read(channel))
+                readEndpointStatuses(channel)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                // Keep the five-second JSON sample as fallback on old or unavailable endpoint sockets.
+            } finally {
+                synchronized(lock) { deliveredEndpointNotifications.clear() }
+                channel?.let(::releaseChannel)
+            }
+            delay(30_000)
+        }
+    }
+
+    private suspend fun readEndpointStatuses(channel: SshStreamChannel) {
+        var previous: Map<String, String>? = null
+        while (true) {
+            val message = HerdrEndpointWire.read(channel) ?: return
+            when (message) {
+                is HerdrEndpointWire.Message.Notification -> receiveEndpointNotification(message)
+                is HerdrEndpointWire.Message.Control -> previous = updateEndpointStatuses(message, previous)
+                HerdrEndpointWire.Message.Other -> Unit
+            }
+        }
+    }
+
+    private fun updateEndpointStatuses(
+        message: HerdrEndpointWire.Message.Control,
+        previous: Map<String, String>?,
+    ): Map<String, String>? {
+        if (message.kind != "shell.snapshot.v1") return previous
+        val statuses = HerdrEndpointWire.statuses(message.data)
+        if (previous != null && previous != statuses) refresh()
+        return statuses
+    }
+
+    private fun receiveEndpointNotification(message: HerdrEndpointWire.Message.Notification) {
+        synchronized(lock) {
+            if (deliveredEndpointNotifications.size == 32) deliveredEndpointNotifications.removeFirst()
+            deliveredEndpointNotifications.addLast(EndpointNotificationRecord(message, System.nanoTime()))
+        }
+        onEndpointNotification?.invoke(message)
+    }
+
     /** Opens a subscription and waits for its ack. The caller owns the returned channel and must release it. */
     private suspend fun openSubscription(subscriptions: List<JsonObject>): Subscription {
         val id = nextId()
@@ -339,8 +422,8 @@ class HerdrControlClient(
      * Opens a streamlocal channel and registers it with this client. A close that raced the open
      * closes the channel before anyone can use it.
      */
-    private suspend fun openChannel(): SshStreamChannel {
-        val channel = mapTransportFailures { session.openUnixSocketChannel(socketPath) }
+    private suspend fun openChannel(path: String = socketPath): SshStreamChannel {
+        val channel = mapTransportFailures { session.openUnixSocketChannel(path) }
         val active = coroutineContext.isActive
         val tracked = synchronized(lock) { !closed && active && openChannels.add(channel) }
         if (!tracked) {
