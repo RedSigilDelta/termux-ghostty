@@ -4,6 +4,7 @@ import android.view.KeyEvent
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import java.util.UUID
 
 /** What a key-bar item does. Swipe directions accept only [Key], [Text], [Macro] and [Host]. */
 @Serializable
@@ -86,7 +87,10 @@ data class KeyBarItem(
 
 data class KeyBarLayout(val items: List<KeyBarItem>)
 
-/** The bar users get when no layout is saved: Esc, Ctrl, Alt, Tab, then the arrow joystick. */
+/**
+ * The bar users get when no layout is saved: Esc, Ctrl, Alt, Tab, the arrow joystick, then the Git and SFTP icons,
+ * which only the Herdr route shows.
+ */
 fun defaultKeyBarLayout(): KeyBarLayout = KeyBarLayout(
     listOf(
         KeyBarItem(id = "esc", label = "Esc", tap = KeyBarAction.Key(KeyEvent.KEYCODE_ESCAPE)),
@@ -94,8 +98,25 @@ fun defaultKeyBarLayout(): KeyBarLayout = KeyBarLayout(
         KeyBarItem(id = "alt", label = "Alt", tap = KeyBarAction.Alt),
         KeyBarItem(id = "tab", label = "Tab", tap = KeyBarAction.Key(KeyEvent.KEYCODE_TAB)),
         KeyBarItem(id = "joystick", label = "Arrows", tap = KeyBarAction.Joystick),
+        hostIconItem(KeyBarHostAction.Git),
+        hostIconItem(KeyBarHostAction.Sftp),
     ),
 )
+
+private fun hostIconItem(kind: KeyBarHostAction, id: String = kind.defaultId): KeyBarItem =
+    KeyBarItem(id = id, label = kind.defaultLabel, tap = KeyBarAction.Host(kind))
+
+private val KeyBarHostAction.defaultId: String
+    get() = when (this) {
+        KeyBarHostAction.Git -> "git"
+        KeyBarHostAction.Sftp -> "sftp"
+    }
+
+private val KeyBarHostAction.defaultLabel: String
+    get() = when (this) {
+        KeyBarHostAction.Git -> "Git"
+        KeyBarHostAction.Sftp -> "SFTP"
+    }
 
 /** [spokenName] is what TalkBack says for the key, so abbreviated labels are spelled out. */
 data class KeyBarCatalogKey(val keyCode: Int, val label: String, val spokenName: String = label)
@@ -125,7 +146,8 @@ val KeyBarPunctuation: List<String> = listOf("|", "~", "/", "\\", "-", "`", "*",
 
 /** Single source of truth for editor validation and runtime bounds. Editors must use these, not local copies. */
 object KeyBarLimits {
-    const val MaxItems = 24
+    /** Version 1 allowed 24 items; the 2 extra leave room for the Git and SFTP icons its upgrade appends. */
+    const val MaxItems = 26
     const val MaxIdLength = 64
     const val MaxLabelLength = 12
     const val MaxTextLength = 256
@@ -195,7 +217,10 @@ private fun KeyBarAction.bounded(): KeyBarAction? = when (this) {
 
 private fun KeyBarAction?.boundedSwipe(): KeyBarAction? = this?.bounded()?.takeIf { it.isSwipeable() }
 
-private const val KeyBarLayoutVersion = 1
+/** Version 1 had no Git or SFTP items; the bar showed a fixed icon for each host action no item bound. */
+private const val KeyBarLayoutV1 = 1
+private const val KeyBarLayoutV1MaxItems = 24
+private const val KeyBarLayoutVersion = 2
 
 @Serializable
 private class StoredKeyBarLayout(val version: Int, val items: List<KeyBarItem>)
@@ -205,13 +230,40 @@ private val KeyBarJson = Json { ignoreUnknownKeys = true }
 fun encodeKeyBarLayout(layout: KeyBarLayout): String =
     KeyBarJson.encodeToString(StoredKeyBarLayout(KeyBarLayoutVersion, layout.normalized().items))
 
+/** [upgraded] is true when [layout] came from an older version, so the caller must store it again as current. */
+class DecodedKeyBarLayout(val layout: KeyBarLayout, val upgraded: Boolean)
+
 /**
  * Strict decode. Returns null for unreadable data, an unknown version, or any entry that normalization would
  * change (invalid, duplicate, oversized, or past the item cap). The caller then falls back to
- * [defaultKeyBarLayout]. Only a stored list with no items stays empty, because it was saved on purpose.
+ * [defaultKeyBarLayout]. A version 1 layout is upgraded by [withV1HostIcons], so an empty one becomes the two host
+ * icons it used to show. A current-version empty list stays empty, because it was saved on purpose.
  */
-fun decodeKeyBarLayout(raw: String): KeyBarLayout? {
-    val stored = runCatching { KeyBarJson.decodeFromString<StoredKeyBarLayout>(raw) }.getOrNull() ?: return null
-    val layout = KeyBarLayout(stored.items)
-    return layout.takeIf { stored.version == KeyBarLayoutVersion && layout.normalized() == layout }
+fun decodeKeyBarLayout(raw: String): DecodedKeyBarLayout? {
+    val stored = runCatching { KeyBarJson.decodeFromString<StoredKeyBarLayout>(raw) }
+        .getOrNull()
+        ?.takeIf { it.version != KeyBarLayoutV1 || it.items.size <= KeyBarLayoutV1MaxItems }
+        ?: return null
+    val layout = KeyBarLayout(stored.items).takeIf { it.normalized() == it } ?: return null
+    return when (stored.version) {
+        KeyBarLayoutVersion -> DecodedKeyBarLayout(layout, upgraded = false)
+        KeyBarLayoutV1 -> DecodedKeyBarLayout(layout.withV1HostIcons(), upgraded = true)
+        else -> null
+    }
+}
+
+/**
+ * Appends the Git and SFTP icons a version 1 bar showed as fixed buttons: one for each host action that no tap or
+ * swipe binds. Saved items keep their order and ids.
+ */
+private fun KeyBarLayout.withV1HostIcons(): KeyBarLayout {
+    val bound = items
+        .flatMap { listOfNotNull(it.tap, it.swipeUp, it.swipeDown, it.swipeLeft, it.swipeRight) }
+        .filterIsInstance<KeyBarAction.Host>()
+        .mapTo(HashSet()) { it.kind }
+    val ids = items.mapTo(HashSet()) { it.id }
+    val icons = KeyBarHostAction.entries.filter { it !in bound }.map { kind ->
+        hostIconItem(kind, id = kind.defaultId.takeUnless { it in ids } ?: UUID.randomUUID().toString())
+    }
+    return KeyBarLayout(items + icons)
 }

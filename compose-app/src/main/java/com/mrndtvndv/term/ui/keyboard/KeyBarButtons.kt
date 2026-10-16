@@ -4,7 +4,6 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.indication
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -14,7 +13,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Commit
@@ -53,27 +51,6 @@ import com.mrndtvndv.term.data.prefs.KeyBarItem
 import com.mrndtvndv.term.data.prefs.KeyBarKeyCatalog
 import com.mrndtvndv.term.data.prefs.MacroKeyCatalog
 import com.mrndtvndv.term.data.prefs.MacroStep
-
-/** An icon key on the key bar pill, for actions the terminal adds, such as the Herdr Git and SFTP sheets. */
-@Composable
-fun KeyBarIcon(icon: ImageVector, contentDescription: String, onClick: () -> Unit) {
-    Box(
-        Modifier
-            .focusProperties { canFocus = false }
-            .clip(CircleShape)
-            .clickable(onClick = onClick)
-            .defaultMinSize(minWidth = 36.dp, minHeight = 36.dp)
-            .padding(horizontal = 8.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = contentDescription,
-            modifier = Modifier.size(20.dp),
-            tint = MaterialTheme.colorScheme.onSurface,
-        )
-    }
-}
 
 @Composable
 internal fun ModifierKeyButton(

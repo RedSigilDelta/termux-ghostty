@@ -425,10 +425,9 @@ private fun FloatingBar(
 }
 
 /**
- * Bottom key bar for the terminal: the customizable [layout] in a horizontal strip, then [agents] and the fixed host
- * icons. [onHostAction] runs Herdr host actions. It is null outside the Herdr route, so host items are hidden and
- * their swipes are never claimed. A fixed host icon is shown only when no item in the layout binds that action.
- * [tabsButton] sits beside the pill.
+ * Bottom key bar for the terminal: the customizable [layout] in a horizontal strip, then [agents]. [onHostAction]
+ * runs Herdr host actions. It is null outside the Herdr route, so host items are hidden and their swipes are never
+ * claimed. [tabsButton] sits beside the pill.
  */
 @Composable
 @Suppress("LongParameterList")
@@ -457,10 +456,6 @@ fun KeyBar(
         }
     }
     val hostAvailable = onHostAction != null
-    val boundHostKinds = layout.items
-        .flatMap { listOfNotNull(it.tap, it.swipeUp, it.swipeDown, it.swipeLeft, it.swipeRight) }
-        .filterIsInstance<KeyBarAction.Host>()
-        .mapTo(HashSet()) { it.kind }
     val preview = remember { KeySwipePreviewHost() }
     CompositionLocalProvider(LocalKeySwipePreview provides preview) {
         Box(modifier = modifier.onGloballyPositioned { preview.barBounds = it.boundsInWindow() }) {
@@ -482,14 +477,7 @@ fun KeyBar(
                             }
                         }
                 },
-                hostActions = {
-                    agents?.invoke()
-                    onHostAction?.let { open ->
-                        KeyBarHostAction.entries.filter { it !in boundHostKinds }.forEach { kind ->
-                            KeyBarIcon(icon = kind.icon, contentDescription = kind.spokenName()) { open(kind) }
-                        }
-                    }
-                },
+                hostActions = { agents?.invoke() },
             )
             preview.target?.let { KeySwipePreviewOverlay(it, preview) }
         }

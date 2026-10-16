@@ -283,8 +283,8 @@ private fun AddSection(itemCount: Int, onAdd: () -> Unit) {
         Text("Add key")
     }
     Text(
-        text = "To customize the Git or SFTP icon, add an item and choose it as the tap action. " +
-            "You can then assign keys, macros, Git or SFTP to its swipes. Herdr only.",
+        text = "Tap the Git or SFTP icon above to set its swipes, or move or delete it. " +
+            "Add an item to restore a deleted icon. These icons appear only in Herdr sessions.",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )

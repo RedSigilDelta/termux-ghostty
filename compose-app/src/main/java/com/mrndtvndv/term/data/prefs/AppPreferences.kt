@@ -39,10 +39,23 @@ private object Key {
     const val WallpaperId = "terminal_wallpaper_id"
 }
 
-/** Absent or unreadable data yields the default layout; the default is never stored, so later default changes apply. */
+/**
+ * Absent or unreadable data yields the default layout; the default is never stored, so later default changes apply.
+ * A layout saved by an older version is upgraded once and stored back right away.
+ */
 private fun loadKeyBarLayout(prefs: SharedPreferences): KeyBarLayout {
     val raw = runCatching { prefs.getString(Key.KeyBarLayout, null) }.getOrNull()
-    return raw?.let(::decodeKeyBarLayout) ?: defaultKeyBarLayout()
+    val decoded = raw?.let(::decodeKeyBarLayout) ?: return defaultKeyBarLayout()
+    if (decoded.upgraded) prefs.edit().apply { writeKeyBarLayout(decoded.layout) }.apply()
+    return decoded.layout
+}
+
+private fun SharedPreferences.Editor.writeKeyBarLayout(layout: KeyBarLayout) {
+    if (layout == defaultKeyBarLayout()) {
+        remove(Key.KeyBarLayout)
+    } else {
+        putString(Key.KeyBarLayout, encodeKeyBarLayout(layout))
+    }
 }
 
 // "Black" was the old default theme. It is now Dark with AMOLED black on, which looks the same.
@@ -71,11 +84,7 @@ private fun SharedPreferences.Editor.write(settings: AppSettings) {
     }
     putString(Key.ArrowJoystickMode, settings.arrowJoystickMode.name)
     putBoolean(Key.OverlayKeyBar, settings.overlayKeyBar)
-    if (settings.keyBarLayout == defaultKeyBarLayout()) {
-        remove(Key.KeyBarLayout)
-    } else {
-        putString(Key.KeyBarLayout, encodeKeyBarLayout(settings.keyBarLayout))
-    }
+    writeKeyBarLayout(settings.keyBarLayout)
     putString(Key.WallpaperUri, settings.wallpaperUri)
     putString(Key.WallpaperName, settings.wallpaperName)
     putBoolean(Key.WallpaperEnabled, settings.wallpaperEnabled)
