@@ -68,9 +68,9 @@ class TerminalPaneCallbacks(
 /** Gap between the key bar and the bottom inset, also the rows' clearance above the bar. */
 private val KeyBarGap = 6.dp
 
-/** Rows stop at the bar's top, so the bottom inset is the distance from the canvas bottom to the bar. */
-private fun keyBarInsetPx(canvas: Rect, keyBarTop: Float, gapPx: Float): Int =
-    if (keyBarTop > 0f) (canvas.bottom - keyBarTop + gapPx).roundToInt().coerceAtLeast(0) else 0
+/** Overlay mode keeps the canvas grid under the bar; otherwise rows stop above it. */
+internal fun keyBarInsetPx(canvas: Rect, keyBarTop: Float, gapPx: Float, overlay: Boolean): Int =
+    if (!overlay && keyBarTop > 0f) (canvas.bottom - keyBarTop + gapPx).roundToInt().coerceAtLeast(0) else 0
 
 /** The pill is blurred in the canvas's own coordinates. */
 private fun keyBarBlurRegions(pill: Rect, canvas: Rect): List<TerminalBlurRegion> =
@@ -100,7 +100,7 @@ private fun Modifier.keyBarLayout(onTop: (Float) -> Unit): Modifier = this
 /**
  * The terminal fills the page, so the wallpaper and rows run under the status and navigation bars.
  * The key bar floats above the navigation bar and the keyboard. Rows stop above the bar through
- * the canvas's bottom inset, and the top inset keeps them below the status bar.
+ * the canvas's bottom inset unless overlay is enabled; the top inset keeps them below the status bar.
  */
 @Suppress("LongParameterList")
 @Composable
@@ -149,7 +149,7 @@ fun TerminalPane(
             imeController = imeController,
             wallpaperConfig = appearance.wallpaper,
             contentTopInsetPx = WindowInsets.statusBars.getTop(density),
-            contentBottomInsetPx = keyBarInsetPx(canvasBounds, keyBarTop, keyBarGapPx),
+            contentBottomInsetPx = keyBarInsetPx(canvasBounds, keyBarTop, keyBarGapPx, settings.overlayKeyBar),
             blurRegions = keyBarBlurRegions(keyBarPill, canvasBounds),
             modifier = Modifier.terminalCanvasLayout { canvasBounds = it },
         )

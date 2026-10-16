@@ -762,6 +762,27 @@ fun SettingsScreen(
                             }
                         }
                     }
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Overlay Key Bar", style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                text = "Let terminal rows extend behind the key bar instead of stopping above it",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = settings.overlayKeyBar,
+                            onCheckedChange = { enabled -> onUpdate { it.copy(overlayKeyBar = enabled) } }
+                        )
+                    }
                 }
             }
 

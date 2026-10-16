@@ -26,6 +26,7 @@ data class AppSettings(
     val rememberSoftKeyboardState: Boolean,
     val lastSoftKeyboardState: SoftKeyboardState,
     val arrowJoystickMode: ArrowJoystickMode,
+    val overlayKeyBar: Boolean,
     val wallpaperUri: String?,
     val wallpaperName: String?,
     val wallpaperEnabled: Boolean,
