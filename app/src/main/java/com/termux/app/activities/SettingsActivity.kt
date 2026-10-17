@@ -1,17 +1,19 @@
 package com.termux.app.activities
 
+import android.content.res.Configuration
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
 import com.termux.R
 import com.termux.app.settings.TermuxFiles
@@ -51,7 +53,15 @@ class SettingsActivity : AppCompatActivity() {
         runTermuxAmSocketServerOnCreate = settings.runTermuxAmSocketServer
         if (!settings.animations) overrideTransition(OVERRIDE_TRANSITION_OPEN)
 
-        enableEdgeToEdge()
+        WindowCompat.enableEdgeToEdge(window)
+        // The deprecated enableEdgeToEdge() extension also set system bar icon contrast.
+        val darkConfiguration =
+            (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+                Configuration.UI_MODE_NIGHT_YES
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            isAppearanceLightStatusBars = !darkConfiguration
+            isAppearanceLightNavigationBars = !darkConfiguration
+        }
         // AppCompatActivity.setContentView skips this, and NavDisplay needs the NavigationEventDispatcherOwner it installs.
         initializeViewTreeOwners()
         setContent {

@@ -5,6 +5,7 @@ import android.Manifest.permission.WRITE_EXTERNAL_STORAGE
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
@@ -13,10 +14,11 @@ import android.view.inputmethod.InputMethodManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.initializer
@@ -100,10 +102,7 @@ class MainActivity : ComponentActivity(), SessionHost {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         logRetentionLifecycle("created restored=${savedInstanceState != null}")
-        enableEdgeToEdge()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            window.isNavigationBarContrastEnforced = false
-        }
+        applyEdgeToEdge()
         sessionManager.setHost(this)
         requestMissingPermissions()
 
@@ -118,6 +117,18 @@ class MainActivity : ComponentActivity(), SessionHost {
         }
 
         handleNotificationTap(intent)
+    }
+
+    /** Edge-to-edge with system bar icons matched to the configuration night mode. */
+    private fun applyEdgeToEdge() {
+        WindowCompat.enableEdgeToEdge(window)
+        val darkConfiguration =
+            (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+                Configuration.UI_MODE_NIGHT_YES
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            isAppearanceLightStatusBars = !darkConfiguration
+            isAppearanceLightNavigationBars = !darkConfiguration
+        }
     }
 
     override fun onDestroy() {

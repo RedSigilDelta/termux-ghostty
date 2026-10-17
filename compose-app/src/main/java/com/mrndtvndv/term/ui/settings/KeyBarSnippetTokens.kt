@@ -18,12 +18,19 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.input.OutputTransformation
+import androidx.compose.foundation.text.input.TextFieldBuffer
+import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.text.input.rememberTextFieldState
+import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -37,12 +44,8 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.input.OffsetMapping
-import androidx.compose.ui.text.input.TransformedText
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.mrndtvndv.term.data.prefs.KeyBarAction
@@ -237,9 +240,18 @@ private fun ActiveTextStepToken(
     onHardwareBackspace: () -> Boolean,
 ) {
     val colors = MaterialTheme.colorScheme
+    val state = rememberTextFieldState(step.text)
+    // The composer state is authoritative: it clamps text length and can reject an edit.
+    LaunchedEffect(step.text) {
+        if (state.text.toString() != step.text) state.setTextAndPlaceCursorAtEnd(step.text)
+    }
+    LaunchedEffect(state) {
+        snapshotFlow { state.text.toString() }.collect { text ->
+            if (text != step.text) onTextChange(text)
+        }
+    }
     BasicTextField(
-        value = step.text,
-        onValueChange = onTextChange,
+        state = state,
         modifier = Modifier
             .focusRequester(focusRequester)
             .onPreviewKeyEvent { event ->
@@ -257,8 +269,8 @@ private fun ActiveTextStepToken(
             fontSize = MaterialTheme.typography.labelLarge.fontSize,
         ),
         cursorBrush = SolidColor(colors.primary),
-        visualTransformation = SnippetNewlineTransformation,
-        maxLines = 4,
+        outputTransformation = SnippetNewlineOutputTransformation,
+        lineLimits = TextFieldLineLimits.MultiLine(maxHeightInLines = 4),
     )
 }
 
@@ -274,11 +286,13 @@ private fun InactiveTextStepToken(step: MacroStep.Text) {
     )
 }
 
-private object SnippetNewlineTransformation : VisualTransformation {
-    override fun filter(text: AnnotatedString): TransformedText = TransformedText(
-        text = AnnotatedString(text.text.replace('\n', '↵').replace('\r', '↵')),
-        offsetMapping = OffsetMapping.Identity,
-    )
+/** Renders stored newlines as a visible glyph without changing the composer's text. */
+private object SnippetNewlineOutputTransformation : OutputTransformation {
+    override fun TextFieldBuffer.transformOutput() {
+        for (index in length - 1 downTo 0) {
+            if (charAt(index) == '\n' || charAt(index) == '\r') replace(index, index + 1, "↵")
+        }
+    }
 }
 
 private fun MacroStep.Key.tokenLabel(): String =

@@ -3,6 +3,7 @@ package com.mrndtvndv.term.ui.addserver
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -11,7 +12,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.mrndtvndv.term.domain.AuthType
 import com.mrndtvndv.term.domain.ServerConfig
@@ -34,7 +34,7 @@ fun AddServerScreen(
     var host by remember(initialConfig) { mutableStateOf(initialConfig?.host ?: "") }
     var portString by remember(initialConfig) { mutableStateOf(initialConfig?.port?.toString() ?: "22") }
     var username by remember(initialConfig) { mutableStateOf(initialConfig?.username ?: "") }
-    var password by remember(initialConfig) { mutableStateOf(initialPassword) }
+    val passwordState = remember(initialConfig) { TextFieldState(initialPassword) }
     var useGhosttyTerm by remember(initialConfig) { mutableStateOf(initialConfig?.useGhosttyTerm ?: false) }
     var herdrEnabled by remember(initialConfig) { mutableStateOf(initialConfig?.herdrEnabled ?: false) }
     var herdrSocketPath by remember(initialConfig) { mutableStateOf(initialConfig?.herdrSocketPath.orEmpty()) }
@@ -94,13 +94,9 @@ fun AddServerScreen(
                 modifier = Modifier.fillMaxWidth(),
             )
 
-            OutlinedTextField(
-                value = password,
-                onValueChange = { password = it },
+            OutlinedSecureTextField(
+                state = passwordState,
                 label = { Text("Password") },
-                singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                 modifier = Modifier.fillMaxWidth(),
             )
 
@@ -146,7 +142,7 @@ fun AddServerScreen(
                             host = host,
                             port = parsePort(portString),
                             username = username,
-                            auth = AuthType.Password(password),
+                            auth = AuthType.Password(passwordState.text.toString()),
                             useGhosttyTerm = useGhosttyTerm,
                             herdrEnabled = herdrEnabled,
                             herdrSocketPath = herdrSocketPath.trim().ifEmpty { null },

@@ -9,8 +9,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.input.KeyboardActionHandler
+import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.text.input.rememberTextFieldState
+import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccountTree
@@ -24,6 +27,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -151,15 +155,24 @@ private fun SearchTextInput(
 ) {
     val focusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
+    val state = rememberTextFieldState(query)
 
     LaunchedEffect(Unit) {
         focusRequester.requestFocus()
         keyboardController?.show()
     }
+    // The route owns the query and resets it per browsed folder, so mirror external changes back.
+    LaunchedEffect(query) {
+        if (state.text.toString() != query) state.setTextAndPlaceCursorAtEnd(query)
+    }
+    LaunchedEffect(state) {
+        snapshotFlow { state.text.toString() }.collect { text ->
+            if (text != query) onQueryChange(text)
+        }
+    }
 
     BasicTextField(
-        value = query,
-        onValueChange = onQueryChange,
+        state = state,
         modifier = modifier
             .focusRequester(focusRequester)
             .padding(horizontal = 8.dp),
@@ -167,15 +180,15 @@ private fun SearchTextInput(
             color = MaterialTheme.colorScheme.onSurface
         ),
         cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-        singleLine = true,
+        lineLimits = TextFieldLineLimits.SingleLine,
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-        keyboardActions = KeyboardActions(onSearch = { keyboardController?.hide() }),
-        decorationBox = { innerTextField ->
+        onKeyboardAction = KeyboardActionHandler { keyboardController?.hide() },
+        decorator = { innerTextField ->
             Box(
                 contentAlignment = Alignment.CenterStart,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                if (query.isEmpty()) {
+                if (state.text.isEmpty()) {
                     Text(
                         text = "Search files…",
                         style = MaterialTheme.typography.bodyLarge,
