@@ -135,7 +135,7 @@ class AppPreferences(
             customFontName = prefs.getString(Key.CustomFontName, null),
             useCustomFontForWholeUi = prefs.getBoolean(Key.UseCustomFontForWholeUi, false),
             nativeLogcatLoggingEnabled = prefs.getBoolean(Key.NativeLogcatLoggingEnabled, false),
-            debugHudEnabled = prefs.getBoolean(Key.DebugHudEnabled, true),
+            debugHudEnabled = prefs.getBoolean(Key.DebugHudEnabled, false),
             animationsEnabled = prefs.getBoolean(Key.AnimationsEnabled, true),
             rememberSoftKeyboardState = prefs.getBoolean(Key.RememberSoftKeyboardState, false),
             lastSoftKeyboardState = SoftKeyboardState.fromPreference(prefs.getString(Key.LastSoftKeyboardState, null)),
