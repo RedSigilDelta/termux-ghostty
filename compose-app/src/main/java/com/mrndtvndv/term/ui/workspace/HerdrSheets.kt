@@ -29,6 +29,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation3.runtime.NavBackStack
@@ -143,13 +145,21 @@ private fun HerdrSheetModal(
         }
     }
 
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    // The sheet's window takes focus, so an open terminal keyboard would stay drawn over the sheet's bottom.
+    // Release the terminal's focus and hide its IME once per modal, from the activity window that owns them.
+    LaunchedEffect(Unit) {
+        focusManager.clearFocus(force = true)
+        keyboardController?.hide()
+    }
+
     ModalBottomSheet(
         onDismissRequest = { if (shown.get()) onDismiss(requestId) },
         sheetState = sheetState,
         properties = ModalBottomSheetProperties(shouldDismissOnBackPress = false),
         containerColor = MaterialTheme.colorScheme.surface,
     ) {
-        KeepSheetAboveIme()
         Box(modifier = Modifier.fillMaxHeight()) {
             when (state) {
                 is HerdrSheetState.Opening -> HerdrSheetMessage(
