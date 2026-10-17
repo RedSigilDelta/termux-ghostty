@@ -18,14 +18,18 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.PanTool
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -33,14 +37,15 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SheetValue
-import androidx.compose.material3.SwipeToDismissBox
-import androidx.compose.material3.SwipeToDismissBoxValue
-import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.material3.SplitButtonDefaults
 import androidx.compose.material3.SplitButtonLayout
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberBottomSheetState
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -50,7 +55,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.PopupProperties
@@ -62,7 +70,7 @@ import com.mrndtvndv.term.herdr.HerdrSnapshot
 import com.mrndtvndv.term.herdr.HerdrTab
 import com.mrndtvndv.term.herdr.panesIn
 import com.mrndtvndv.term.herdr.tabsIn
-import java.util.Locale
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /** Normal Herdr workspace/tab/pane browser, backed by the shared socket cache rather than CLI polling. */
@@ -70,6 +78,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun HerdrAgentsSheet(
     state: HerdrState,
+    overlayAgentsFab: Boolean,
     onNewTab: (workspaceId: String) -> Unit,
     onNewWorkspace: (sourceWorkspaceId: String) -> Unit,
     onSplitPane: (paneId: String, direction: String) -> Unit,
@@ -110,85 +119,120 @@ fun HerdrAgentsSheet(
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
         KeepSheetAboveIme()
-        Column(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("Agents", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-                AgentsSplitButton(
-                    enabled = workspaceId != null,
-                    workspaceId = workspaceId,
-                    paneId = paneId,
-                    onNewTab = { id -> dismissAndFocus { onNewTab(id) } },
-                    onNewWorkspace = { id -> dismissAndFocus { onNewWorkspace(id) } },
-                    onSplitPane = { id, direction -> dismissAndFocus { onSplitPane(id, direction) } },
-                )
-            }
-            state.error?.message?.let {
-                Text(it, modifier = Modifier.padding(16.dp), color = MaterialTheme.colorScheme.error)
-            }
-            when {
-                snapshot == null && state.error == null -> Box(
-                    modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center,
-                ) { CircularProgressIndicator() }
-                snapshot != null && snapshot.workspaces.isEmpty() -> Text(
-                    "No Herdr workspaces or agents", modifier = Modifier.padding(16.dp),
-                )
-                snapshot != null -> LazyColumn(modifier = Modifier.fillMaxWidth()) {
-                    snapshot.workspaces.sortedBy { it.number }.forEach { workspace ->
-                        val expanded = workspace.id !in collapsed
-                        item(key = "workspace:${workspace.id}") {
-                            Row(
-                                modifier = Modifier.fillMaxWidth().clickable {
-                                    collapsed = if (expanded) collapsed + workspace.id else collapsed - workspace.id
-                                }.padding(horizontal = 16.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(workspace.label, modifier = Modifier.weight(1f), maxLines = 1)
-                                Text("${workspace.tabCount} tabs", style = MaterialTheme.typography.labelMedium)
-                                Icon(
-                                    if (expanded) Icons.Default.ExpandMore else Icons.Default.ChevronRight,
-                                    contentDescription = if (expanded) "Collapse workspace" else "Expand workspace",
-                                )
+        @Composable
+        fun splitButton(modifier: Modifier) {
+            AgentsSplitButton(
+                enabled = workspaceId != null,
+                workspaceId = workspaceId,
+                paneId = paneId,
+                elevated = overlayAgentsFab,
+                onNewTab = { id -> dismissAndFocus { onNewTab(id) } },
+                onNewWorkspace = { id -> dismissAndFocus { onNewWorkspace(id) } },
+                onSplitPane = { id, direction -> dismissAndFocus { onSplitPane(id, direction) } },
+                modifier = modifier,
+            )
+        }
+        Box(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                state.error?.message?.let {
+                    Text(it, modifier = Modifier.padding(16.dp), color = MaterialTheme.colorScheme.error)
+                }
+                when {
+                    snapshot == null && state.error == null -> Box(
+                        modifier = Modifier.fillMaxWidth().padding(32.dp),
+                        contentAlignment = Alignment.Center,
+                    ) { CircularProgressIndicator() }
+                    snapshot != null && snapshot.workspaces.isEmpty() -> Text(
+                        "No Herdr workspaces or agents",
+                        modifier = Modifier.padding(16.dp),
+                    )
+                    snapshot != null -> LazyColumn(
+                        modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
+                    ) {
+                        snapshot.workspaces.sortedBy { it.number }.forEach { workspace ->
+                            val expanded = workspace.id !in collapsed
+                            item(key = "workspace:${workspace.id}") {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().clickable {
+                                        collapsed = if (expanded) collapsed + workspace.id else collapsed - workspace.id
+                                    }.padding(horizontal = 16.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(workspace.label, modifier = Modifier.weight(1f), maxLines = 1)
+                                    Text("${workspace.tabCount} tabs", style = MaterialTheme.typography.labelMedium)
+                                    Icon(
+                                        if (expanded) Icons.Default.ExpandMore else Icons.Default.ChevronRight,
+                                        contentDescription = if (expanded) "Collapse workspace" else "Expand workspace",
+                                    )
+                                }
                             }
-                        }
-                        if (expanded) snapshot.tabsIn(workspace.id).forEach { tab ->
-                            item(key = "tab:${tab.id}") {
-                                HerdrTabGroup(
-                                    snapshot = snapshot,
-                                    tab = tab,
-                                    onFocusTab = { dismissAndFocus { onFocusTab(tab) } },
-                                    onFocusPane = { pane -> dismissAndFocus { onFocusPane(pane) } },
-                                    onClosePane = onClosePane,
-                                )
+                            if (expanded) {
+                                snapshot.tabsIn(workspace.id).forEach { tab ->
+                                    item(key = "tab:${tab.id}") {
+                                        HerdrTabGroup(
+                                            snapshot = snapshot,
+                                            tab = tab,
+                                            onFocusTab = { dismissAndFocus { onFocusTab(tab) } },
+                                            onFocusPane = { pane -> dismissAndFocus { onFocusPane(pane) } },
+                                            onClosePane = onClosePane,
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
                 }
+                if (!overlayAgentsFab) {
+                    splitButton(
+                        Modifier
+                            .align(Alignment.End)
+                            .padding(end = 16.dp),
+                    )
+                }
+            }
+            if (overlayAgentsFab) {
+                splitButton(
+                    Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(end = 16.dp, bottom = 16.dp),
+                )
             }
         }
     }
 }
 
 @Composable
-@Suppress("LongMethod")
+@Suppress("LongMethod", "LongParameterList")
 private fun AgentsSplitButton(
     enabled: Boolean,
     workspaceId: String?,
     paneId: String?,
+    elevated: Boolean,
     onNewTab: (workspaceId: String) -> Unit,
     onNewWorkspace: (sourceWorkspaceId: String) -> Unit,
     onSplitPane: (paneId: String, direction: String) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
-    val height = SplitButtonDefaults.SmallContainerHeight
+    val height = SplitButtonDefaults.MediumContainerHeight
+    val elevation = if (elevated) {
+        ButtonDefaults.buttonElevation(
+            defaultElevation = 6.dp,
+            pressedElevation = 6.dp,
+            focusedElevation = 6.dp,
+            hoveredElevation = 8.dp,
+        )
+    } else {
+        null
+    }
     SplitButtonLayout(
+        modifier = modifier,
         leadingButton = {
             SplitButtonDefaults.TonalLeadingButton(
                 onClick = { workspaceId?.let { id -> onNewTab(id) } },
                 enabled = enabled,
                 shapes = SplitButtonDefaults.leadingButtonShapesFor(height),
+                elevation = elevation,
                 contentPadding = SplitButtonDefaults.leadingButtonContentPaddingFor(height),
             ) {
                 Icon(
@@ -205,6 +249,7 @@ private fun AgentsSplitButton(
                     onCheckedChange = { menuOpen = it },
                     enabled = enabled,
                     shapes = SplitButtonDefaults.trailingButtonShapesFor(height),
+                    elevation = elevation,
                     contentPadding = SplitButtonDefaults.trailingButtonContentPaddingFor(height),
                 ) {
                     Icon(
@@ -352,10 +397,7 @@ private fun HerdrAgentRowContent(pane: HerdrPane, title: String, onFocus: () -> 
                     Text(it, style = MaterialTheme.typography.bodySmall)
                 }
             }
-            if (pane.agent != null) Text(
-                pane.agentStatus.name.lowercase(Locale.ROOT),
-                color = statusColor, style = MaterialTheme.typography.labelMedium,
-            )
+            if (pane.agent != null) AgentStatusIndicator(pane.agentStatus, statusColor)
         }
         DropdownMenu(
             expanded = menuVisible,
@@ -366,6 +408,51 @@ private fun HerdrAgentRowContent(pane: HerdrPane, title: String, onFocus: () -> 
                 menuVisible = false
                 onClose()
             })
+        }
+    }
+}
+
+@Composable
+private fun AgentStatusIndicator(status: HerdrAgentStatus, tint: Color) {
+    when (status) {
+        HerdrAgentStatus.Working -> WorkingDots(tint)
+        HerdrAgentStatus.Blocked -> Icon(
+            Icons.Default.PanTool,
+            contentDescription = "Needs input",
+            tint = tint,
+            modifier = Modifier.size(20.dp),
+        )
+        HerdrAgentStatus.Done -> Icon(
+            Icons.Default.CheckCircle,
+            contentDescription = "Done",
+            tint = tint,
+            modifier = Modifier.size(20.dp),
+        )
+        HerdrAgentStatus.Idle, HerdrAgentStatus.Unknown -> Unit
+    }
+}
+
+@Composable
+private fun WorkingDots(tint: Color) {
+    var highlightedIndex by remember { mutableStateOf(0) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(300)
+            highlightedIndex = (highlightedIndex + 1) % 3
+        }
+    }
+    Row(
+        modifier = Modifier.semantics { contentDescription = "Working" },
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        repeat(3) { index ->
+            Box(
+                modifier = Modifier.size(5.dp).background(
+                    color = if (index == highlightedIndex) tint else tint.copy(alpha = 0.24f),
+                    shape = CircleShape,
+                ),
+            )
         }
     }
 }

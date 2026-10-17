@@ -34,4 +34,5 @@ data class AppSettings(
     val wallpaperOpacity: Float,
     val wallpaperScaling: WallpaperScaling,
     val wallpaperId: Long,
+    val overlayAgentsFab: Boolean,
 )

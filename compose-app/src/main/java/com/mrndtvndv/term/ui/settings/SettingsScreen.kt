@@ -646,6 +646,28 @@ fun SettingsScreen(
                             onCheckedChange = { enabled -> onUpdate { it.copy(animationsEnabled = enabled) } }
                         )
                     }
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Overlay Agents Button", style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                text = "Float the action button over the agents list instead of " +
+                                    "reserving space below it.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = settings.overlayAgentsFab,
+                            onCheckedChange = { enabled -> onUpdate { it.copy(overlayAgentsFab = enabled) } }
+                        )
+                    }
                 }
             }
 

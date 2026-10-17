@@ -1,13 +1,21 @@
 package com.mrndtvndv.term.ui.workspace
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.VectorConverter
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -30,6 +38,8 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -38,6 +48,7 @@ import com.mrndtvndv.term.AppViewModel
 import com.mrndtvndv.term.data.prefs.AppSettings
 import com.mrndtvndv.term.data.prefs.KeyBarHostAction
 import com.mrndtvndv.term.server.TerminalEntry
+import com.mrndtvndv.term.herdr.HerdrAgentStatus
 import com.mrndtvndv.term.herdr.HerdrState
 import com.mrndtvndv.term.herdr.panesIn
 import com.mrndtvndv.term.workspace.HerdrFileContext
@@ -48,6 +59,7 @@ import com.termux.terminal.TerminalSession
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.delay
 
 /**
  * A server's Herdr session: one full-screen terminal running Herdr's own UI, the Git and SFTP sheets from the key
@@ -107,6 +119,15 @@ fun HerdrSessionRoute(
     val sheetStates = rememberSaveableStateHolder()
     val herdrState by (server?.herdr?.state ?: flowOf(HerdrState()))
         .collectAsStateWithLifecycle(initialValue = HerdrState())
+    val agentButtonStatus = when {
+        herdrState.snapshot?.panes.orEmpty().any {
+            it.agent != null && it.agentStatus == HerdrAgentStatus.Blocked
+        } -> HerdrAgentStatus.Blocked
+        herdrState.snapshot?.panes.orEmpty().any {
+            it.agent != null && it.agentStatus == HerdrAgentStatus.Done
+        } -> HerdrAgentStatus.Done
+        else -> null
+    }
     val sessionWorkspace = workspaceState.workspaces.firstOrNull {
         it.id == appViewModel.herdrSessionWorkspaceId(serverId)
     }
@@ -150,18 +171,55 @@ fun HerdrSessionRoute(
         }
     }
     val agentsButton: @Composable () -> Unit = {
+        val statusDotColor = when (agentButtonStatus) {
+            HerdrAgentStatus.Blocked -> MaterialTheme.colorScheme.error
+            HerdrAgentStatus.Done -> MaterialTheme.colorScheme.tertiary
+            else -> null
+        }
+        val buttonDescription = when (agentButtonStatus) {
+            HerdrAgentStatus.Blocked -> "Agents, needs input"
+            HerdrAgentStatus.Done -> "Agents, done"
+            else -> "Agents"
+        }
+        val interactionSource = remember { MutableInteractionSource() }
+        val pressed by interactionSource.collectIsPressedAsState()
+        var hasPressed by remember { mutableStateOf(false) }
+        val cornerRadius = remember { Animatable(12.dp, Dp.VectorConverter) }
+        val shapeMotion = MaterialTheme.motionScheme.defaultEffectsSpec<Dp>()
+        LaunchedEffect(pressed, shapeMotion) {
+            if (pressed) {
+                hasPressed = true
+                cornerRadius.animateTo(24.dp, shapeMotion)
+                return@LaunchedEffect
+            }
+            if (!hasPressed) return@LaunchedEffect
+            cornerRadius.animateTo(24.dp, shapeMotion)
+            delay(5)
+            cornerRadius.animateTo(12.dp, shapeMotion)
+        }
         Surface(
-            shape = MaterialTheme.shapes.medium,
+            shape = RoundedCornerShape(cornerRadius.value),
             color = MaterialTheme.colorScheme.tertiaryContainer,
             shadowElevation = 3.dp,
         ) {
-            IconButton(onClick = {
-                // The Agents sheet is the newer intent: it drops a sheet that is still opening.
-                sheetRequests.cancel()
-                appViewModel.refreshHerdrContext(serverId)
-                agentsVisible = true
-            }) {
-                Icon(Icons.Default.SmartToy, contentDescription = "Agents")
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .clickable(interactionSource = interactionSource, indication = null, role = Role.Button) {
+                        // The Agents sheet is the newer intent: it drops a sheet that is still opening.
+                        sheetRequests.cancel()
+                        appViewModel.refreshHerdrContext(serverId)
+                        agentsVisible = true
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Default.SmartToy, contentDescription = buttonDescription)
+                statusDotColor?.let { color ->
+                    Box(
+                        Modifier.align(Alignment.TopEnd).padding(10.dp).size(8.dp)
+                            .background(color, CircleShape),
+                    )
+                }
             }
         }
     }
@@ -220,6 +278,7 @@ fun HerdrSessionRoute(
             sheetStates.SaveableStateProvider("agents:$serverId") {
                 HerdrAgentsSheet(
                     state = herdrState,
+                    overlayAgentsFab = settings.overlayAgentsFab,
                     onNewTab = { workspaceId -> appViewModel.createHerdrTab(serverId, workspaceId) },
                     onNewWorkspace = { sourceWorkspaceId ->
                         appViewModel.createHerdrWorkspace(serverId, sourceWorkspaceId)
