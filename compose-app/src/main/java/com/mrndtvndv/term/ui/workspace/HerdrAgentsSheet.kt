@@ -26,7 +26,6 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Terminal
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -40,7 +39,6 @@ import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.material3.SplitButtonDefaults
 import androidx.compose.material3.SplitButtonLayout
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -81,7 +79,6 @@ fun HerdrAgentsSheet(
     onDismiss: () -> Unit,
 ) {
     var collapsed by rememberSaveable { mutableStateOf(emptyList<String>()) }
-    var pendingClose by remember { mutableStateOf<HerdrPane?>(null) }
     val snapshot = state.snapshot
     val sheetState = rememberBottomSheetState(
         initialValue = SheetValue.Hidden,
@@ -163,7 +160,7 @@ fun HerdrAgentsSheet(
                                     tab = tab,
                                     onFocusTab = { dismissAndFocus { onFocusTab(tab) } },
                                     onFocusPane = { pane -> dismissAndFocus { onFocusPane(pane) } },
-                                    onClosePane = { pendingClose = it },
+                                    onClosePane = onClosePane,
                                 )
                             }
                         }
@@ -171,22 +168,6 @@ fun HerdrAgentsSheet(
                 }
             }
         }
-    }
-    pendingClose?.let { pane ->
-        AlertDialog(
-            onDismissRequest = { pendingClose = null },
-            title = { Text("Close pane?") },
-            text = { Text("This terminates whatever is running in ${pane.title ?: pane.id}.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    pendingClose = null
-                    onClosePane(pane)
-                }) { Text("Close", color = MaterialTheme.colorScheme.error) }
-            },
-            dismissButton = {
-                TextButton(onClick = { pendingClose = null }) { Text("Cancel") }
-            },
-        )
     }
 }
 
