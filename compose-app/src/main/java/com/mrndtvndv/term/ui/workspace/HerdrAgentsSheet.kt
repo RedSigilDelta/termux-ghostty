@@ -79,6 +79,7 @@ import com.mrndtvndv.term.herdr.HerdrPane
 import com.mrndtvndv.term.herdr.HerdrState
 import com.mrndtvndv.term.herdr.HerdrSnapshot
 import com.mrndtvndv.term.herdr.HerdrTab
+import com.mrndtvndv.term.herdr.HerdrWorkspace
 import com.mrndtvndv.term.herdr.panesIn
 import com.mrndtvndv.term.herdr.tabsIn
 import kotlinx.coroutines.delay
@@ -164,33 +165,21 @@ fun HerdrAgentsSheet(
                         snapshot.workspaces.sortedBy { it.number }.forEach { workspace ->
                             val expanded = workspace.id !in collapsed
                             item(key = "workspace:${workspace.id}") {
-                                Row(
-                                    modifier = itemMotion().fillMaxWidth().clickable {
-                                        collapsed = if (expanded) collapsed + workspace.id else collapsed - workspace.id
-                                    }.padding(horizontal = 16.dp, vertical = 8.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Text(workspace.label, modifier = Modifier.weight(1f), maxLines = 1)
-                                    Text("${workspace.tabCount} tabs", style = MaterialTheme.typography.labelMedium)
-                                    Icon(
-                                        if (expanded) Icons.Default.ExpandMore else Icons.Default.ChevronRight,
-                                        contentDescription = if (expanded) "Collapse workspace" else "Expand workspace",
-                                    )
-                                }
-                            }
-                            if (expanded) {
-                                snapshot.tabsIn(workspace.id).forEach { tab ->
-                                    item(key = "tab:${tab.id}") {
-                                        HerdrTabGroup(
-                                            modifier = itemMotion(),
-                                            snapshot = snapshot,
-                                            tab = tab,
-                                            onFocusTab = { dismissAndFocus { onFocusTab(tab) } },
-                                            onFocusPane = { pane -> dismissAndFocus { onFocusPane(pane) } },
-                                            onClosePane = onClosePane,
-                                        )
-                                    }
-                                }
+                                WorkspaceGroupItem(
+                                    workspace = workspace,
+                                    expanded = expanded,
+                                    snapshot = snapshot,
+                                    onToggle = {
+                                        collapsed = if (expanded) {
+                                            collapsed + workspace.id
+                                        } else {
+                                            collapsed - workspace.id
+                                        }
+                                    },
+                                    onFocusTab = { tab -> dismissAndFocus { onFocusTab(tab) } },
+                                    onFocusPane = { pane -> dismissAndFocus { onFocusPane(pane) } },
+                                    onClosePane = onClosePane,
+                                )
                             }
                         }
                     }
@@ -209,6 +198,56 @@ fun HerdrAgentsSheet(
                         .align(Alignment.BottomEnd)
                         .padding(end = 16.dp, bottom = 16.dp),
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun LazyItemScope.WorkspaceGroupItem(
+    workspace: HerdrWorkspace,
+    expanded: Boolean,
+    snapshot: HerdrSnapshot,
+    onToggle: () -> Unit,
+    onFocusTab: (HerdrTab) -> Unit,
+    onFocusPane: (HerdrPane) -> Unit,
+    onClosePane: suspend (HerdrPane) -> Boolean,
+) {
+    val motion = MaterialTheme.motionScheme
+    Column(modifier = itemMotion()) {
+        Row(
+            modifier = Modifier.fillMaxWidth().clickable(onClick = onToggle)
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(workspace.label, modifier = Modifier.weight(1f), maxLines = 1)
+            Text("${workspace.tabCount} tabs", style = MaterialTheme.typography.labelMedium)
+            Icon(
+                if (expanded) Icons.Default.ExpandMore else Icons.Default.ChevronRight,
+                contentDescription = if (expanded) "Collapse workspace" else "Expand workspace",
+            )
+        }
+        // The group's own height animates, so the sheet's anchor tracks it every frame instead of
+        // snapping when the rows leave the list. Rows stay put while the clip window reveals them.
+        AnimatedVisibility(
+            visible = expanded,
+            enter = expandVertically(motion.defaultSpatialSpec(), expandFrom = Alignment.Top) +
+                fadeIn(motion.defaultEffectsSpec()),
+            exit = shrinkVertically(motion.defaultSpatialSpec(), shrinkTowards = Alignment.Top) +
+                fadeOut(motion.defaultEffectsSpec()),
+        ) {
+            Column {
+                snapshot.tabsIn(workspace.id).forEach { tab ->
+                    key(tab.id) {
+                        HerdrTabGroup(
+                            snapshot = snapshot,
+                            tab = tab,
+                            onFocusTab = { onFocusTab(tab) },
+                            onFocusPane = onFocusPane,
+                            onClosePane = onClosePane,
+                        )
+                    }
+                }
             }
         }
     }
@@ -305,7 +344,6 @@ private fun AgentsSplitButton(
 
 @Composable
 private fun HerdrTabGroup(
-    modifier: Modifier,
     snapshot: HerdrSnapshot,
     tab: HerdrTab,
     onFocusTab: () -> Unit,
@@ -321,11 +359,11 @@ private fun HerdrTabGroup(
     }
     val shape = RoundedCornerShape(12.dp)
     val groupModifier = if (panes.size > 1) {
-        modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)
+        Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)
             .clip(shape)
             .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f), shape)
     } else {
-        modifier.fillMaxWidth()
+        Modifier.fillMaxWidth()
     }
     Column(modifier = groupModifier) {
         if (panes.isEmpty()) Text(
