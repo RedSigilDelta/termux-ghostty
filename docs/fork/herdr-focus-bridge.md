@@ -1,13 +1,14 @@
 # Herdr focus bridge
 
-A small Go program, `tools/herdr-focus-bridge`, that runs on the SSH host and forwards `pane.focus` to Herdr's API socket
-over a private Unix socket. It removes per-focus SSH channel setup; Herdr still handles each request on its own local
-one-shot API connection. The helper is **optional** and does not change Herdr or install agent hooks.
+A small Go program, `tools/herdr-focus-bridge`, that runs on the SSH host and forwards selected pane, tab, and workspace
+actions to Herdr's API socket over a private Unix socket. It removes per-action SSH channel setup; Herdr still handles
+each request on its own local one-shot API connection. The helper is **optional** and does not change Herdr or install
+agent hooks.
 
 ## Ownership and data flow
 
 ```text
-Agents sheet -> AppViewModel -> HerdrActions (serial focus intents, terminal ID -> pane ID)
+Agents sheet -> AppViewModel -> HerdrActions (serial action intents, terminal ID -> pane ID)
                                    |-- FocusBridgeClient -> one retained SSH streamlocal channel
                                    |                         -> Go helper -> one-shot local Herdr API request
                                    `-- HerdrControlClient.request() (direct fallback before a bridge write)
@@ -16,8 +17,11 @@ HerdrControlClient -> events.subscribe + JSON session.snapshot -> Agents sheet t
                    -> binary endpoint shell.snapshot.v1       -> notification/status invalidation
 ```
 
-The helper is **only** a command transport for `pane.focus`. It does not provide pane lists, snapshots, status, event
-subscriptions, or client-specific focus. `HerdrAgentsSheet` reads `HerdrControlClient.state.snapshot`, populated by
+The helper is **only** a command transport for `pane.focus`, `pane.close`, `pane.split`, `tab.create`, and
+`workspace.create`. It does not provide pane lists, snapshots, status, event subscriptions, or client-specific focus.
+The client only sends methods advertised by the bridge handshake; an older helper falls back to the direct socket for
+methods it does not support.
+`HerdrAgentsSheet` reads `HerdrControlClient.state.snapshot`, populated by
 `session.snapshot`: topology events trigger coalesced refetches (at least 250 ms between fetch starts), and idle status
 sampling runs about every five seconds. The existing binary endpoint currently invalidates the JSON cache on changed
 agent statuses rather than directly replacing the sheet's snapshot. Do not remove JSON snapshots without supplying the
@@ -49,6 +53,10 @@ Newline-delimited JSON on a persistent Unix socket. The full reference is the pa
 
 - `bridge.hello` `{"protocol":1}` is the first request on every connection. The reply lists the supported methods.
 - `pane.focus` `{"pane_id"}` returns Herdr's reply line unchanged.
+- `pane.close` `{"pane_id"}` returns Herdr's reply line unchanged.
+- `pane.split` `{"target_pane_id","direction","focus"}` accepts `right` or `down` for direction.
+- `tab.create` `{"workspace_id","focus"}`.
+- `workspace.create` `{"source_workspace_id","focus"}`.
 - `bridge.stop` `{}` acknowledges with `bridge_stopping`, then drains and exits. The bridge removes its own socket. It is
   sent only by an explicit Remove.
 - Bridge errors use `{"id","error":{"code","message"}}`. Codes: `bad_request`, `line_too_long`, `handshake_required`,
@@ -60,8 +68,10 @@ Newline-delimited JSON on a persistent Unix socket. The full reference is the pa
   Edit remains available while connected. The **Install** button is the only way to turn it on. It
   checks that the host is macOS arm64, uploads the embedded binary only when the remote hash differs, starts it, and
   verifies the handshake. The saved `ServerConfig.herdrFocusBridgeEnabled` flag changes only after the helper answers
-  and the save succeeds. No install or update happens on SSH connection or on pane tap. Installation reuses the server's
+  and the save succeeds. No install or update happens on SSH connection or during an action. Installation reuses the server's
   existing SFTP client; opening a second SFTP client would close the one used by file tabs.
+- The helper binary is versioned by its build hash. After an app update that changes the helper, use **Install** again
+  to deploy the new version; until then, actions unsupported by the old helper use the direct Herdr socket.
 - **Remove** closes the app's channel, sends `bridge.stop` to each helper socket in the helper directory, waits for each
   socket to disappear, and deletes the helper's own files. The saved setting is cleared only after all of that succeeds.
   Herdr and any other process are never touched.
@@ -72,12 +82,13 @@ Newline-delimited JSON on a persistent Unix socket. The full reference is the pa
 
 ## Focus path and fallback
 
-- A focus uses the bridge only when the helper is enabled. It makes one short socket open (1 second). If that fails, the
-  bridge is held off for 30 seconds, and focus goes straight to the direct Herdr socket.
-- Fallback happens only before the request is written. Once written, the outcome is final: Herdr's result or an error. A
-  focus is never sent twice.
+- Focus, close pane, split pane, create tab, and create workspace use the bridge only when the helper is enabled and
+  advertises that method. It makes one short socket open (1 second). If that fails, the bridge is held off for 30 seconds,
+  and the action goes straight to the direct Herdr socket.
+- Fallback happens only before the request is written. Once written, the outcome is final: Herdr's result or an error.
+  An action is never sent twice.
 - Once enabled, the app opens the persistent channel in the background after installation and on later SSH connections,
-  so the first tap need not pay for channel setup when that open succeeds. It never installs during a focus.
+  so the first action need not pay for channel setup when that open succeeds. It never installs during an action.
 - `HerdrActions` still resolves the tapped terminal against its last-known JSON snapshot and verifies that the returned
   terminal ID matches. A stale positional pane ID can briefly focus another pane before the mismatch is discovered;
   the existing one-time fresh-snapshot retry then applies. Do not retry an uncertain, already-written bridge request
@@ -89,12 +100,12 @@ Newline-delimited JSON on a persistent Unix socket. The full reference is the pa
 
 ## Known limits
 
-- A bridge process that dies while the SSH connection stays up fails the next focus once, after the request is written.
-  The channel is then dropped, and the following focus reconnects or falls back.
+- A bridge process that dies while the SSH connection stays up fails the next bridged action once, after the request is
+  written. The channel is then dropped, and the following action reconnects or falls back.
 - The first Install on a slow link is bounded by the SFTP upload. Its progress shows as a percentage.
 - A post-write hang is bounded by the same 10-second request timeout as the direct path.
-- A bridge that is absent on reconnect falls back to direct focus (with a 30-second connection-attempt hold-off); it is
-  never silently reinstalled. Use Install again if the host rebooted and the helper is no longer running.
+- A bridge that is absent on reconnect falls back to direct Herdr requests (with a 30-second connection-attempt
+  hold-off); it is never silently reinstalled. Use Install again if the host rebooted and the helper is no longer running.
 - Go vet/build and the `compose-app` unit suite, detekt, and debug/release APK packaging were validated on macOS arm64.
   The helper's live install/focus/remove path over SSH and clean-install behavior were **not** exercised by the agent;
   do not claim production latency or remote lifecycle correctness from compilation alone. `ktlintFormat` currently has

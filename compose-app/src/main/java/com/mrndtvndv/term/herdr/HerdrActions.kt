@@ -233,6 +233,9 @@ class HerdrActions(
         /** Sends after a checkpoint. Once written, the request finishes even if a newer intent arrives meanwhile. */
         suspend fun send(method: String, params: JsonObject, timing: ((String) -> Unit)? = null): JsonObject {
             checkpoint()
+            val viaBridge = focusBridge?.tryRequest(method, params, beforeWrite = { checkpoint() }, timing = timing)
+            if (viaBridge != null) return viaBridge.also { checkpoint() }
+            checkpoint()
             return withContext(NonCancellable) { client.request(method, params, timing) }.also { checkpoint() }
         }
 

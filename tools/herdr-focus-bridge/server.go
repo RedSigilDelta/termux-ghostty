@@ -174,9 +174,16 @@ func (b *bridge) handshake(conn net.Conn, reader *bufio.Reader) bool {
 		return false
 	}
 	return writeLine(conn, resultLine(*req.ID, helloResult{
-		Type:         "bridge_hello",
-		Protocol:     protocolVersion,
-		Methods:      []string{methodPaneFocus, methodStop},
+		Type:     "bridge_hello",
+		Protocol: protocolVersion,
+		Methods: []string{
+			methodPaneFocus,
+			methodPaneClose,
+			methodPaneSplit,
+			methodTabCreate,
+			methodWorkspaceCreate,
+			methodStop,
+		},
 		MaxLineBytes: maxRequestBytes,
 	})) == nil
 }
@@ -218,6 +225,14 @@ func (b *bridge) handle(conn net.Conn, line []byte) error {
 	switch req.Method {
 	case methodPaneFocus:
 		return b.paneFocus(conn, req)
+	case methodPaneClose:
+		return b.paneClose(conn, req)
+	case methodPaneSplit:
+		return b.paneSplit(conn, req)
+	case methodTabCreate:
+		return b.tabCreate(conn, req)
+	case methodWorkspaceCreate:
+		return b.workspaceCreate(conn, req)
 	case methodStop:
 		return b.stop(conn, req)
 	default:
@@ -251,7 +266,86 @@ func (b *bridge) paneFocus(conn net.Conn, req request) error {
 			Message: "params.pane_id must be a string of 1 to 128 printable bytes",
 		}))
 	}
-	reply, failure := forwardPaneFocus(b.herdrSocket, *req.ID, *params.PaneID, b.requestTimeout)
+	return b.forward(conn, req, methodPaneFocus, paneIDParams{PaneID: *params.PaneID})
+}
+
+func (b *bridge) paneClose(conn net.Conn, req request) error {
+	var params struct {
+		PaneID *string `json:"pane_id"`
+	}
+	if err := strictDecode(req.Params, &params); err != nil || params.PaneID == nil || !isToken(*params.PaneID, maxPaneIDBytes) {
+		return writeLine(conn, errorLine(req.ID, bridgeError{
+			Code:    codeBadRequest,
+			Message: "params.pane_id must be a string of 1 to 128 printable bytes",
+		}))
+	}
+	return b.forward(conn, req, methodPaneClose, paneIDParams{PaneID: *params.PaneID})
+}
+
+func (b *bridge) paneSplit(conn net.Conn, req request) error {
+	var params struct {
+		TargetPaneID *string `json:"target_pane_id"`
+		Direction    *string `json:"direction"`
+		Focus        *bool   `json:"focus"`
+	}
+	if err := strictDecode(req.Params, &params); err != nil || params.TargetPaneID == nil ||
+		!isToken(*params.TargetPaneID, maxPaneIDBytes) || params.Direction == nil || params.Focus == nil {
+		return writeLine(conn, errorLine(req.ID, bridgeError{
+			Code:    codeBadRequest,
+			Message: "params must include a valid target_pane_id, direction, and focus",
+		}))
+	}
+	if *params.Direction != "right" && *params.Direction != "down" {
+		return writeLine(conn, errorLine(req.ID, bridgeError{
+			Code:    codeBadRequest,
+			Message: "params.direction must be right or down",
+		}))
+	}
+	return b.forward(conn, req, methodPaneSplit, paneSplitParams{
+		TargetPaneID: *params.TargetPaneID,
+		Direction:    *params.Direction,
+		Focus:        *params.Focus,
+	})
+}
+
+func (b *bridge) workspaceCreate(conn net.Conn, req request) error {
+	var params struct {
+		SourceWorkspaceID *string `json:"source_workspace_id"`
+		Focus             *bool   `json:"focus"`
+	}
+	if err := strictDecode(req.Params, &params); err != nil || params.SourceWorkspaceID == nil ||
+		!isToken(*params.SourceWorkspaceID, maxIDBytes) || params.Focus == nil {
+		return writeLine(conn, errorLine(req.ID, bridgeError{
+			Code:    codeBadRequest,
+			Message: "params must include a valid source_workspace_id and focus",
+		}))
+	}
+	return b.forward(conn, req, methodWorkspaceCreate, workspaceCreateParams{
+		SourceWorkspaceID: *params.SourceWorkspaceID,
+		Focus:             *params.Focus,
+	})
+}
+
+func (b *bridge) tabCreate(conn net.Conn, req request) error {
+	var params struct {
+		WorkspaceID *string `json:"workspace_id"`
+		Focus       *bool   `json:"focus"`
+	}
+	if err := strictDecode(req.Params, &params); err != nil || params.WorkspaceID == nil ||
+		!isToken(*params.WorkspaceID, maxIDBytes) || params.Focus == nil {
+		return writeLine(conn, errorLine(req.ID, bridgeError{
+			Code:    codeBadRequest,
+			Message: "params must include a valid workspace_id and focus",
+		}))
+	}
+	return b.forward(conn, req, methodTabCreate, tabCreateParams{
+		WorkspaceID: *params.WorkspaceID,
+		Focus:       *params.Focus,
+	})
+}
+
+func (b *bridge) forward(conn net.Conn, req request, method string, params any) error {
+	reply, failure := forwardHerdrRequest(b.herdrSocket, *req.ID, method, params, b.requestTimeout)
 	if failure != nil {
 		return writeLine(conn, errorLine(req.ID, *failure))
 	}

@@ -12,9 +12,13 @@ import (
 const (
 	protocolVersion = 1
 
-	methodHello     = "bridge.hello"
-	methodPaneFocus = "pane.focus"
-	methodStop      = "bridge.stop"
+	methodHello           = "bridge.hello"
+	methodPaneFocus       = "pane.focus"
+	methodPaneClose       = "pane.close"
+	methodPaneSplit       = "pane.split"
+	methodTabCreate       = "tab.create"
+	methodWorkspaceCreate = "workspace.create"
+	methodStop            = "bridge.stop"
 
 	maxRequestBytes = 16 * 1024 // a client line, including its newline
 	maxReplyBytes   = 1024 * 1024

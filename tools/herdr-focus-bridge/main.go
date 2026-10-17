@@ -1,16 +1,22 @@
-// Command herdr-focus-bridge forwards pane focus requests from a remote client to the Herdr instance on this machine.
+// Command herdr-focus-bridge forwards selected pane and workspace actions from a remote client to the Herdr instance
+// on this machine.
 //
 // It listens on a private Unix socket. Each client connection speaks newline-delimited JSON, one object per line.
 //
 // Handshake, the first line of every connection:
 //
 //	-> {"id":"h1","method":"bridge.hello","params":{"protocol":1}}
-//	<- {"id":"h1","result":{"type":"bridge_hello","protocol":1,"methods":["pane.focus"],"max_line_bytes":16384}}
+//	<- {"id":"h1","result":{"type":"bridge_hello","protocol":1,"methods":["pane.focus","pane.close","pane.split","tab.create","workspace.create","bridge.stop"],"max_line_bytes":16384}}
 //
-// Requests, after the handshake. They are answered one at a time, in order:
+// Requests, after the handshake. They are answered one at a time, in order. The helper validates and forwards only
+// these Herdr actions:
 //
 //	-> {"id":"r1","method":"pane.focus","params":{"pane_id":"p_1"}}
 //	<- Herdr's reply line, byte for byte. Its id is "r1".
+//	-> {"id":"r2","method":"pane.close","params":{"pane_id":"p_1"}}
+//	-> {"id":"r3","method":"pane.split","params":{"target_pane_id":"p_1","direction":"right","focus":true}}
+//	-> {"id":"r4","method":"tab.create","params":{"workspace_id":"w_1","focus":true}}
+//	-> {"id":"r5","method":"workspace.create","params":{"source_workspace_id":"w_1","focus":true}}
 //
 // Stop, sent only when the owner removes the bridge. The reply is written before the bridge drains its connections and
 // exits, and the socket is removed on exit:

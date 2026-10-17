@@ -8,6 +8,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -38,6 +40,7 @@ internal inline fun <T> focusResultOf(block: () -> T): Result<T> {
 /** One handshaked channel to the focus bridge. Closing it leaves the helper process running. */
 internal class FocusBridgeConnection(val channel: SshStreamChannel, val reader: HerdrLineReader) {
     var lastUsedNanos = System.nanoTime()
+    var supportedMethods: Set<String> = emptySet()
 
     fun close() = channel.close()
 }
@@ -70,31 +73,40 @@ internal object FocusBridgeWire {
             connection.channel.write(frame(hello))
             val line = connection.reader.readLine()
                 ?: throw IOException("the focus bridge closed the connection during the handshake")
-            checkHello(line)
+            connection.supportedMethods = checkHello(line)
             connection
         }
 
-    private fun checkHello(line: String) {
+    private fun checkHello(line: String): Set<String> {
         val result = HerdrWire.expectType(HerdrWire.replyResult(line, HELLO_ID), "bridge_hello")
         val version = (result["protocol"] as? JsonPrimitive)?.intOrNull
         if (version != PROTOCOL_VERSION) {
             throw HerdrException(HerdrError(HerdrErrorKind.Protocol, "the focus bridge speaks protocol $version"))
         }
+        val methods = result["methods"] as? JsonArray
+            ?: throw HerdrException(HerdrError(HerdrErrorKind.Protocol, "the focus bridge did not list its methods"))
+        return methods.map { value ->
+            methodName(value)
+        }.toSet()
     }
+
+    private fun methodName(value: JsonElement): String =
+        (value as? JsonPrimitive)?.contentOrNull
+            ?: throw HerdrException(HerdrError(HerdrErrorKind.Protocol, "the focus bridge listed an invalid method"))
 }
 
 /**
- * Pane focus through the focus bridge on the SSH host, for one connection.
+ * Selected Herdr actions through the focus bridge on the SSH host, for one connection.
  *
- * A focus never installs anything. When the helper is off, or its socket does not answer, [tryFocusPane] returns null
- * with nothing written, and the caller uses the direct Herdr socket. A failed connect holds the bridge off for
- * [FAILURE_HOLD_NANOS], so taps during an outage fall back at once instead of each paying for another attempt.
- * Installing and removing are explicit actions on [installer]. One persistent channel carries this connection's focus
- * requests, one at a time.
+ * An action never installs anything. When the helper is off, its socket does not answer, or it does not advertise the
+ * method, [tryRequest] returns null with nothing written, and the caller uses the direct Herdr socket. A failed
+ * connect holds the bridge off for [FAILURE_HOLD_NANOS], so actions during an outage fall back at once instead of each
+ * paying for another attempt. Installing and removing are explicit actions on [installer]. One persistent channel
+ * carries this connection's supported requests, one at a time.
  *
  * Once the write begins, the outcome is final: Herdr's result, or a [HerdrException]. There is no retry and no
- * fallback, so a focus is never sent twice. A channel that fails after a write is dropped, because its reply stream may
- * no longer line up with the next request.
+ * fallback, so an action is never sent twice. A channel that fails after a write is dropped, because its reply stream
+ * may no longer line up with the next request.
  */
 class FocusBridgeClient(
     private val session: SshSession,
@@ -115,26 +127,35 @@ class FocusBridgeClient(
     private var closed = false
     private var holdOffUntilNanos: Long? = null
 
-    /**
-     * Focuses [paneId] through the bridge and returns Herdr's result object. Returns null, with nothing written, when
-     * the bridge is off or does not answer; the caller then uses the direct socket. [timing] receives stage marks with
-     * no IDs or paths, so the bridge's latency can be compared with the direct path's. [beforeWrite] runs once, just
-     * before the first byte is written, and may throw to stop the focus, for example when a newer intent supersedes it.
-     */
+    /** Sends one supported Herdr action. [beforeWrite] runs before the first request byte, after connection setup. */
+    suspend fun tryRequest(
+        method: String,
+        params: JsonObject,
+        beforeWrite: () -> Unit,
+        timing: ((String) -> Unit)? = null,
+    ): JsonObject? {
+        if (!enabled || method !in BRIDGED_METHODS) return null
+        return lock.withLock {
+            val current = connectOrNull(timing)
+            if (current == null || method !in current.supportedMethods) return@withLock null
+            beforeWrite()
+            withContext(NonCancellable) { exchange(current, method, params, timing) }
+        }
+    }
+
+    /** Focuses [paneId] through the bridge, with timing marks for its existing debug trace. */
     suspend fun tryFocusPane(
         paneId: String,
         timing: ((String) -> Unit)?,
         beforeWrite: () -> Unit,
-    ): JsonObject? {
-        if (!enabled) return null
-        return lock.withLock {
-            val current = connectOrNull(timing) ?: return null
-            beforeWrite()
-            withContext(NonCancellable) { exchange(current, paneId, timing) }
-        }
-    }
+    ): JsonObject? = tryRequest(
+        method = METHOD_PANE_FOCUS,
+        params = buildJsonObject { put("pane_id", paneId) },
+        beforeWrite = beforeWrite,
+        timing = timing,
+    )
 
-    /** Opens the persistent channel ahead of a tap, without sending a focus or installing anything. */
+    /** Opens the persistent channel ahead of an action, without sending a request or installing anything. */
     suspend fun warmUp() {
         if (!enabled) return
         lock.withLock { connectOrNull(null) }
@@ -151,8 +172,8 @@ class FocusBridgeClient(
     }
 
     /**
-     * Closes the channel this app holds to the helper. The helper process is not stopped, and the next focus reconnects
-     * if the helper is still on.
+     * Closes the channel this app holds to the helper. The helper process is not stopped. The next action reconnects if
+     * the helper is still on.
      */
     fun closeChannel() {
         val current = synchronized(state) {
@@ -161,7 +182,7 @@ class FocusBridgeClient(
         current?.close()
     }
 
-    /** Closes the channel and refuses further focus requests. Called when the server disconnects. */
+    /** Closes the channel and refuses further bridge requests. Called when the server disconnects. */
     fun close() {
         synchronized(state) { closed = true }
         closeChannel()
@@ -220,12 +241,13 @@ class FocusBridgeClient(
     /** Writes one request and reads its reply. Runs without cancellation, so a written request always finishes. */
     private suspend fun exchange(
         current: FocusBridgeConnection,
-        paneId: String,
+        method: String,
+        params: JsonObject,
         timing: ((String) -> Unit)?,
     ): JsonObject {
-        val id = "focus-${requestIds.incrementAndGet()}"
+        val id = "bridge-${requestIds.incrementAndGet()}"
         val result = try {
-            withTimeoutOrNull(REQUEST_TIMEOUT_MILLIS) { writeAndRead(current, id, paneId, timing) }
+            withTimeoutOrNull(REQUEST_TIMEOUT_MILLIS) { writeAndRead(current, id, method, params, timing) }
                 ?: throw HerdrException(HerdrError(HerdrErrorKind.Timeout, "the focus bridge did not answer in time"))
         } catch (error: HerdrException) {
             if (error.error.kind == HerdrErrorKind.Rejected) {
@@ -242,11 +264,12 @@ class FocusBridgeClient(
     private suspend fun writeAndRead(
         current: FocusBridgeConnection,
         id: String,
-        paneId: String,
+        method: String,
+        params: JsonObject,
         timing: ((String) -> Unit)?,
     ): JsonObject {
         try {
-            val request = HerdrWire.encodeRequest(id, "pane.focus", buildJsonObject { put("pane_id", paneId) })
+            val request = HerdrWire.encodeRequest(id, method, params)
             current.channel.write(FocusBridgeWire.frame(request))
             timing?.invoke("bridge_request_written")
             val line = current.reader.readLine()
@@ -276,7 +299,11 @@ class FocusBridgeClient(
     }
 
     private companion object {
-        // Short on purpose: a slow connect is a fallback, so it must not hold up the focus for long.
+        const val METHOD_PANE_FOCUS = "pane.focus"
+        val BRIDGED_METHODS =
+            setOf(METHOD_PANE_FOCUS, "pane.close", "pane.split", "tab.create", "workspace.create")
+
+        // Short on purpose: a slow connect is a fallback, so it must not hold up the action for long.
         const val CONNECT_TIMEOUT_MILLIS = 1_000L
         const val FAILURE_HOLD_NANOS = 30 * 1_000_000_000L
         const val REQUEST_TIMEOUT_MILLIS = 10_000L

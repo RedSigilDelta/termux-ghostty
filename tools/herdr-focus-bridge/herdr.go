@@ -12,18 +12,34 @@ import (
 // herdrRequest is what the bridge sends to Herdr. It is built from validated fields, never from client bytes, so no
 // other method or parameter can reach Herdr.
 type herdrRequest struct {
-	ID     string     `json:"id"`
-	Method string     `json:"method"`
-	Params paneTarget `json:"params"`
+	ID     string `json:"id"`
+	Method string `json:"method"`
+	Params any    `json:"params"`
 }
 
-type paneTarget struct {
+type paneIDParams struct {
 	PaneID string `json:"pane_id"`
 }
 
-// forwardPaneFocus sends one pane.focus over its own connection to Herdr's API socket and returns Herdr's reply line,
-// unchanged. The reply must answer id.
-func forwardPaneFocus(socketPath, id, paneID string, timeout time.Duration) ([]byte, *bridgeError) {
+type paneSplitParams struct {
+	TargetPaneID string `json:"target_pane_id"`
+	Direction    string `json:"direction"`
+	Focus        bool   `json:"focus"`
+}
+
+type workspaceCreateParams struct {
+	SourceWorkspaceID string `json:"source_workspace_id"`
+	Focus             bool   `json:"focus"`
+}
+
+type tabCreateParams struct {
+	WorkspaceID string `json:"workspace_id"`
+	Focus       bool   `json:"focus"`
+}
+
+// forwardHerdrRequest sends one validated action over its own connection to Herdr's API socket and returns Herdr's
+// reply line unchanged. The reply must answer id.
+func forwardHerdrRequest(socketPath, id, method string, params any, timeout time.Duration) ([]byte, *bridgeError) {
 	deadline := time.Now().Add(timeout)
 	conn, err := (&net.Dialer{Deadline: deadline}).Dial("unix", socketPath)
 	if err != nil {
@@ -34,7 +50,7 @@ func forwardPaneFocus(socketPath, id, paneID string, timeout time.Duration) ([]b
 		return nil, herdrFailure(err)
 	}
 
-	body, _ := json.Marshal(herdrRequest{ID: id, Method: methodPaneFocus, Params: paneTarget{PaneID: paneID}})
+	body, _ := json.Marshal(herdrRequest{ID: id, Method: method, Params: params})
 	if _, err := conn.Write(append(body, '\n')); err != nil {
 		return nil, herdrFailure(err)
 	}
