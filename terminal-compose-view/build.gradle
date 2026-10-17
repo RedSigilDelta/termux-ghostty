@@ -11,6 +11,7 @@ plugins {
 android {
     namespace 'com.termux.terminal.compose'
     compileSdk project.properties.compileSdkVersion.toInteger()
+    compileSdkMinor project.properties.compileSdkMinorVersion.toInteger()
 
     defaultConfig {
         minSdk project.properties.minSdkVersion.toInteger()
@@ -69,16 +70,15 @@ ktlint {
 dependencies {
     // Compose APIs appear in the public API surface (composable entry point,
     // DrawScope-based effects), so these are `api` dependencies.
-    def composeBom = platform('androidx.compose:compose-bom:2026.06.01')
-    api composeBom
-    api 'androidx.compose.ui:ui'
-    api 'androidx.compose.ui:ui-text'
-    api 'androidx.compose.ui:ui-graphics'
-    api 'androidx.compose.foundation:foundation'
+    // Versions are centralized in gradle.properties and must match consumers.
+    api "androidx.compose.ui:ui:$composeVersion"
+    api "androidx.compose.ui:ui-text:$composeVersion"
+    api "androidx.compose.ui:ui-graphics:$composeVersion"
+    api "androidx.compose.foundation:foundation:$composeVersion"
 
     implementation 'androidx.core:core:1.13.1'
-    implementation 'androidx.lifecycle:lifecycle-runtime-compose:2.11.0'
-    implementation 'androidx.navigationevent:navigationevent-compose:1.1.2'
+    implementation "androidx.lifecycle:lifecycle-runtime-compose:$lifecycleVersion"
+    implementation "androidx.navigationevent:navigationevent-compose:$navigationEventVersion"
 
     // Internal implementation detail: character-width tables and text-style
     // encoding from the emulator core. No terminal-emulator type appears in the
@@ -89,11 +89,10 @@ dependencies {
     testImplementation "org.robolectric:robolectric:4.10"
     testImplementation "org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0"
 
-    androidTestImplementation composeBom
-    androidTestImplementation 'androidx.compose.ui:ui-test-junit4'
+    androidTestImplementation "androidx.compose.ui:ui-test-junit4:$composeVersion"
     androidTestImplementation 'androidx.test:runner:1.7.0'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.7.0'
-    debugImplementation 'androidx.compose.ui:ui-test-manifest'
+    debugImplementation "androidx.compose.ui:ui-test-manifest:$composeVersion"
 }
 
 afterEvaluate {

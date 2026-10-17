@@ -10,6 +10,7 @@ plugins {
 android {
     namespace 'com.termux.terminal.compose.session'
     compileSdk project.properties.compileSdkVersion.toInteger()
+    compileSdkMinor project.properties.compileSdkMinorVersion.toInteger()
 
     defaultConfig {
         minSdk project.properties.minSdkVersion.toInteger()

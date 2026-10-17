@@ -9,6 +9,7 @@ plugins {
 android {
     namespace 'com.mrndtvndv.processicons'
     compileSdk project.properties.compileSdkVersion.toInteger()
+    compileSdkMinor project.properties.compileSdkMinorVersion.toInteger()
 
     defaultConfig {
         minSdk project.properties.minSdkVersion.toInteger()

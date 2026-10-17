@@ -24,6 +24,7 @@ androidComponents {
 android {
     namespace 'com.mrndtvndv.term'
     compileSdk project.properties.compileSdkVersion.toInteger()
+    compileSdkMinor project.properties.compileSdkMinorVersion.toInteger()
     ndkVersion = System.getenv("JITPACK_NDK_VERSION") ?: project.properties.ndkVersion
 
     flavorDimensions += 'dist'
@@ -156,26 +157,24 @@ dependencies {
     implementation project(':process-icons')
     implementation 'com.google.android.material:material:1.14.0'
 
-    // Compose & Activity-Compose
-    def composeBom = platform('androidx.compose:compose-bom:2026.09.00')
-    implementation composeBom
-    implementation 'androidx.compose.ui:ui'
-    implementation 'androidx.compose.material3:material3:1.5.0-alpha29'
-    implementation 'androidx.compose.material:material-icons-extended'
-    implementation 'androidx.activity:activity-compose:1.13.0'
-    implementation 'androidx.lifecycle:lifecycle-viewmodel-compose:2.11.0'
-    implementation 'androidx.lifecycle:lifecycle-runtime-compose:2.11.0'
-    implementation 'androidx.webkit:webkit:1.14.0'
-    implementation 'com.mikepenz:multiplatform-markdown-renderer-m3:0.45.0'
-    implementation 'com.mikepenz:multiplatform-markdown-renderer-code:0.45.0'
+    // Compose & Activity-Compose (versions centralized in gradle.properties)
+    implementation "androidx.compose.ui:ui:$composeVersion"
+    implementation "androidx.compose.material3:material3:$composeMaterial3Version"
+    implementation "androidx.compose.material:material-icons-extended:$composeMaterialIconsVersion"
+    implementation "androidx.activity:activity-compose:$activityVersion"
+    implementation "androidx.lifecycle:lifecycle-viewmodel-compose:$lifecycleVersion"
+    implementation "androidx.lifecycle:lifecycle-runtime-compose:$lifecycleVersion"
+    implementation "androidx.webkit:webkit:$webkitVersion"
+    implementation "com.mikepenz:multiplatform-markdown-renderer-m3:$markdownRendererVersion"
+    implementation "com.mikepenz:multiplatform-markdown-renderer-code:$markdownRendererVersion"
     implementation 'dev.chrisbanes.haze:haze:2.0.1'
     implementation 'dev.chrisbanes.haze:haze-blur:2.0.1'
 
     // Navigation 3
-    implementation 'androidx.navigation3:navigation3-runtime:1.1.4'
-    implementation 'androidx.navigation3:navigation3-ui:1.1.4'
-    implementation 'androidx.lifecycle:lifecycle-viewmodel-navigation3:2.11.0'
-    implementation 'org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0'
+    implementation "androidx.navigation3:navigation3-runtime:$navigation3Version"
+    implementation "androidx.navigation3:navigation3-ui:$navigation3Version"
+    implementation "androidx.lifecycle:lifecycle-viewmodel-navigation3:$lifecycleVersion"
+    implementation "org.jetbrains.kotlinx:kotlinx-serialization-json:$kotlinxSerializationVersion"
 
     coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.1.5"
 

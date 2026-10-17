@@ -2,7 +2,7 @@ package com.mrndtvndv.term.ui.theme
 
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MaterialExpressiveTheme
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
@@ -104,7 +104,9 @@ fun TermuxGhosttyTheme(
     val typography = typographyWithCustomFont(customFontFamily)
 
     CompositionLocalProvider(LocalCustomFontFamily provides customFontFamily) {
-        MaterialTheme(
+        // Expressive theme supplies MotionScheme.expressive() and the expressive
+        // component defaults app-wide; colors and typography stay app-defined.
+        MaterialExpressiveTheme(
             colorScheme = colorScheme,
             typography = typography,
             content = content
