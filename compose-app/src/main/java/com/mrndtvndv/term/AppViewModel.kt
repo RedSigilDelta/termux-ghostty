@@ -7,6 +7,8 @@ import android.util.Log
 import com.mrndtvndv.term.domain.ServerConfig
 import com.mrndtvndv.term.herdr.FocusBridgeMaintenance
 import com.mrndtvndv.term.herdr.FocusBridgeUiState
+import com.mrndtvndv.term.herdr.HerdrActionFailure
+import com.mrndtvndv.term.herdr.HerdrActionResult
 import com.mrndtvndv.term.herdr.HerdrActions
 import com.mrndtvndv.term.herdr.HerdrControlClient
 import com.mrndtvndv.term.herdr.HerdrFreshSnapshot
@@ -710,8 +712,15 @@ class AppViewModel(
     fun focusHerdrTabOf(serverId: String, anchorTerminalId: String) =
         submitHerdrAction(serverId, "Couldn't focus tab") { it.focusTabOf(anchorTerminalId) }
 
-    fun closeHerdrPane(serverId: String, terminalId: String) =
-        submitHerdrAction(serverId, "Couldn't close pane", showSession = false) { it.closePane(terminalId) }
+    /** Closes the pane running [terminalId]. True once it is gone, including when it had already closed. */
+    suspend fun closeHerdrPane(serverId: String, terminalId: String): Boolean {
+        val ticket = submitHerdrAction(serverId, "Couldn't close pane", showSession = false) {
+            it.closePane(terminalId)
+        }
+        val result = ticket?.result?.await() ?: return false
+        return result == HerdrActionResult.Done ||
+            (result as? HerdrActionResult.Failed)?.reason == HerdrActionFailure.TargetGone
+    }
 
     fun createHerdrTab(serverId: String, workspaceId: String) =
         submitHerdrAction(serverId, "Couldn't create tab") { it.createTab(workspaceId) }
@@ -731,11 +740,11 @@ class AppViewModel(
         title: String,
         showSession: Boolean = true,
         submit: (HerdrActions) -> HerdrActions.Ticket,
-    ) {
+    ): HerdrActions.Ticket? {
         val actions = sessionManager.herdrActions(serverId)
         if (actions == null) {
             notificationState.post(title, "Herdr is not connected")
-            return
+            return null
         }
         val ticket = submit(actions)
         logEvent("$title submitted server=$serverId intent=${ticket.intent}")
@@ -744,6 +753,7 @@ class AppViewModel(
             val result = ticket.result.await()
             logEvent("$title result server=$serverId intent=${ticket.intent} result=$result")
         }
+        return ticket
     }
 
     /** Activates the full-UI terminal, only while this server's Herdr session is the shown workspace. */

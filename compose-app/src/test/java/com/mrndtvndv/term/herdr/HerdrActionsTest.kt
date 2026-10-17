@@ -28,14 +28,30 @@ class HerdrActionsTest {
         val actions = HerdrActions(client, this, onFailure = { failure.complete(it) })
         val gate = CompletableDeferred<Unit>()
         server.gateNextSnapshot(gate)
-        // A close is used because a focus on a missing terminal is not reported.
-        val ticket = actions.closePane("missing-terminal")
+        // A split is used because a focus or close on a missing terminal is not reported.
+        val ticket = actions.splitPane("missing-terminal", "right")
         val activity = launch { ticket.result.await() }
         awaitUntil { server.requestCount("session.snapshot") == 2 }
         activity.cancelAndJoin()
         gate.complete(Unit)
 
         assertEquals(HerdrActionFailure.TargetGone, failure.await().reason)
+        actions.close()
+        client.close()
+    }
+
+    @Test
+    fun `closing a pane that is already gone is not reported`() = withScope {
+        val server = serverWith(FakePane("p-1"))
+        val client = clientFor(server, this)
+        client.start()
+        var reported = false
+        val actions = HerdrActions(client, this, onFailure = { reported = true })
+
+        val result = actions.closePane("missing-terminal").result.await()
+
+        assertEquals(HerdrActionFailure.TargetGone, (result as HerdrActionResult.Failed).reason)
+        assertFalse(reported)
         actions.close()
         client.close()
     }

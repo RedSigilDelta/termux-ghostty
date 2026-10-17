@@ -5,6 +5,13 @@
 
 package com.mrndtvndv.term.ui.workspace
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
@@ -18,6 +25,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -47,11 +55,14 @@ import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -71,6 +82,7 @@ import com.mrndtvndv.term.herdr.HerdrTab
 import com.mrndtvndv.term.herdr.panesIn
 import com.mrndtvndv.term.herdr.tabsIn
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /** Normal Herdr workspace/tab/pane browser, backed by the shared socket cache rather than CLI polling. */
@@ -84,7 +96,7 @@ fun HerdrAgentsSheet(
     onSplitPane: (paneId: String, direction: String) -> Unit,
     onFocusPane: (HerdrPane) -> Unit,
     onFocusTab: (HerdrTab) -> Unit,
-    onClosePane: (HerdrPane) -> Unit,
+    onClosePane: suspend (HerdrPane) -> Boolean,
     onDismiss: () -> Unit,
 ) {
     var collapsed by rememberSaveable { mutableStateOf(emptyList<String>()) }
@@ -153,7 +165,7 @@ fun HerdrAgentsSheet(
                             val expanded = workspace.id !in collapsed
                             item(key = "workspace:${workspace.id}") {
                                 Row(
-                                    modifier = Modifier.fillMaxWidth().clickable {
+                                    modifier = itemMotion().fillMaxWidth().clickable {
                                         collapsed = if (expanded) collapsed + workspace.id else collapsed - workspace.id
                                     }.padding(horizontal = 16.dp, vertical = 8.dp),
                                     verticalAlignment = Alignment.CenterVertically,
@@ -170,6 +182,7 @@ fun HerdrAgentsSheet(
                                 snapshot.tabsIn(workspace.id).forEach { tab ->
                                     item(key = "tab:${tab.id}") {
                                         HerdrTabGroup(
+                                            modifier = itemMotion(),
                                             snapshot = snapshot,
                                             tab = tab,
                                             onFocusTab = { dismissAndFocus { onFocusTab(tab) } },
@@ -292,20 +305,27 @@ private fun AgentsSplitButton(
 
 @Composable
 private fun HerdrTabGroup(
+    modifier: Modifier,
     snapshot: HerdrSnapshot,
     tab: HerdrTab,
     onFocusTab: () -> Unit,
     onFocusPane: (HerdrPane) -> Unit,
-    onClosePane: (HerdrPane) -> Unit,
+    onClosePane: suspend (HerdrPane) -> Boolean,
 ) {
-    val panes = snapshot.panesIn(tab.id)
+    // Rows still animating out stay at their last index after the snapshot drops them, so the group never jumps.
+    val closing = remember { mutableStateMapOf<String, IndexedValue<HerdrPane>>() }
+    val panes = snapshot.panesIn(tab.id).toMutableList().apply {
+        closing.values.sortedBy { it.index }.forEach { (index, pane) ->
+            if (none { it.terminalId == pane.terminalId }) add(index.coerceAtMost(size), pane)
+        }
+    }
     val shape = RoundedCornerShape(12.dp)
     val groupModifier = if (panes.size > 1) {
-        Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)
+        modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)
             .clip(shape)
             .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f), shape)
     } else {
-        Modifier.fillMaxWidth()
+        modifier.fillMaxWidth()
     }
     Column(modifier = groupModifier) {
         if (panes.isEmpty()) Text(
@@ -313,48 +333,101 @@ private fun HerdrTabGroup(
             modifier = Modifier.fillMaxWidth().clickable(onClick = onFocusTab)
                 .padding(horizontal = 16.dp, vertical = 8.dp),
         )
-        panes.forEach { pane ->
+        panes.forEachIndexed { index, pane ->
             val agent = snapshot.agents.firstOrNull { it.terminalId == pane.terminalId }
-            HerdrAgentRow(
-                pane = pane,
-                title = agent?.name ?: pane.title ?: pane.terminalTitle ?: pane.label
-                    ?: tab.label.ifBlank { "Terminal" },
-                onFocus = { onFocusPane(pane) },
-                onClose = { onClosePane(pane) },
-            )
+            key(pane.terminalId) {
+                HerdrAgentRow(
+                    pane = pane,
+                    title = agent?.name ?: pane.title ?: pane.terminalTitle ?: pane.label
+                        ?: tab.label.ifBlank { "Terminal" },
+                    onFocus = { onFocusPane(pane) },
+                    onClose = { onClosePane(pane) },
+                    onClosingChange = { isClosing ->
+                        if (isClosing) {
+                            closing[pane.terminalId] = IndexedValue(index, pane)
+                        } else {
+                            closing -= pane.terminalId
+                        }
+                    },
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun HerdrAgentRow(pane: HerdrPane, title: String, onFocus: () -> Unit, onClose: () -> Unit) {
-    val swipeState = rememberSwipeToDismissBoxState(
-        confirmValueChange = {
-            if (it != SwipeToDismissBoxValue.Settled) onClose()
-            false
-        },
-    )
-    SwipeToDismissBox(
-        state = swipeState,
-        backgroundContent = {
-            Box(
-                modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.errorContainer)
-                    .padding(horizontal = 24.dp),
-                contentAlignment = if (swipeState.dismissDirection == SwipeToDismissBoxValue.StartToEnd) {
-                    Alignment.CenterStart
-                } else {
-                    Alignment.CenterEnd
-                },
-            ) {
-                Icon(
-                    Icons.Default.Close, contentDescription = "Close pane",
-                    tint = MaterialTheme.colorScheme.onErrorContainer,
-                )
+private fun HerdrAgentRow(
+    pane: HerdrPane,
+    title: String,
+    onFocus: () -> Unit,
+    onClose: suspend () -> Boolean,
+    onClosingChange: (Boolean) -> Unit,
+) {
+    val swipeState = rememberSwipeToDismissBoxState()
+    val visibility = remember { MutableTransitionState(true) }
+    val scope = rememberCoroutineScope()
+    // Optimistic: the row collapses while the close is in flight, and expands and slides back if Herdr refuses it.
+    LaunchedEffect(swipeState.settledValue) {
+        if (swipeState.settledValue == SwipeToDismissBoxValue.Settled) return@LaunchedEffect
+        onClosingChange(true)
+        visibility.targetState = false
+        if (onClose()) {
+            snapshotFlow { visibility.isIdle }.first { it }
+            onClosingChange(false)
+        } else {
+            visibility.targetState = true
+            onClosingChange(false)
+            swipeState.reset()
+        }
+    }
+    val motion = MaterialTheme.motionScheme
+    val dragging = swipeState.dismissDirection != SwipeToDismissBoxValue.Settled
+    val cornerRadius by animateDpAsState(if (dragging) 24.dp else 0.dp, motion.defaultEffectsSpec())
+    AnimatedVisibility(
+        visibleState = visibility,
+        enter = expandVertically(motion.defaultSpatialSpec()) + fadeIn(motion.defaultEffectsSpec()),
+        exit = shrinkVertically(motion.defaultSpatialSpec()) + fadeOut(motion.defaultEffectsSpec()),
+    ) {
+        SwipeToDismissBox(
+            state = swipeState,
+            gesturesEnabled = visibility.targetState,
+            backgroundContent = { HerdrAgentRowCloseBackground(swipeState.dismissDirection) },
+        ) {
+            Box(modifier = Modifier.clip(RoundedCornerShape(cornerRadius))) {
+                HerdrAgentRowContent(pane, title, onFocus) {
+                    scope.launch { swipeState.dismiss(SwipeToDismissBoxValue.EndToStart) }
+                }
             }
+        }
+    }
+}
+
+@Composable
+private fun HerdrAgentRowCloseBackground(direction: SwipeToDismissBoxValue) {
+    Box(
+        modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.errorContainer)
+            .padding(horizontal = 24.dp),
+        contentAlignment = if (direction == SwipeToDismissBoxValue.StartToEnd) {
+            Alignment.CenterStart
+        } else {
+            Alignment.CenterEnd
         },
     ) {
-        HerdrAgentRowContent(pane, title, onFocus, onClose)
+        Icon(
+            Icons.Default.Close, contentDescription = "Close pane",
+            tint = MaterialTheme.colorScheme.onErrorContainer,
+        )
     }
+}
+
+@Composable
+private fun LazyItemScope.itemMotion(): Modifier {
+    val motion = MaterialTheme.motionScheme
+    return Modifier.animateItem(
+        fadeInSpec = motion.defaultEffectsSpec(),
+        placementSpec = motion.defaultSpatialSpec(),
+        fadeOutSpec = motion.defaultEffectsSpec(),
+    )
 }
 
 @Composable

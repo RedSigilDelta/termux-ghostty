@@ -132,7 +132,7 @@ class HerdrActions(
     }
 
     /** Closes the pane running [terminalId]. Not a focus intent, so a later focus never cancels it. */
-    fun closePane(terminalId: String): Ticket = submit(focusIntent = false) {
+    fun closePane(terminalId: String): Ticket = submit(focusIntent = false, notifyTargetGone = false) {
         withResolvedPane(terminalId) { pane -> send("pane.close", buildJsonObject { put("pane_id", pane.id) }) }
         done()
     }
