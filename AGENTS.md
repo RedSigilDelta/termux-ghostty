@@ -33,6 +33,7 @@ All fork-specific docs go under `docs/fork/`. Do not add `.md` files to the repo
 
 ## Testing workflow
 
+- **Do not write new tests.** Use the existing test suites for validation; do not add or modify test files unless the user explicitly asks.
 - **Unit tests: run them.** Fast, local, zero device time — run proactively after code changes (e.g. `./gradlew :compose-app:testUniversalDebugUnitTest`) if a test suite covers the change.
 - **Live/device testing: never.** Do not install builds, launch emulators, connect devices, or run manual validation — that burns tokens and time. Leave manual validation to the user unless they explicitly ask otherwise.
 

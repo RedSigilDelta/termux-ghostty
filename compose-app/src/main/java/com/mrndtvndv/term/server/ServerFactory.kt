@@ -6,6 +6,10 @@ import com.mrndtvndv.term.data.ssh.native.NativeSshSession
 import com.mrndtvndv.term.data.ssh.native.NativeSshShellChannel
 import com.mrndtvndv.term.domain.ServerConfig
 import com.mrndtvndv.term.domain.toDomainAuth
+import com.mrndtvndv.term.herdr.FocusBridgeArtifact
+import com.mrndtvndv.term.herdr.FocusBridgeClient
+import com.mrndtvndv.term.herdr.FocusBridgeInstaller
+import com.mrndtvndv.term.herdr.FocusBridgePaths
 import com.mrndtvndv.term.herdr.HerdrControlClient
 import com.mrndtvndv.term.workspace.Tab
 import com.mrndtvndv.term.workspace.herdrAttachCommand
@@ -67,15 +71,37 @@ class ServerFactory(
         } else {
             null
         }
+        // The focus helper client exists whenever Herdr is on, but it stays idle until the helper is installed and
+        // enabled. Install and Remove are explicit actions, so connecting never installs anything. The installer reuses
+        // this connection's SFTP client, because opening another SFTP client would close the one the file tabs use.
+        // Unusable paths leave the client out, so a bad home directory never blocks the connection.
+        val focusBridge = if (config.herdrEnabled) {
+            runCatching { FocusBridgePaths(homeDir, herdrControlSocketPath(config.herdrSocketPath, homeDir)) }
+                .getOrNull()
+                ?.let { paths ->
+                    val installer = FocusBridgeInstaller(
+                        session = session,
+                        sftp = sftpClient,
+                        paths = paths,
+                        openAsset = { context.assets.open(FocusBridgeArtifact.ASSET_PATH) },
+                        cacheDir = context.cacheDir,
+                    )
+                    FocusBridgeClient(session, installer, enabled = config.herdrFocusBridgeEnabled)
+                }
+        } else {
+            null
+        }
         val server = Server(
             config = config,
             sshSession = session,
             sftpClient = sftpClient,
             homeDir = homeDir,
             herdr = herdr,
+            focusBridge = focusBridge,
         )
         server.onDisconnect { herdrScope.cancel() }
         if (herdr != null) herdrScope.launch { runCatching { herdr.start() } }
+        if (focusBridge?.enabled == true) herdrScope.launch { focusBridge.warmUp() }
         return server
     }
 

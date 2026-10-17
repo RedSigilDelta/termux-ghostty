@@ -374,7 +374,9 @@ private fun ServerCard(
                     }
                 }
             }
-            if (!isActive) {
+            // Edit is offered for connected servers too, since the server's focus helper is installed from there.
+            // Delete stays limited to disconnected servers, as before.
+            if (!isDisconnecting) {
                 var menuExpanded by remember { mutableStateOf(false) }
                 Box {
                     IconButton(onClick = { menuExpanded = true }) {
@@ -396,20 +398,22 @@ private fun ServerCard(
                                 onEdit()
                             },
                         )
-                        DropdownMenuItem(
-                            text = { Text("Delete") },
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Default.Delete,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.error,
-                                )
-                            },
-                            onClick = {
-                                menuExpanded = false
-                                onDelete()
-                            },
-                        )
+                        if (!isActive) {
+                            DropdownMenuItem(
+                                text = { Text("Delete") },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Default.Delete,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.error,
+                                    )
+                                },
+                                onClick = {
+                                    menuExpanded = false
+                                    onDelete()
+                                },
+                            )
+                        }
                     }
                 }
             }

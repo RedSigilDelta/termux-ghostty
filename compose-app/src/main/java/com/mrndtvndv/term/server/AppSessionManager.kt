@@ -149,13 +149,20 @@ class AppSessionManager private constructor(context: Context) : AppSessionManage
         locateSession(session)?.serverId
 
     override fun herdrActions(serverId: String): HerdrActions? {
-        val client = coordinator.getServer(serverId)?.herdr ?: return null
+        val server = coordinator.getServer(serverId)
+        val client = server?.herdr ?: return null
         return herdrActionsByServer.compute(serverId) { _, existing ->
             existing?.takeIf { it.client === client } ?: run {
                 existing?.close()
-                HerdrActions(client, appScope, onFailure = { failure ->
-                    notificationState.post("Herdr action failed", failure.message)
-                })
+                HerdrActions(
+                    client,
+                    appScope,
+                    onFailure = { failure -> notificationState.post("Herdr action failed", failure.message) },
+                    onFocusTiming = { message ->
+                        if (Log.isLoggable("HerdrFocusTiming", Log.DEBUG)) Log.d("HerdrFocusTiming", message)
+                    },
+                    focusBridge = server.focusBridge,
+                )
             }
         }
     }

@@ -15,6 +15,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.mrndtvndv.term.domain.AuthType
 import com.mrndtvndv.term.domain.ServerConfig
+import com.mrndtvndv.term.herdr.FocusBridgeUiState
 import com.mrndtvndv.term.ui.components.ImagePasteSettingsSection
 import com.mrndtvndv.term.ui.components.rememberImagePasteSettingsState
 
@@ -25,6 +26,7 @@ fun AddServerScreen(
     onSave: (ServerConfig) -> Unit,
     onBack: () -> Unit,
     initialConfig: ServerConfig? = null,
+    focusBridge: FocusBridgeControls? = null,
     modifier: Modifier = Modifier,
 ) {
     val initialPassword = (initialConfig?.auth as? AuthType.Password)?.password.orEmpty()
@@ -123,6 +125,7 @@ fun AddServerScreen(
                 herdrSocketPath = herdrSocketPath,
                 onHerdrSocketPathChange = { herdrSocketPath = it },
                 socketPathValid = socketPathValid,
+                focusBridge = focusBridge,
             )
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
@@ -147,6 +150,9 @@ fun AddServerScreen(
                             useGhosttyTerm = useGhosttyTerm,
                             herdrEnabled = herdrEnabled,
                             herdrSocketPath = herdrSocketPath.trim().ifEmpty { null },
+                            // Install and Remove persist this flag themselves, so saving the form keeps the stored
+                            // value.
+                            herdrFocusBridgeEnabled = initialConfig?.herdrFocusBridgeEnabled ?: false,
                             imagePasteEnabled = imagePasteState.isPasteActive,
                             imagePasteDirectory = imagePasteState.trimmedDirectory,
                             imagePasteAutoCleanup = imagePasteState.autoCleanup,
@@ -170,6 +176,7 @@ private fun HerdrSection(
     herdrSocketPath: String,
     onHerdrSocketPathChange: (String) -> Unit,
     socketPathValid: Boolean,
+    focusBridge: FocusBridgeControls?,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -204,6 +211,63 @@ private fun HerdrSection(
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
+        // Shown only when editing a saved server, since Install and Remove act on a live connection to it.
+        if (focusBridge != null) {
+            FocusBridgeSection(focusBridge)
+        }
+    }
+}
+
+/** Install and Remove for the focus helper of the server being edited. Null when adding a server. */
+data class FocusBridgeControls(
+    val status: FocusBridgeUiState,
+    /** True while this server has a live connection. Install and Remove act on that connection. */
+    val connected: Boolean,
+    val onInstall: () -> Unit,
+    val onRemove: () -> Unit,
+)
+
+@Composable
+private fun FocusBridgeSection(controls: FocusBridgeControls) {
+    val status = controls.status
+    val busy = status is FocusBridgeUiState.Working
+    val actionsEnabled = controls.connected && !busy
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Fast focus helper")
+        Text(
+            "Runs a small helper on the SSH host so pane focus skips the herdr socket round trip. " +
+                "Supported on macOS arm64 only. Focus uses the herdr socket until the helper is installed.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            if (controls.connected) {
+                "Connected. Other changes here apply the next time this server connects."
+            } else {
+                "Connect to this server to install or remove the helper."
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        when (status) {
+            FocusBridgeUiState.Idle -> Unit
+            is FocusBridgeUiState.Working -> Text(
+                status.stage,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            is FocusBridgeUiState.Done -> Text(status.message, style = MaterialTheme.typography.bodySmall)
+            is FocusBridgeUiState.Failed -> Text(
+                status.message,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+        if (busy) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = controls.onInstall, enabled = actionsEnabled) { Text("Install") }
+            TextButton(onClick = controls.onRemove, enabled = actionsEnabled) { Text("Remove") }
+        }
     }
 }
 

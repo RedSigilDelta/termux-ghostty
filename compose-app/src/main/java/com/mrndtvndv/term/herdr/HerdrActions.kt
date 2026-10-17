@@ -34,6 +34,8 @@ class HerdrActions(
     scope: CoroutineScope,
     private val freshTimeoutMillis: Long = HerdrControlClient.FRESH_SNAPSHOT_TIMEOUT_MILLIS,
     private val onFailure: (HerdrActionResult.Failed) -> Unit = {},
+    private val onFocusTiming: (String) -> Unit = {},
+    private val focusBridge: FocusBridgeClient? = null,
 ) {
     private val job = SupervisorJob(scope.coroutineContext[Job])
     private val actionScope = CoroutineScope(scope.coroutineContext + job)
@@ -60,25 +62,37 @@ class HerdrActions(
      * A terminal missing from that snapshot ends as [HerdrActionFailure.TargetGone] with no remote request, and that
      * outcome is not reported. A focus that may have landed on another pane is reported instead.
      */
-    fun focusTerminal(terminalId: String): Ticket = submit(focusIntent = true, notifyTargetGone = false) {
-        // Set before a mismatched acknowledgment throws, so a later not-found is known to follow a wrong-pane focus.
-        var focusedWrongPane = false
-        val acked = try {
-            withResolvedPane(terminalId, cached = true) { pane ->
-                val info = HerdrWire.decodePaneInfo(send("pane.focus", buildJsonObject { put("pane_id", pane.id) }))
-                // Pane IDs are positional upstream, so a stale ID can name another terminal's pane.
-                if (info.terminalId != terminalId) {
-                    focusedWrongPane = true
-                    throw HerdrException(MISMATCH_ERROR)
-                }
-                info
-            }
-        } catch (error: HerdrException) {
-            if (focusedWrongPane && error.error.serverCode in NOT_FOUND_CODES) throw HerdrException(MISMATCH_ERROR)
-            throw error
+    fun focusTerminal(terminalId: String): Ticket {
+        val started = System.nanoTime()
+        val timing: (String) -> Unit = { stage ->
+            onFocusTiming("trace=$started stage=$stage elapsedMs=${(System.nanoTime() - started) / 1_000_000}")
         }
-        focused(acked.tabId) { it.focusedPane()?.terminalId == terminalId }
+        timing("submitted")
+        return submit(focusIntent = true, notifyTargetGone = false) {
+            timing("action_started")
+            // Set before a mismatched acknowledgment throws, so a later not-found follows a wrong-pane focus.
+            var focusedWrongPane = false
+            val acked = try {
+                withResolvedPane(terminalId, cached = true) { pane ->
+                    timing("pane_resolved")
+                    val info = HerdrWire.decodePaneInfo(focusPaneRequest(pane.id, timing))
+                    // Pane IDs are positional upstream, so a stale ID can name another terminal's pane.
+                    if (info.terminalId != terminalId) {
+                        focusedWrongPane = true
+                        failMismatchedFocus()
+                    }
+                    info
+                }
+            } catch (error: HerdrException) {
+                if (focusedWrongPane && error.error.serverCode in NOT_FOUND_CODES) failMismatchedFocus()
+                throw error
+            }
+            timing("focus_acknowledged")
+            focused(acked.tabId, timing) { it.focusedPane()?.terminalId == terminalId }
+        }
     }
+
+    private fun failMismatchedFocus(): Nothing = throw HerdrException(MISMATCH_ERROR)
 
     /** Focuses the tab that currently holds [anchorTerminalId]. Tab IDs are positional, so a pane anchors the tab. */
     fun focusTabOf(anchorTerminalId: String): Ticket = submit(focusIntent = true) {
@@ -217,9 +231,20 @@ class HerdrActions(
         }
 
         /** Sends after a checkpoint. Once written, the request finishes even if a newer intent arrives meanwhile. */
-        suspend fun send(method: String, params: JsonObject): JsonObject {
+        suspend fun send(method: String, params: JsonObject, timing: ((String) -> Unit)? = null): JsonObject {
             checkpoint()
-            return withContext(NonCancellable) { client.request(method, params) }.also { checkpoint() }
+            return withContext(NonCancellable) { client.request(method, params, timing) }.also { checkpoint() }
+        }
+
+        /**
+         * Sends pane.focus through the focus bridge when one is configured and usable, otherwise through the direct
+         * Herdr socket. The direct socket is used only while nothing has been written, so a focus is never sent twice.
+         */
+        suspend fun focusPaneRequest(paneId: String, timing: ((String) -> Unit)?): JsonObject {
+            checkpoint()
+            val viaBridge = focusBridge?.tryFocusPane(paneId, timing) { checkpoint() }
+            if (viaBridge != null) return viaBridge.also { checkpoint() }
+            return send("pane.focus", buildJsonObject { put("pane_id", paneId) }, timing)
         }
 
         /**
@@ -262,8 +287,13 @@ class HerdrActions(
         }
 
         /** A focus the server acknowledged, plus whether a later snapshot shows it as server-global focus. */
-        suspend fun focused(tabId: String, isFocused: (HerdrSnapshot) -> Boolean): HerdrActionResult {
+        suspend fun focused(
+            tabId: String,
+            timing: ((String) -> Unit)? = null,
+            isFocused: (HerdrSnapshot) -> Boolean,
+        ): HerdrActionResult {
             checkpoint()
+            timing?.invoke("observation_started")
             val observation = when (val after = client.awaitFreshSnapshot(freshTimeoutMillis)) {
                 is HerdrFreshSnapshot.Ready -> when {
                     !after.state.snapshotFresh -> GlobalFocus.Unknown
@@ -272,6 +302,7 @@ class HerdrActions(
                 }
                 is HerdrFreshSnapshot.Unavailable -> GlobalFocus.Unknown
             }
+            timing?.invoke("observation_finished:$observation")
             checkpoint()
             return HerdrActionResult.Focused(tabId, observation)
         }

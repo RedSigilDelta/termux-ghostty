@@ -2,6 +2,7 @@ package com.mrndtvndv.term.server
 
 import com.mrndtvndv.term.domain.ServerConfig
 import com.mrndtvndv.term.domain.SftpClient
+import com.mrndtvndv.term.herdr.FocusBridgeClient
 import com.mrndtvndv.term.herdr.HerdrControlClient
 import com.mrndtvndv.term.domain.SshSession
 import com.mrndtvndv.term.domain.SshShellChannel
@@ -25,6 +26,8 @@ class Server(
     val homeDir: String,
     /** Herdr control client for this connection. Closed before the SSH session on disconnect. */
     val herdr: HerdrControlClient? = null,
+    /** Pane focus through the optional Herdr helper; exists while Herdr is on, but is idle until opted in. */
+    val focusBridge: FocusBridgeClient? = null,
 ) {
     private val _terminals = MutableStateFlow<Map<String, TerminalEntry>>(emptyMap())
 
@@ -79,6 +82,7 @@ class Server(
     fun disconnect() {
         disconnected = true
         herdr?.close()
+        focusBridge?.close()
         val actions = disconnectActions.toList()
         disconnectActions.clear()
         actions.forEach { runDisconnectAction(it) }

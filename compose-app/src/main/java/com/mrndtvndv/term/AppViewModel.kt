@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.viewModelScope
 import android.util.Log
 import com.mrndtvndv.term.domain.ServerConfig
+import com.mrndtvndv.term.herdr.FocusBridgeMaintenance
+import com.mrndtvndv.term.herdr.FocusBridgeUiState
 import com.mrndtvndv.term.herdr.HerdrActions
 import com.mrndtvndv.term.herdr.HerdrControlClient
 import com.mrndtvndv.term.herdr.HerdrFreshSnapshot
@@ -189,7 +191,10 @@ class AppViewModel(
     }
 
     fun updateServer(config: ServerConfig) {
-        afterWrite(serverRepository.update(config))
+        // The focus helper opt-in belongs to Install and Remove. A form save keeps the stored value, so a save never
+        // reverts an install or removal that happened while the form was open.
+        val stored = serverRepository.get(config.id)?.herdrFocusBridgeEnabled ?: config.herdrFocusBridgeEnabled
+        afterWrite(serverRepository.update(config.copy(herdrFocusBridgeEnabled = stored)))
     }
 
     fun deleteServer(id: String) {
@@ -198,6 +203,115 @@ class AppViewModel(
         closeServerWorkspaces(id)
         repository.deleteServer(id)
         afterWrite(serverRepository.remove(id))
+    }
+
+    private val focusBridgeStatuses = HashMap<String, MutableStateFlow<FocusBridgeUiState>>()
+
+    /** Install and Remove progress for one server. It survives leaving and reopening that server's settings. */
+    fun focusBridgeStatus(serverId: String): StateFlow<FocusBridgeUiState> =
+        focusBridgeStatusFlow(serverId).asStateFlow()
+
+    private fun focusBridgeStatusFlow(serverId: String): MutableStateFlow<FocusBridgeUiState> =
+        focusBridgeStatuses.getOrPut(serverId) { MutableStateFlow(FocusBridgeUiState.Idle) }
+
+    /**
+     * Saves the focus-helper opt-in. A failed save returns the error, which callers report as a failure, and the
+     * storage error is shown too. Callers change the runtime flag only after this succeeds, so runtime and saved
+     * settings agree.
+     */
+    private fun saveFocusBridgeFlag(serverId: String, enabled: Boolean): Result<Unit> {
+        val stored = serverRepository.get(serverId)
+            ?: return Result.failure(IllegalStateException("This server is no longer saved."))
+        val written = serverRepository.update(stored.copy(herdrFocusBridgeEnabled = enabled))
+        if (written.isFailure) {
+            afterWrite(written)
+            return written
+        }
+        // Writes are applied in the background, so read the value back before reporting success. A success does not
+        // reload the list, which would reset an open form.
+        return if (serverRepository.get(serverId)?.herdrFocusBridgeEnabled == enabled) {
+            Result.success(Unit)
+        } else {
+            Result.failure(IllegalStateException("The setting could not be read back after saving."))
+        }
+    }
+
+    /**
+     * Installs the focus helper on a connected server. Opt-in is saved only after the helper answers its handshake.
+     * Runs only from the explicit Install action, never from a focus.
+     */
+    fun installFocusBridge(serverId: String) {
+        val status = focusBridgeStatusFlow(serverId)
+        if (status.value is FocusBridgeUiState.Working) return
+        val server = coordinator.getServer(serverId)
+        val focusBridge = server?.focusBridge
+        if (server == null || focusBridge == null) {
+            status.value = FocusBridgeUiState.Failed("Connect to this server to install the focus helper.")
+            return
+        }
+        status.value = FocusBridgeUiState.Working("Starting")
+        viewModelScope.launch {
+            focusBridge.installer.install { stage -> status.value = FocusBridgeUiState.Working(stage) }
+                .onSuccess {
+                    // Enabled at runtime only once it is saved, so a failed save leaves both off.
+                    saveFocusBridgeFlag(serverId, enabled = true)
+                        .onSuccess {
+                            focusBridge.markEnabled(true)
+                            status.value = FocusBridgeUiState.Done("Focus helper installed.")
+                            viewModelScope.launch { focusBridge.warmUp() }
+                        }
+                        .onFailure { failure ->
+                            status.value = FocusBridgeUiState.Failed(
+                                "The helper is installed, but its setting was not saved, so focus still uses " +
+                                    "the herdr socket. ${failure.message.orEmpty()}".trim(),
+                            )
+                        }
+                }
+                .onFailure { failure ->
+                    status.value = FocusBridgeUiState.Failed(failure.message ?: "Install failed.")
+                }
+        }
+    }
+
+    /**
+     * Removes the focus helper from a connected server. The app's own channel closes first, then the helper's processes
+     * stop and its files are deleted. Opt-in is cleared only after all of that succeeds. Runs only from the explicit
+     * Remove action.
+     */
+    fun removeFocusBridge(serverId: String) {
+        val status = focusBridgeStatusFlow(serverId)
+        if (status.value is FocusBridgeUiState.Working) return
+        val server = coordinator.getServer(serverId)
+        val session = server?.sshSession
+        if (server == null || session == null) {
+            status.value = FocusBridgeUiState.Failed("Connect to this server to remove the focus helper.")
+            return
+        }
+        status.value = FocusBridgeUiState.Working("Closing channel")
+        viewModelScope.launch {
+            server.focusBridge?.closeChannel()
+            FocusBridgeMaintenance.remove(session, server.homeDir) { stage ->
+                status.value = FocusBridgeUiState.Working(stage)
+            }
+                .onSuccess {
+                    // Disabled at runtime only once the saved setting is off. A failed save keeps both on, which
+                    // matches.
+                    saveFocusBridgeFlag(serverId, enabled = false)
+                        .onSuccess {
+                            server.focusBridge?.markEnabled(false)
+                            status.value = FocusBridgeUiState.Done("Focus helper removed.")
+                        }
+                        .onFailure { failure ->
+                            status.value = FocusBridgeUiState.Failed(
+                                "The helper was removed, but its setting was not saved. " +
+                                    "${failure.message.orEmpty()}".trim(),
+                            )
+                        }
+                }
+                .onFailure { failure ->
+                    status.value = FocusBridgeUiState.Failed(failure.message ?: "Removal failed.")
+                }
+        }
     }
 
     fun getServer(serverId: String): Server? = coordinator.getServer(serverId)

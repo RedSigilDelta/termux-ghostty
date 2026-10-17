@@ -22,6 +22,8 @@ data class ServerConfig(
     val herdrEnabled: Boolean = false,
     /** Absolute path of the herdr API socket on the server. Null uses herdr's default under the server home. */
     val herdrSocketPath: String? = null,
+    /** Pane focus uses the herdr focus bridge helper on this server. Off uses the direct herdr socket only. */
+    val herdrFocusBridgeEnabled: Boolean = false,
 ) {
     companion object {
         const val DEFAULT_IMAGE_PASTE_MAX_FILES = 20

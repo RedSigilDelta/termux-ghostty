@@ -107,8 +107,11 @@ class HerdrControlClient(
      * One ordinary request on its own channel. [HerdrClientConfig.requestTimeoutMillis] covers the
      * wait for a request permit, the channel open, the write and the reply. Throws [HerdrException].
      */
-    suspend fun request(method: String, params: JsonObject = JsonObject(emptyMap())): JsonObject =
-        requestWithin(method, params, config.requestTimeoutMillis)
+    suspend fun request(
+        method: String,
+        params: JsonObject = JsonObject(emptyMap()),
+        timing: ((String) -> Unit)? = null,
+    ): JsonObject = requestWithin(method, params, config.requestTimeoutMillis, timing)
 
     /** Requests a coalesced snapshot refresh through the existing serialized refresh loop. */
     fun refresh() {
@@ -158,16 +161,26 @@ class HerdrControlClient(
         }
     }
 
-    internal suspend fun requestWithin(method: String, params: JsonObject, timeoutMillis: Long): JsonObject {
+    internal suspend fun requestWithin(
+        method: String,
+        params: JsonObject,
+        timeoutMillis: Long,
+        timing: ((String) -> Unit)? = null,
+    ): JsonObject {
         if (isClosed()) throw closedError()
         val id = nextId()
+        timing?.invoke("permit_wait_started")
         return bounded(timeoutMillis) {
             requestPermits.withPermit {
+                timing?.invoke("channel_open_started")
                 val channel = openChannel()
+                timing?.invoke("channel_open_finished")
                 try {
                     channel.write(HerdrWire.encodeRequest(id, method, params).toByteArray(Charsets.UTF_8) + NEWLINE)
+                    timing?.invoke("request_written")
                     val line = HerdrLineReader(channel, config.maxLineBytes).readLine()
                         ?: throw disconnected("Herdr closed the connection before answering $method")
+                    timing?.invoke("reply_received")
                     HerdrWire.replyResult(line, id)
                 } finally {
                     releaseChannel(channel)

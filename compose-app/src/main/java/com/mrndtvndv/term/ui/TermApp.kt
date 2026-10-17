@@ -40,6 +40,7 @@ import com.mrndtvndv.term.navigation.AppRoute
 import com.mrndtvndv.term.navigation.LocalAnimationsEnabled
 import com.mrndtvndv.term.server.TerminalEntry
 import com.mrndtvndv.term.ui.addserver.AddServerScreen
+import com.mrndtvndv.term.ui.addserver.FocusBridgeControls
 import com.mrndtvndv.term.ui.notification.InAppNotificationBanner
 import com.mrndtvndv.term.ui.serverlist.ServerListScreen
 import com.mrndtvndv.term.ui.settings.KeyBarEditorRoute
@@ -201,8 +202,17 @@ fun TermApp(
                             }
 
                             entry<AppRoute.EditServer> { editServer ->
+                                val focusBridgeStatus by appViewModel
+                                    .focusBridgeStatus(editServer.serverId)
+                                    .collectAsStateWithLifecycle()
                                 AddServerScreen(
                                     initialConfig = serverListState.servers.find { it.id == editServer.serverId },
+                                    focusBridge = FocusBridgeControls(
+                                        status = focusBridgeStatus,
+                                        connected = editServer.serverId in serverListState.activeIds,
+                                        onInstall = { appViewModel.installFocusBridge(editServer.serverId) },
+                                        onRemove = { appViewModel.removeFocusBridge(editServer.serverId) },
+                                    ),
                                     onSave = { config ->
                                         appViewModel.updateServer(config)
                                         onBack()
