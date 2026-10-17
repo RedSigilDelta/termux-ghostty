@@ -614,18 +614,30 @@ private class ScrollableDiffWebView(
 
     private fun handleVerticalMove(rawX: Int, rawY: Int, motionEvent: MotionEvent): Boolean {
         parent?.requestDisallowInterceptTouchEvent(true)
-        var dy = lastY - rawY
-        if (dispatchNestedPreScroll(0, dy, scrollConsumed, scrollOffset, ViewCompat.TYPE_TOUCH)) {
-            dy -= scrollConsumed[1]
+        val dy = lastY - rawY
+        scrollConsumed.fill(0)
+        scrollOffset.fill(0)
+        // An expanded sheet must not pre-consume a downward drag while the diff
+        // can still scroll toward its top. Keep upward pre-scroll for the app bar.
+        if (dy >= 0 || !canScrollVertically(-1)) {
+            dispatchNestedPreScroll(0, dy, scrollConsumed, scrollOffset, ViewCompat.TYPE_TOUCH)
             motionEvent.offsetLocation(0f, -scrollConsumed[1].toFloat())
             nestedOffsetY += scrollOffset[1]
         }
+        val remainingDy = dy - scrollConsumed[1]
         lastX = rawX - scrollOffset[0]
         lastY = rawY - scrollOffset[1]
+        val previousScrollY = scrollY
         val result = super.onTouchEvent(motionEvent)
-        dispatchNestedScroll(
-            0, scrollConsumed[1], 0, dy, scrollOffset, ViewCompat.TYPE_TOUCH
+        val diffConsumed = (scrollY - previousScrollY).coerceIn(
+            minOf(0, remainingDy), maxOf(0, remainingDy)
         )
+        // Only hand the unconsumed drag to the sheet at the diff's edge.
+        if (remainingDy >= 0 || !canScrollVertically(-1)) {
+            dispatchNestedScroll(
+                0, diffConsumed, 0, remainingDy - diffConsumed, scrollOffset, ViewCompat.TYPE_TOUCH
+            )
+        }
         return result
     }
 
@@ -708,7 +720,9 @@ private class ScrollableDiffWebView(
             dispatchNestedPreFling(-tracker.xVelocity, 0f)
             dispatchNestedFling(-tracker.xVelocity, 0f, false)
         } else if (isDraggingY && tracker.yVelocity != 0f) {
-            dispatchNestedPreFling(0f, -tracker.yVelocity)
+            if (tracker.yVelocity < 0f || !canScrollVertically(-1)) {
+                dispatchNestedPreFling(0f, -tracker.yVelocity)
+            }
         }
         isDraggingX = false
         isDraggingY = false
