@@ -60,7 +60,6 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -91,6 +90,8 @@ import kotlinx.coroutines.launch
 @Composable
 fun HerdrAgentsSheet(
     state: HerdrState,
+    collapsedWorkspaceIds: Set<String>,
+    onWorkspaceCollapsedChange: (workspaceId: String, collapsed: Boolean) -> Unit,
     overlayAgentsFab: Boolean,
     onNewTab: (workspaceId: String) -> Unit,
     onNewWorkspace: (sourceWorkspaceId: String) -> Unit,
@@ -100,7 +101,6 @@ fun HerdrAgentsSheet(
     onClosePane: suspend (HerdrPane) -> Boolean,
     onDismiss: () -> Unit,
 ) {
-    var collapsed by rememberSaveable { mutableStateOf(emptyList<String>()) }
     val snapshot = state.snapshot
     val sheetState = rememberBottomSheetState(
         initialValue = SheetValue.Hidden,
@@ -163,18 +163,14 @@ fun HerdrAgentsSheet(
                         modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
                     ) {
                         snapshot.workspaces.sortedBy { it.number }.forEach { workspace ->
-                            val expanded = workspace.id !in collapsed
+                            val expanded = workspace.id !in collapsedWorkspaceIds
                             item(key = "workspace:${workspace.id}") {
                                 WorkspaceGroupItem(
                                     workspace = workspace,
                                     expanded = expanded,
                                     snapshot = snapshot,
                                     onToggle = {
-                                        collapsed = if (expanded) {
-                                            collapsed + workspace.id
-                                        } else {
-                                            collapsed - workspace.id
-                                        }
+                                        onWorkspaceCollapsedChange(workspace.id, expanded)
                                     },
                                     onFocusTab = { tab -> dismissAndFocus { onFocusTab(tab) } },
                                     onFocusPane = { pane -> dismissAndFocus { onFocusPane(pane) } },

@@ -82,6 +82,10 @@ class WorkspaceRepository(private val file: WorkspaceFile, private val scope: Co
         _state.update { it.setHiddenTerminals(workspaceId, hiddenTerminalIds) }
     }
 
+    fun setHerdrAgentWorkspaceCollapsed(serverId: String, workspaceId: String, collapsed: Boolean) {
+        _state.update { it.setHerdrAgentWorkspaceCollapsed(serverId, workspaceId, collapsed) }
+    }
+
     fun unbindHerdr(workspaceId: String) {
         _state.update { it.unbindHerdr(workspaceId) }
     }

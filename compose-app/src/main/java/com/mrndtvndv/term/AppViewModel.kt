@@ -610,6 +610,10 @@ class AppViewModel(
     /** Id of the server's session workspace, or null when it has none yet. Lookup only. */
     fun herdrSessionWorkspaceId(serverId: String): String? = herdrSessionWorkspace(serverId)?.id
 
+    fun setHerdrAgentWorkspaceCollapsed(serverId: String, workspaceId: String, collapsed: Boolean) {
+        repository.setHerdrAgentWorkspaceCollapsed(serverId, workspaceId, collapsed)
+    }
+
     /** The server-unique terminal that runs Herdr's full UI. Its tab id is stable, so open and restart reuse it. */
     fun herdrFullUiTab(serverId: String): Tab.Terminal? =
         herdrSessionWorkspace(serverId)?.tabs?.filterIsInstance<Tab.Terminal>()?.firstOrNull(::isHerdrFullUiTab)

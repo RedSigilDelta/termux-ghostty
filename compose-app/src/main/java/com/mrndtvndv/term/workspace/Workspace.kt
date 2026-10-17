@@ -11,6 +11,8 @@ data class WorkspaceState(
     val activeWorkspaceId: String? = null,
     /** SFTP browsers of remote Herdr workspaces. Ordinary SFTP tabs keep theirs in [Tab.Sftp]. */
     val herdrBrowsers: List<HerdrSftpBrowser> = emptyList(),
+    /** Herdr workspace groups collapsed in the Agents sheet, keyed by the local server profile id. */
+    val collapsedHerdrAgentWorkspaces: Map<String, Set<String>> = emptyMap(),
 ) {
     val activeWorkspace: Workspace?
         get() = workspaces.firstOrNull { it.id == activeWorkspaceId }
@@ -23,6 +25,20 @@ data class WorkspaceState(
 
     fun workspacesFor(serverId: String): List<Workspace> =
         workspaces.filter { it.serverId == serverId }.sortedByDescending { it.lastUsed }
+
+    fun collapsedHerdrAgentWorkspaces(serverId: String): Set<String> =
+        collapsedHerdrAgentWorkspaces[serverId].orEmpty()
+
+    fun setHerdrAgentWorkspaceCollapsed(serverId: String, workspaceId: String, collapsed: Boolean): WorkspaceState {
+        val current = collapsedHerdrAgentWorkspaces(serverId)
+        val updated = if (collapsed) current + workspaceId else current - workspaceId
+        val collapsedByServer = if (updated.isEmpty()) {
+            collapsedHerdrAgentWorkspaces - serverId
+        } else {
+            collapsedHerdrAgentWorkspaces + (serverId to updated)
+        }
+        return copy(collapsedHerdrAgentWorkspaces = collapsedByServer)
+    }
 
     fun addWorkspace(workspace: Workspace): WorkspaceState =
         copy(workspaces = workspaces + workspace, activeWorkspaceId = workspace.id)
@@ -49,6 +65,7 @@ data class WorkspaceState(
         val remaining = copy(
             workspaces = workspaces.filter { it.serverId != serverId },
             herdrBrowsers = herdrBrowsers.filter { it.scope.serverId != serverId },
+            collapsedHerdrAgentWorkspaces = collapsedHerdrAgentWorkspaces - serverId,
         )
         return if (activeWorkspace?.serverId == serverId) remaining.deactivate() else remaining
     }

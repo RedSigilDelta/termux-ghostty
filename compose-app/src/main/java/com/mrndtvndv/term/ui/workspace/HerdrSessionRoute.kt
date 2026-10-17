@@ -278,6 +278,10 @@ fun HerdrSessionRoute(
             sheetStates.SaveableStateProvider("agents:$serverId") {
                 HerdrAgentsSheet(
                     state = herdrState,
+                    collapsedWorkspaceIds = workspaceState.collapsedHerdrAgentWorkspaces(serverId),
+                    onWorkspaceCollapsedChange = { workspaceId, collapsed ->
+                        appViewModel.setHerdrAgentWorkspaceCollapsed(serverId, workspaceId, collapsed)
+                    },
                     overlayAgentsFab = settings.overlayAgentsFab,
                     onNewTab = { workspaceId -> appViewModel.createHerdrTab(serverId, workspaceId) },
                     onNewWorkspace = { sourceWorkspaceId ->
