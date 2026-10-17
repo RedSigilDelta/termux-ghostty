@@ -1,5 +1,6 @@
 package com.mrndtvndv.term.ui.keyboard
 
+import android.os.SystemClock
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -11,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.AwaitPointerEventScope
+import androidx.compose.ui.input.pointer.PointerEvent
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
@@ -20,6 +22,7 @@ import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.unit.dp
 import com.mrndtvndv.term.data.prefs.KeyBarAction
 import com.mrndtvndv.term.data.prefs.KeyBarItem
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.abs
 
 /** Drag distance, in dp, that turns a press on a key into a swipe rather than a tap. */
@@ -48,6 +51,9 @@ internal fun KeyBarItem.swipeAction(swipe: KeySwipe): KeyBarAction? = when (swip
     KeySwipe.Right -> swipeRight
 }
 
+internal fun KeyBarItem.assignedSwipes(): Set<KeySwipe> =
+    KeySwipe.entries.filterTo(HashSet()) { swipeAction(it) != null }
+
 /**
  * The item as it can run here. Outside Herdr a host swipe has no target, so it is cleared. That direction then stays
  * unassigned, is never claimed, and a horizontal drag on it scrolls the strip.
@@ -62,14 +68,104 @@ internal fun KeyBarItem.withHostAvailability(hostAvailable: Boolean): KeyBarItem
 
 private fun KeyBarAction?.unlessHost(): KeyBarAction? = this?.takeUnless { it is KeyBarAction.Host }
 
-/** How a press on a key ended. Only [Tap] and [Swipe] execute anything. */
+/** How a press on a key ended. Long-press callbacks run when recognized. */
 private sealed interface KeyPressEnd {
     data object Cancelled : KeyPressEnd
 
     data object Tap : KeyPressEnd
 
+    data object LongPress : KeyPressEnd
+
     data class Swipe(val direction: KeySwipe) : KeyPressEnd
 }
+
+private class KeyPressState(
+    private val down: PointerInputChange,
+    private val touchSlop: Float,
+    private val thresholdPx: Float,
+    private val assigned: Set<KeySwipe>,
+    private val feedback: KeyDragFeedback,
+    private val longPressDeadlineMillis: Long,
+    private val onLongPress: (() -> Unit)?,
+) {
+    var pressing = true
+        private set
+    private var claimed = false
+    private var longPressed = false
+    private var cancelled = false
+    private var position = down.position
+
+    fun shouldWaitForLongPress(): Boolean =
+        !claimed && !longPressed && onLongPress != null
+
+    fun remainingLongPressMillis(): Long =
+        (longPressDeadlineMillis - SystemClock.uptimeMillis()).coerceAtLeast(0L)
+
+    fun recognizeLongPress() {
+        longPressed = true
+        onLongPress?.invoke()
+    }
+
+    fun handle(event: PointerEvent) {
+        val change = event.changes.firstOrNull { it.id == down.id }
+        if (change == null) {
+            cancel()
+            return
+        }
+        if (event.hasSecondFinger(down) || (!claimed && change.isConsumed)) {
+            cancel()
+            return
+        }
+
+        position = change.position
+        if (longPressed) {
+            change.consume()
+            pressing = change.pressed
+            return
+        }
+
+        updateDrag(change)
+    }
+
+    fun finish(): KeyPressEnd {
+        val drag = position - down.position
+        val swipe = drag.dominantSwipe()
+        return when {
+            cancelled -> KeyPressEnd.Cancelled
+            longPressed -> KeyPressEnd.LongPress
+            !claimed -> KeyPressEnd.Tap
+            drag.getDistance() < thresholdPx || swipe !in assigned -> KeyPressEnd.Cancelled
+            else -> KeyPressEnd.Swipe(swipe)
+        }
+    }
+
+    private fun updateDrag(change: PointerInputChange) {
+        val drag = position - down.position
+        if (!claimed && drag.getDistance() > touchSlop) {
+            if (drag.dominantSwipe() !in assigned) {
+                cancel()
+                return
+            }
+            claimed = true
+        }
+        if (claimed) {
+            change.consume()
+            if (change.pressed) {
+                val heading = drag.dominantSwipe().takeIf { it in assigned }
+                feedback.update(heading, drag.getDistance(), change.uptimeMillis)
+            }
+        }
+        pressing = change.pressed
+    }
+
+    private fun cancel() {
+        cancelled = true
+        pressing = false
+    }
+}
+
+private fun PointerEvent.hasSecondFinger(down: PointerInputChange): Boolean =
+    changes.any { it.id != down.id && it.pressed && !it.previousPressed }
 
 /**
  * Reports a claimed drag's target to the preview, and ticks the haptic.
@@ -130,44 +226,25 @@ internal class KeyDragFeedback(
  * second finger, or losing the pointer, cancels. While the press is claimed and held, [feedback] reports the
  * target. Feedback never fires an action.
  */
-private suspend fun AwaitPointerEventScope.awaitKeyPress(
-    down: PointerInputChange,
-    touchSlop: Float,
-    thresholdPx: Float,
-    assigned: Set<KeySwipe>,
-    feedback: KeyDragFeedback,
-): KeyPressEnd {
-    var claimed = false
-    var pressing = true
-    var position = down.position
-    while (pressing) {
-        val event = awaitPointerEvent(PointerEventPass.Initial)
-        val change = event.changes.firstOrNull { it.id == down.id }
-        val secondFinger = event.changes.any { it.id != down.id && it.pressed && !it.previousPressed }
-        val preempted = !claimed && change?.isConsumed == true
-        if (change == null || secondFinger || preempted) return KeyPressEnd.Cancelled
-        position = change.position
-        val drag = position - down.position
-        if (!claimed && drag.getDistance() > touchSlop) {
-            if (drag.dominantSwipe() !in assigned) return KeyPressEnd.Cancelled
-            claimed = true
-        }
-        if (claimed) {
-            change.consume()
-            if (change.pressed) {
-                val heading = drag.dominantSwipe().takeIf { it in assigned }
-                feedback.update(heading, drag.getDistance(), change.uptimeMillis)
-            }
-        }
-        pressing = change.pressed
+private suspend fun AwaitPointerEventScope.awaitKeyPress(state: KeyPressState): KeyPressEnd {
+    while (state.pressing) {
+        awaitKeyEventOrLongPress(state)?.let(state::handle)
     }
-    val drag = position - down.position
-    val swipe = drag.dominantSwipe()
-    return when {
-        !claimed -> KeyPressEnd.Tap
-        drag.getDistance() < thresholdPx || swipe !in assigned -> KeyPressEnd.Cancelled
-        else -> KeyPressEnd.Swipe(swipe)
+    return state.finish()
+}
+
+private suspend fun AwaitPointerEventScope.awaitKeyEventOrLongPress(
+    state: KeyPressState,
+): PointerEvent? {
+    if (!state.shouldWaitForLongPress()) return awaitPointerEvent(PointerEventPass.Initial)
+
+    val nextEvent = withTimeoutOrNull(state.remainingLongPressMillis()) {
+        awaitPointerEvent(PointerEventPass.Initial)
     }
+    if (nextEvent != null) return nextEvent
+
+    state.recognizeLongPress()
+    return null
 }
 
 /**
@@ -184,15 +261,18 @@ internal fun Modifier.keySwipeGestures(
     onTap: () -> Unit,
     onSwipe: (KeySwipe) -> Unit,
     onDragTarget: (target: KeySwipe?, armed: Boolean) -> Unit,
+    onLongPress: (() -> Unit)? = null,
 ): Modifier {
     val currentOnTap by rememberUpdatedState(onTap)
     val currentOnSwipe by rememberUpdatedState(onSwipe)
     val currentOnDragTarget by rememberUpdatedState(onDragTarget)
+    val currentOnLongPress by rememberUpdatedState(onLongPress)
     val haptics = LocalHapticFeedback.current
     val touchSlop = LocalViewConfiguration.current.touchSlop
+    val longPressTimeoutMillis = LocalViewConfiguration.current.longPressTimeoutMillis
     val thresholdPx = with(LocalDensity.current) { KeySwipeThreshold.toPx() }
     val hysteresisPx = with(LocalDensity.current) { KeyHapticHysteresis.toPx() }
-    return pointerInput(interactionSource, assigned, touchSlop, thresholdPx, hysteresisPx) {
+    return pointerInput(interactionSource, assigned, touchSlop, longPressTimeoutMillis, thresholdPx, hysteresisPx) {
         awaitEachGesture {
             val down = awaitFirstDown()
             val press = PressInteraction.Press(down.position)
@@ -203,7 +283,16 @@ internal fun Modifier.keySwipeGestures(
                 report = { target, armed -> currentOnDragTarget(target, armed) },
                 tick = { haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove) },
             )
-            val end = awaitKeyPress(down, touchSlop, thresholdPx, assigned, feedback)
+            val pressState = KeyPressState(
+                down,
+                touchSlop,
+                thresholdPx,
+                assigned,
+                feedback,
+                down.uptimeMillis + longPressTimeoutMillis,
+                currentOnLongPress,
+            )
+            val end = awaitKeyPress(pressState)
             feedback.clear()
             interactionSource.tryEmit(
                 if (end == KeyPressEnd.Cancelled) PressInteraction.Cancel(press) else PressInteraction.Release(press),
@@ -211,6 +300,7 @@ internal fun Modifier.keySwipeGestures(
             when (end) {
                 KeyPressEnd.Cancelled -> Unit
                 KeyPressEnd.Tap -> currentOnTap()
+                KeyPressEnd.LongPress -> Unit
                 is KeyPressEnd.Swipe -> currentOnSwipe(end.direction)
             }
         }

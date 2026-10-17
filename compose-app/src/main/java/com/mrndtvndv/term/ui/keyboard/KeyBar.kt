@@ -496,14 +496,25 @@ private fun KeyBarItemButton(
     onKey: (keyCode: Int) -> Unit,
     dispatch: (KeyBarAction) -> Unit,
 ) {
+    val dispatchSwipe: (KeySwipe) -> Unit = { swipe ->
+        item.swipeAction(swipe)?.takeIf { it.isSwipeable() }?.let(dispatch)
+    }
     when (val tap = item.tap) {
         KeyBarAction.Ctrl -> ModifierKeyButton(
             label = item.label,
             state = modifiers.ctrl,
             onClick = modifiers::tapCtrl,
             onLongClick = modifiers::holdCtrl,
+            item = item,
+            onSwipe = dispatchSwipe,
         )
-        KeyBarAction.Alt -> ModifierKeyButton(label = item.label, state = modifiers.alt, onClick = modifiers::tapAlt)
+        KeyBarAction.Alt -> ModifierKeyButton(
+            label = item.label,
+            state = modifiers.alt,
+            onClick = modifiers::tapAlt,
+            item = item,
+            onSwipe = dispatchSwipe,
+        )
         KeyBarAction.Joystick -> ArrowJoystick(
             mode = joystickMode,
             onArrow = { onKey(it.keyCode) },
@@ -520,7 +531,7 @@ private fun KeyBarItemButton(
         is KeyBarAction.Key, is KeyBarAction.Text, is KeyBarAction.Macro, is KeyBarAction.Host -> SwipeKeyButton(
             item = item,
             onTap = { dispatch(tap) },
-            onSwipe = { swipe -> item.swipeAction(swipe)?.takeIf { it.isSwipeable() }?.let(dispatch) },
+            onSwipe = dispatchSwipe,
         )
     }
 }

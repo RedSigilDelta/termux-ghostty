@@ -41,6 +41,7 @@ import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -58,6 +59,24 @@ internal fun ModifierKeyButton(
     state: KeyModifierState,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
+    item: KeyBarItem? = null,
+    onSwipe: ((KeySwipe) -> Unit)? = null,
+) {
+    val assigned = item?.assignedSwipes().orEmpty()
+    if (item == null || onSwipe == null || assigned.isEmpty()) {
+        ModifierKeyButtonFace(label, state, onClick, onLongClick)
+        return
+    }
+
+    SwipeModifierKeyButton(item, label, state, onClick, onLongClick, assigned, onSwipe)
+}
+
+@Composable
+private fun ModifierKeyButtonFace(
+    label: String,
+    state: KeyModifierState,
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)?,
 ) {
     val colors = MaterialTheme.colorScheme
     val (containerColor, contentColor) = when (state) {
@@ -77,6 +96,102 @@ internal fun ModifierKeyButton(
             KeyModifierState.LOCKED -> "Locked"
         },
     )
+}
+
+@Composable
+private fun SwipeModifierKeyButton(
+    item: KeyBarItem,
+    label: String,
+    state: KeyModifierState,
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)?,
+    assigned: Set<KeySwipe>,
+    onSwipe: (KeySwipe) -> Unit,
+) {
+    val colors = MaterialTheme.colorScheme
+    val (containerColor, contentColor) = when (state) {
+        KeyModifierState.OFF -> Color.Transparent to colors.onSurface
+        KeyModifierState.ARMED -> colors.secondaryContainer to colors.onSecondaryContainer
+        KeyModifierState.LOCKED -> colors.primary to colors.onPrimary
+    }
+    val interactionSource = remember { MutableInteractionSource() }
+    val preview = LocalKeySwipePreview.current
+    val bounds = remember { WindowBounds() }
+    val swipeNames = KeySwipe.entries.mapNotNull { swipe ->
+        item.swipeAction(swipe)?.let { swipe to "Swipe ${swipe.name.lowercase()}: ${it.spokenName()}" }
+    }
+
+    DisposableEffect(item.id, preview) {
+        onDispose { preview?.clear(item.id) }
+    }
+    KeyFace(
+        label = label,
+        interactionSource = interactionSource,
+        gestures = Modifier
+            .onGloballyPositioned { bounds.rect = it.boundsInWindow() }
+            .keySwipeGestures(
+                interactionSource = interactionSource,
+                assigned = assigned,
+                onTap = onClick,
+                onSwipe = onSwipe,
+                onDragTarget = { target, armed ->
+                    reportModifierSwipePreview(preview, item, bounds, target, armed)
+                },
+                onLongPress = onLongClick,
+            )
+            .indication(interactionSource, LocalIndication.current)
+            .modifierSwipeSemantics(item.tap.spokenName(), swipeNames, onClick, onLongClick, onSwipe),
+        containerColor = containerColor,
+        contentColor = contentColor,
+        stateLabel = when (state) {
+            KeyModifierState.OFF -> "Off"
+            KeyModifierState.ARMED -> "Armed"
+            KeyModifierState.LOCKED -> "Locked"
+        },
+    )
+}
+
+private fun reportModifierSwipePreview(
+    preview: KeySwipePreviewHost?,
+    item: KeyBarItem,
+    bounds: WindowBounds,
+    target: KeySwipe?,
+    armed: Boolean,
+) {
+    val host = preview ?: return
+    val anchor = target?.let { host.visibleAnchor(bounds.rect) }
+    if (target == null || anchor == null) {
+        host.clear(item.id)
+        return
+    }
+
+    val label = item.swipeAction(target)?.previewLabel().orEmpty()
+    host.show(KeySwipePreview(item.id, anchor, target, label, armed))
+}
+
+private fun Modifier.modifierSwipeSemantics(
+    tapName: String,
+    swipeNames: List<Pair<KeySwipe, String>>,
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)?,
+    onSwipe: (KeySwipe) -> Unit,
+): Modifier = semantics {
+    this.onClick(label = "Tap $tapName") {
+        onClick()
+        true
+    }
+    onLongClick?.let { longClick ->
+        this.onLongClick(label = "Hold $tapName") {
+            longClick()
+            true
+        }
+    }
+    customActions = swipeNames.map { (swipe, name) ->
+        CustomAccessibilityAction(name) {
+            onSwipe(swipe)
+            true
+        }
+    }
 }
 
 @Composable
@@ -124,7 +239,7 @@ internal fun SwipeKeyButton(
     val interactionSource = remember { MutableInteractionSource() }
     val preview = LocalKeySwipePreview.current
     val bounds = remember { WindowBounds() }
-    val assigned = KeySwipe.entries.filterTo(HashSet()) { item.swipeAction(it) != null }
+    val assigned = item.assignedSwipes()
     val swipeNames = KeySwipe.entries.mapNotNull { swipe ->
         item.swipeAction(swipe)?.let { swipe to "Swipe ${swipe.name.lowercase()}: ${it.spokenName()}" }
     }.toMap()
@@ -139,16 +254,22 @@ internal fun SwipeKeyButton(
         interactionSource = interactionSource,
         gestures = Modifier
             .onGloballyPositioned { bounds.rect = it.boundsInWindow() }
-            .keySwipeGestures(interactionSource, assigned, onTap, onSwipe) { target, armed ->
-                val host = preview ?: return@keySwipeGestures
-                val anchor = host.visibleAnchor(bounds.rect)
-                if (target == null || anchor == null) {
-                    host.clear(item.id)
-                } else {
-                    val label = item.swipeAction(target)?.previewLabel().orEmpty()
-                    host.show(KeySwipePreview(item.id, anchor, target, label, armed))
-                }
-            }
+            .keySwipeGestures(
+                interactionSource = interactionSource,
+                assigned = assigned,
+                onTap = onTap,
+                onSwipe = onSwipe,
+                onDragTarget = { target, armed ->
+                    val host = preview ?: return@keySwipeGestures
+                    val anchor = host.visibleAnchor(bounds.rect)
+                    if (target == null || anchor == null) {
+                        host.clear(item.id)
+                    } else {
+                        val label = item.swipeAction(target)?.previewLabel().orEmpty()
+                        host.show(KeySwipePreview(item.id, anchor, target, label, armed))
+                    }
+                },
+            )
             .indication(interactionSource, LocalIndication.current)
             .semantics {
                 onClick(label = tapName) {

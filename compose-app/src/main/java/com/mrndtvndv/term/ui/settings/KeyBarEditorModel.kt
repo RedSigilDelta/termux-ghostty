@@ -5,7 +5,7 @@ import com.mrndtvndv.term.data.prefs.KeyBarAction
 import com.mrndtvndv.term.data.prefs.KeyBarItem
 import com.mrndtvndv.term.data.prefs.KeyBarKeyCatalog
 import com.mrndtvndv.term.data.prefs.KeyBarLimits
-import com.mrndtvndv.term.data.prefs.isSwipeable
+import com.mrndtvndv.term.data.prefs.supportsSwipes
 import com.mrndtvndv.term.data.prefs.isValidMacro
 
 enum class KeyBarDirection(val arrow: String) {
@@ -40,8 +40,8 @@ fun KeyBarAction.shortLabel(): String = when (this) {
     else -> defaultLabel().orEmpty()
 }
 
-/** Swipes only fire on key and macro taps; the runtime ignores them on Ctrl, Alt and Joystick. */
-fun KeyBarItem.swipeHints(): List<String> = if (!tap.isSwipeable()) emptyList() else listOfNotNull(
+/** Ctrl and Alt modifier items can have swipes; the arrow joystick keeps its dedicated directional gesture. */
+fun KeyBarItem.swipeHints(): List<String> = if (!tap.supportsSwipes()) emptyList() else listOfNotNull(
     swipeUp?.let { "${KeyBarDirection.Up.arrow} ${it.shortLabel()}" },
     swipeDown?.let { "${KeyBarDirection.Down.arrow} ${it.shortLabel()}" },
     swipeLeft?.let { "${KeyBarDirection.Left.arrow} ${it.shortLabel()}" },
@@ -77,7 +77,7 @@ fun KeyBarItemDraft.toItem(id: String): KeyBarItem = KeyBarItem(
 )
 
 private fun KeyBarItemDraft.activeSwipe(direction: KeyBarDirection): KeyBarAction? =
-    swipes[direction].takeIf { tap.isSwipeable() }
+    swipes[direction].takeIf { tap.supportsSwipes() }
 
 fun KeyBarItemDraft.labelError(): String? = when {
     label.isBlank() -> "Enter a label"
@@ -101,7 +101,7 @@ fun KeyBarAction.validationError(): String? = when (this) {
 }
 
 fun KeyBarItemDraft.isValid(): Boolean {
-    val swipeActions = if (tap.isSwipeable()) swipes.values else emptyList()
+    val swipeActions = if (tap.supportsSwipes()) swipes.values else emptyList()
     return labelError() == null && (listOf(tap) + swipeActions).all { it.validationError() == null }
 }
 

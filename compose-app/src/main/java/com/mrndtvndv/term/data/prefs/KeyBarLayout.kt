@@ -6,7 +6,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.util.UUID
 
-/** What a key-bar item does. Swipe directions accept only [Key], [Text], [Macro] and [Host]. */
+/** What a key-bar item does. Swipe actions accept only [Key], [Text], [Macro] and [Host]. */
 @Serializable
 sealed interface KeyBarAction {
     /** A terminal key from [KeyBarKeyCatalog], encoded by the existing key path. */
@@ -19,7 +19,7 @@ sealed interface KeyBarAction {
     @SerialName("text")
     data class Text(val text: String) : KeyBarAction
 
-    /** Toggles Ctrl on tap and locks it on long press. */
+    /** Toggles Ctrl on tap and locks it on long press. Swipe directions can also be assigned. */
     @Serializable
     @SerialName("ctrl")
     data object Ctrl : KeyBarAction
@@ -161,8 +161,13 @@ object KeyBarLimits {
     fun isValidText(text: String): Boolean = text.isNotEmpty() && text.length <= MaxTextLength
 }
 
+/** Whether this action can run as the outcome of a swipe. Modifier toggles are not swipe outcomes. */
 fun KeyBarAction.isSwipeable(): Boolean =
     this is KeyBarAction.Key || this is KeyBarAction.Text || this is KeyBarAction.Macro || this is KeyBarAction.Host
+
+/** Whether a key-bar item using this tap action can have directional swipe actions. */
+fun KeyBarAction.supportsSwipes(): Boolean =
+    isSwipeable() || this == KeyBarAction.Ctrl || this == KeyBarAction.Alt
 
 /**
  * True when [normalized] would change nothing. Save paths use this as a gate and reject a layout that is not valid,
@@ -172,7 +177,8 @@ fun KeyBarLayout.isValid(): Boolean = normalized() == this
 
 /**
  * Drops anything that cannot run and bounds what remains: unknown keys, empty or oversized macros, blank labels,
- * duplicate ids, swipe actions that are not swipeable, and items past [KeyBarLimits.MaxItems].
+ * duplicate ids, swipe actions on unsupported tap actions, swipe actions that cannot run, and items past
+ * [KeyBarLimits.MaxItems].
  */
 fun KeyBarLayout.normalized(): KeyBarLayout = KeyBarLayout(
     items.asSequence()
@@ -190,10 +196,10 @@ private fun KeyBarItem.normalizedOrNull(): KeyBarItem? {
     return copy(
         label = trimmedLabel,
         tap = boundedTap,
-        swipeUp = swipeUp.boundedSwipe(),
-        swipeDown = swipeDown.boundedSwipe(),
-        swipeLeft = swipeLeft.boundedSwipe(),
-        swipeRight = swipeRight.boundedSwipe(),
+        swipeUp = swipeUp.boundedSwipe().takeIf { boundedTap.supportsSwipes() },
+        swipeDown = swipeDown.boundedSwipe().takeIf { boundedTap.supportsSwipes() },
+        swipeLeft = swipeLeft.boundedSwipe().takeIf { boundedTap.supportsSwipes() },
+        swipeRight = swipeRight.boundedSwipe().takeIf { boundedTap.supportsSwipes() },
     )
 }
 

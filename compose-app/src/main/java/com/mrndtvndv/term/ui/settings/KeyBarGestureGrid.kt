@@ -274,7 +274,7 @@ private fun KeyBarEditorSlot.accessibilityName(): String = when (this) {
 
 private fun KeyBarEditorSlot.disabledReason(): String = when (this) {
     KeyBarEditorSlot.Tap -> ""
-    is KeyBarEditorSlot.Swipe -> "The tap action keeps its own gestures."
+    is KeyBarEditorSlot.Swipe -> "This tap action can't have swipe gestures."
 }
 
 internal fun KeySwipe.toDirection(): KeyBarDirection = when (this) {

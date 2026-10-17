@@ -14,7 +14,7 @@ import com.mrndtvndv.term.data.prefs.KeyBarItem
 import com.mrndtvndv.term.data.prefs.KeyBarLayout
 import com.mrndtvndv.term.data.prefs.KeyBarLimits
 import com.mrndtvndv.term.data.prefs.MacroStep
-import com.mrndtvndv.term.data.prefs.isSwipeable
+import com.mrndtvndv.term.data.prefs.supportsSwipes
 import com.mrndtvndv.term.navigation.KeyBarItemStart
 import kotlinx.coroutines.delay
 
@@ -207,7 +207,7 @@ private fun discardMessage(
 private fun KeyBarItemDraft.firstError(): String? =
     labelError()
         ?: tap.validationError()
-        ?: if (tap.isSwipeable()) {
+        ?: if (tap.supportsSwipes()) {
             KeyBarDirection.entries.firstNotNullOfOrNull { direction -> swipes[direction]?.validationError() }
         } else {
             null

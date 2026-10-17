@@ -522,13 +522,17 @@ private fun ItemRowDetails(item: KeyBarItem, summary: String, modifier: Modifier
     }
 }
 
-private fun KeyBarItem.rowSummary(): String = when (tap) {
-    KeyBarAction.Ctrl -> "tap arms · hold locks"
-    KeyBarAction.Alt -> "tap arms · tap twice locks"
-    KeyBarAction.Joystick -> "joystick"
-    else -> swipeActions().joinToString(" · ") { (direction, action) ->
+private fun KeyBarItem.rowSummary(): String {
+    val tapSummary = when (tap) {
+        KeyBarAction.Ctrl -> "tap arms · hold locks"
+        KeyBarAction.Alt -> "tap arms · tap twice locks"
+        KeyBarAction.Joystick -> "joystick"
+        else -> null
+    }
+    val swipeSummary = swipeActions().map { (direction, action) ->
         "${direction.arrow} ${action.summary()}"
-    }.ifEmpty { "No swipes" }
+    }
+    return (listOfNotNull(tapSummary) + swipeSummary).joinToString(" · ").ifEmpty { "No swipes" }
 }
 
 internal fun KeyBarItem.swipeActions(): List<Pair<KeyBarDirection, KeyBarAction>> = listOfNotNull(

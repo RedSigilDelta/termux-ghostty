@@ -46,7 +46,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.mrndtvndv.term.data.prefs.KeyBarAction
 import com.mrndtvndv.term.data.prefs.KeyBarLimits
-import com.mrndtvndv.term.data.prefs.isSwipeable
+import com.mrndtvndv.term.data.prefs.supportsSwipes
 import com.mrndtvndv.term.ui.keyboard.KeySwipe
 
 internal data class KeyBarItemEditorState(
@@ -407,7 +407,7 @@ private fun GestureSection(
     onTryDirection: (KeySwipe?) -> Unit,
     onOpenPicker: (KeyBarEditorSlot) -> Unit,
 ) {
-    val swipeable = draft.tap.isSwipeable()
+    val swipeable = draft.tap.supportsSwipes()
     val previewDirection = tryDirection?.toDirection().takeIf { swipeable }
     val previewAction = previewDirection?.let(draft.swipes::get)
 
@@ -445,9 +445,8 @@ private fun GestureSection(
         if (!swipeable) {
             Text(
                 text = when (draft.tap) {
-                    KeyBarAction.Ctrl -> "Ctrl keeps its own gestures."
-                    KeyBarAction.Alt -> "Alt keeps its own gestures."
-                    else -> "Arrows keeps its own gestures."
+                    KeyBarAction.Joystick -> "Arrows keeps its own directional gesture."
+                    else -> "This tap action can't have swipe gestures."
                 },
                 modifier = Modifier.fillMaxWidth(),
                 style = MaterialTheme.typography.bodySmall,
