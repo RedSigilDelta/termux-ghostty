@@ -79,6 +79,8 @@ fun macroInputItems(steps: List<MacroStep>): List<TerminalInputItem>? {
  */
 internal fun asciiControlCode(produced: Char): Char? = KeyHandler.getControlCode(produced.code)?.toChar()
 
+internal fun MacroStep.Key.producedChar(): Char? = PrintableByKeyCode[keyCode]?.produced(shift)
+
 private fun MacroStep.toInputItem(): TerminalInputItem? = when (this) {
     is MacroStep.Text -> if (text.isEmpty()) null else TerminalInputItem.text(text)
     is MacroStep.Key -> toKeyInputItem()

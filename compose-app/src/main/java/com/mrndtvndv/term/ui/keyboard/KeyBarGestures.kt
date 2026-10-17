@@ -23,7 +23,7 @@ import com.mrndtvndv.term.data.prefs.KeyBarItem
 import kotlin.math.abs
 
 /** Drag distance, in dp, that turns a press on a key into a swipe rather than a tap. */
-private val KeySwipeThreshold = 24.dp
+internal val KeySwipeThreshold = 24.dp
 
 /** How far below the threshold a drag must fall before a new arming may tick again. */
 private val KeyHapticHysteresis = 6.dp
@@ -34,7 +34,7 @@ private const val RetargetTickIntervalMillis = 250L
 internal enum class KeySwipe { Up, Down, Left, Right }
 
 /** The dominant axis of a drag, in screen coordinates. A tie goes horizontal. */
-private fun Offset.dominantSwipe(): KeySwipe =
+internal fun Offset.dominantSwipe(): KeySwipe =
     if (abs(x) >= abs(y)) {
         if (x < 0f) KeySwipe.Left else KeySwipe.Right
     } else {

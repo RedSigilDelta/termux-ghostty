@@ -229,7 +229,9 @@ fun TermApp(
                                     settingsViewModel = viewModel {
                                         SettingsViewModel(container.preferences, container.fontStore)
                                     },
-                                    onAddItem = { navigator.navigate(AppRoute.KeyBarItemEditor()) },
+                                    onCreateCustom = { start ->
+                                        navigator.navigate(AppRoute.KeyBarItemEditor(start = start))
+                                    },
                                     onEditItem = { itemId -> navigator.navigate(AppRoute.KeyBarItemEditor(itemId)) },
                                     onBack = onBack,
                                 )
@@ -241,6 +243,7 @@ fun TermApp(
                                         SettingsViewModel(container.preferences, container.fontStore)
                                     },
                                     itemId = route.itemId,
+                                    start = route.start,
                                     onBack = onBack,
                                 )
                             }

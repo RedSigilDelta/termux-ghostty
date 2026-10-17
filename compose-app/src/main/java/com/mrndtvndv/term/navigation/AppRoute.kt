@@ -4,6 +4,12 @@ import androidx.navigation3.runtime.NavKey
 import kotlinx.serialization.Serializable
 
 @Serializable
+enum class KeyBarItemStart {
+    Combo,
+    Snippet,
+}
+
+@Serializable
 sealed interface AppRoute : NavKey {
     @Serializable
     data object ServerList : AppRoute
@@ -22,7 +28,10 @@ sealed interface AppRoute : NavKey {
 
     /** Editor for one key bar item. A null [itemId] adds a new item. */
     @Serializable
-    data class KeyBarItemEditor(val itemId: String? = null) : AppRoute
+    data class KeyBarItemEditor(
+        val itemId: String? = null,
+        val start: KeyBarItemStart? = null,
+    ) : AppRoute
 
     @Serializable
     data class Workspace(val workspaceId: String) : AppRoute

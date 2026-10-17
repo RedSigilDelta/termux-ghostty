@@ -18,16 +18,20 @@ enum class KeyBarDirection(val arrow: String) {
 fun keyLabel(keyCode: Int): String =
     KeyBarKeyCatalog.firstOrNull { it.keyCode == keyCode }?.label ?: "Key $keyCode"
 
-/** Label a new item gets from this action, or null when the action has no natural label (text and sequences). */
+/** Label a new item gets from this action, or null when the action has no short one-line label. */
 fun KeyBarAction.defaultLabel(): String? = when (this) {
     is KeyBarAction.Key -> keyLabel(keyCode)
-    is KeyBarAction.Text -> null
-    is KeyBarAction.Macro -> null
+    is KeyBarAction.Text -> text.takeIf { it.isSingleLine() && it.length <= KeyBarLimits.MaxLabelLength }
+    is KeyBarAction.Macro -> summary().takeIf {
+        it.isSingleLine() && it.length <= KeyBarLimits.MaxLabelLength
+    }
     is KeyBarAction.Host -> kind.displayName()
     KeyBarAction.Ctrl -> "Ctrl"
     KeyBarAction.Alt -> "Alt"
     KeyBarAction.Joystick -> "Arrows"
 }
+
+private fun String.isSingleLine(): Boolean = '\n' !in this && '\r' !in this
 
 /** Compact text for bar hints: the macro text is clipped, with line breaks shown as ↵. */
 fun KeyBarAction.shortLabel(): String = when (this) {
