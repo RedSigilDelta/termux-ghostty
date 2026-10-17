@@ -217,6 +217,20 @@ private fun LazyItemScope.WorkspaceGroupItem(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(workspace.label, modifier = Modifier.weight(1f), maxLines = 1)
+            if (!expanded) {
+                // Collapsed groups still surface their agents, most urgent first.
+                val statuses = snapshot.panes.filter { it.workspaceId == workspace.id && it.agent != null }
+                    .map { it.agentStatus }.toSet()
+                Row(
+                    modifier = Modifier.padding(end = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    listOf(HerdrAgentStatus.Blocked, HerdrAgentStatus.Working, HerdrAgentStatus.Done)
+                        .filter { it in statuses }
+                        .forEach { AgentStatusIndicator(it, agentStatusColor(it)) }
+                }
+            }
             Text("${workspace.tabCount} tabs", style = MaterialTheme.typography.labelMedium)
             Icon(
                 if (expanded) Icons.Default.ExpandMore else Icons.Default.ChevronRight,
@@ -467,12 +481,7 @@ private fun LazyItemScope.itemMotion(): Modifier {
 @Composable
 private fun HerdrAgentRowContent(pane: HerdrPane, title: String, onFocus: () -> Unit, onClose: () -> Unit) {
     var menuVisible by remember(pane.terminalId) { mutableStateOf(false) }
-    val statusColor = when (pane.agentStatus) {
-        HerdrAgentStatus.Working -> MaterialTheme.colorScheme.primary
-        HerdrAgentStatus.Blocked -> MaterialTheme.colorScheme.error
-        HerdrAgentStatus.Done -> MaterialTheme.colorScheme.tertiary
-        else -> MaterialTheme.colorScheme.onSurfaceVariant
-    }
+    val statusColor = agentStatusColor(pane.agentStatus)
     val background = if (pane.focused) {
         MaterialTheme.colorScheme.primaryContainer
     } else {
@@ -517,6 +526,14 @@ private fun HerdrAgentRowContent(pane: HerdrPane, title: String, onFocus: () -> 
             })
         }
     }
+}
+
+@Composable
+private fun agentStatusColor(status: HerdrAgentStatus): Color = when (status) {
+    HerdrAgentStatus.Working -> MaterialTheme.colorScheme.primary
+    HerdrAgentStatus.Blocked -> MaterialTheme.colorScheme.error
+    HerdrAgentStatus.Done -> MaterialTheme.colorScheme.tertiary
+    else -> MaterialTheme.colorScheme.onSurfaceVariant
 }
 
 @Composable
