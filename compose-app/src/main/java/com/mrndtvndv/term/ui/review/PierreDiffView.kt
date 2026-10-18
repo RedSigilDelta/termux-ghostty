@@ -435,7 +435,8 @@ private class ScrollableDiffWebView(
     private val scrollConsumed = IntArray(2)
     private val scrollOffset = IntArray(2)
     private var nestedOffsetX = 0
-    private var nestedOffsetY = 0
+    // Keep touch Y stable while the view moves under the finger with the sheet.
+    private var webTouchY = 0f
     private var velocityTracker: VelocityTracker? = null
 
     override fun setNestedScrollingEnabled(enabled: Boolean) {
@@ -541,14 +542,17 @@ private class ScrollableDiffWebView(
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         val tracker = velocityTracker ?: VelocityTracker.obtain().also { velocityTracker = it }
-        tracker.addMovement(event)
+        // Track screen coordinates: while a sheet or pager follows the finger, this view
+        // moves with it and local coordinates report almost no velocity.
+        val screenEvent = MotionEvent.obtain(event).apply { setLocation(event.rawX, event.rawY) }
+        tracker.addMovement(screenEvent)
+        screenEvent.recycle()
 
         val motionEvent = MotionEvent.obtain(event)
         if (event.actionMasked == MotionEvent.ACTION_DOWN) {
             nestedOffsetX = 0
-            nestedOffsetY = 0
         }
-        motionEvent.offsetLocation(nestedOffsetX.toFloat(), nestedOffsetY.toFloat())
+        motionEvent.offsetLocation(nestedOffsetX.toFloat(), 0f)
 
         val result = when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> handleTouchDown(event, motionEvent)
@@ -569,6 +573,7 @@ private class ScrollableDiffWebView(
         isDraggingX = false
         isDraggingY = false
         dragDirX = 0
+        webTouchY = motionEvent.y
         downTime = event.eventTime
         // Drop the previous gesture's bounds; JS reports fresh ones on touchstart.
         diffBridge?.resetHorizontalScrollState()
@@ -592,6 +597,7 @@ private class ScrollableDiffWebView(
             else -> {
                 lastX = rawX
                 lastY = rawY
+                webTouchY = motionEvent.y
                 super.onTouchEvent(motionEvent)
             }
         }
@@ -621,12 +627,12 @@ private class ScrollableDiffWebView(
         // can still scroll toward its top. Keep upward pre-scroll for the app bar.
         if (dy >= 0 || !canScrollVertically(-1)) {
             dispatchNestedPreScroll(0, dy, scrollConsumed, scrollOffset, ViewCompat.TYPE_TOUCH)
-            motionEvent.offsetLocation(0f, -scrollConsumed[1].toFloat())
-            nestedOffsetY += scrollOffset[1]
         }
         val remainingDy = dy - scrollConsumed[1]
-        lastX = rawX - scrollOffset[0]
-        lastY = rawY - scrollOffset[1]
+        lastX = rawX
+        lastY = rawY
+        webTouchY -= remainingDy
+        motionEvent.setLocation(motionEvent.x, webTouchY)
         val previousScrollY = scrollY
         val result = super.onTouchEvent(motionEvent)
         val diffConsumed = (scrollY - previousScrollY).coerceIn(
@@ -719,11 +725,18 @@ private class ScrollableDiffWebView(
         if (isDraggingX && tracker.xVelocity != 0f) {
             dispatchNestedPreFling(-tracker.xVelocity, 0f)
             dispatchNestedFling(-tracker.xVelocity, 0f, false)
-        } else if (isDraggingY && tracker.yVelocity != 0f) {
-            if (tracker.yVelocity < 0f || !canScrollVertically(-1)) {
+        } else if (isDraggingY) {
+            val atTop = !canScrollVertically(-1)
+            if (tracker.yVelocity < 0f || atTop) {
                 dispatchNestedPreFling(0f, -tracker.yVelocity)
             }
+            // A sheet settles a downward drag only on post-fling, so send it even at zero
+            // velocity; otherwise the sheet is left mid-drag and never dismisses.
+            if (tracker.yVelocity >= 0f && atTop) {
+                dispatchNestedFling(0f, -tracker.yVelocity, false)
+            }
         }
+        if (isDraggingY) motionEvent.setLocation(motionEvent.x, webTouchY)
         isDraggingX = false
         isDraggingY = false
         stopNestedScroll(ViewCompat.TYPE_TOUCH)
@@ -767,6 +780,8 @@ private fun createConfiguredWebView(
             ViewGroup.LayoutParams.MATCH_PARENT
         )
         setBackgroundColor(Color.TRANSPARENT)
+        // The stretch effect fights the sheet when a downward drag at the top moves the sheet.
+        overScrollMode = View.OVER_SCROLL_NEVER
         isVerticalScrollBarEnabled = true
         isHorizontalScrollBarEnabled = true
 
