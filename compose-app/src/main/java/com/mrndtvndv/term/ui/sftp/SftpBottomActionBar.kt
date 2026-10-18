@@ -1,19 +1,12 @@
 package com.mrndtvndv.term.ui.sftp
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.text.input.KeyboardActionHandler
-import androidx.compose.foundation.text.input.TextFieldLineLimits
-import androidx.compose.foundation.text.input.rememberTextFieldState
-import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccountTree
@@ -23,24 +16,17 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.mrndtvndv.term.ui.components.FloatingPill
 import com.mrndtvndv.term.ui.components.PillActions
 import com.mrndtvndv.term.ui.components.PillDivider
 import com.mrndtvndv.term.ui.components.PillIconButton
 import com.mrndtvndv.term.ui.components.PillRefreshButton
+import com.mrndtvndv.term.ui.components.PillSearchInput
 import dev.chrisbanes.haze.HazeState
 
 /** SFTP pill: search, tree, upload and refresh actions that morph into an inline search field. */
@@ -107,6 +93,8 @@ private fun SearchEditField(
     onQueryChange: (String) -> Unit,
     onClose: () -> Unit
 ) {
+    val keyboardController = LocalSoftwareKeyboardController.current
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -126,9 +114,11 @@ private fun SearchEditField(
             )
         }
 
-        SearchTextInput(
+        PillSearchInput(
             query = query,
             onQueryChange = onQueryChange,
+            placeholder = "Search files…",
+            onSearch = { keyboardController?.hide() },
             modifier = Modifier.weight(1f)
         )
 
@@ -145,58 +135,4 @@ private fun SearchEditField(
             }
         }
     }
-}
-
-@Composable
-private fun SearchTextInput(
-    query: String,
-    onQueryChange: (String) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val focusRequester = remember { FocusRequester() }
-    val keyboardController = LocalSoftwareKeyboardController.current
-    val state = rememberTextFieldState(query)
-
-    LaunchedEffect(Unit) {
-        focusRequester.requestFocus()
-        keyboardController?.show()
-    }
-    // The route owns the query and resets it per browsed folder, so mirror external changes back.
-    LaunchedEffect(query) {
-        if (state.text.toString() != query) state.setTextAndPlaceCursorAtEnd(query)
-    }
-    LaunchedEffect(state) {
-        snapshotFlow { state.text.toString() }.collect { text ->
-            if (text != query) onQueryChange(text)
-        }
-    }
-
-    BasicTextField(
-        state = state,
-        modifier = modifier
-            .focusRequester(focusRequester)
-            .padding(horizontal = 8.dp),
-        textStyle = MaterialTheme.typography.bodyLarge.copy(
-            color = MaterialTheme.colorScheme.onSurface
-        ),
-        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-        lineLimits = TextFieldLineLimits.SingleLine,
-        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-        onKeyboardAction = KeyboardActionHandler { keyboardController?.hide() },
-        decorator = { innerTextField ->
-            Box(
-                contentAlignment = Alignment.CenterStart,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                if (state.text.isEmpty()) {
-                    Text(
-                        text = "Search files…",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                    )
-                }
-                innerTextField()
-            }
-        }
-    )
 }

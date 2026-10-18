@@ -103,10 +103,8 @@ fun ReviewScreenRoute(
                     tabsButton = tabsButton
                 )
             }
-            entry<ReviewRoute.FileDiff> { key ->
+            entry<ReviewRoute.FileDiff> {
                 DiffPane(
-                    title = state.selectedFile?.path ?: key.path,
-                    subtitle = if (key.isStaged) "Staged Changes" else "Unstaged Changes",
                     state = state,
                     search = search,
                     showFullFileToggle = true,
@@ -115,14 +113,12 @@ fun ReviewScreenRoute(
                     onToggleWordDiff = viewModel::toggleWordDiff,
                     onCloseSearch = closeSearch,
                     onBack = onBack,
-                    modifier = modifier
+                    modifier = modifier,
+                    tabsButton = tabsButton
                 )
             }
-            entry<ReviewRoute.CommitDiff> { key ->
+            entry<ReviewRoute.CommitDiff> {
                 DiffPane(
-                    title = state.selectedCommit?.subject ?: "Commit Details",
-                    subtitle = state.selectedCommit?.let { "Commit ${it.shortHash} • ${it.relativeDate}" }
-                        ?: "Commit ${key.hash.take(7)}",
                     state = state,
                     search = search,
                     showFullFileToggle = false,
@@ -131,7 +127,8 @@ fun ReviewScreenRoute(
                     onToggleWordDiff = viewModel::toggleWordDiff,
                     onCloseSearch = closeSearch,
                     onBack = onBack,
-                    modifier = modifier
+                    modifier = modifier,
+                    tabsButton = tabsButton
                 )
             }
         }

@@ -86,12 +86,13 @@ fun Modifier.tintedGlassPill(shape: Shape = PillShape): Modifier {
 
 /**
  * Floating pill that springs between [state] contents. Callers place it and own the insets.
- * [trailing] sits to the right of the pill, vertically centered with it.
+ * [trailing] sits to the right of the pill, vertically centered with it. A null [hazeState] uses
+ * [tintedGlassPill], for content that cannot be a Haze source.
  */
 @Composable
 fun <T> FloatingPill(
     state: T,
-    hazeState: HazeState,
+    hazeState: HazeState?,
     modifier: Modifier = Modifier,
     label: String = "FloatingPill",
     trailing: (@Composable () -> Unit)? = null,
@@ -108,7 +109,9 @@ fun <T> FloatingPill(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Surface(
-                modifier = Modifier.weight(1f, fill = false).glassPill(hazeState),
+                modifier = Modifier
+                    .weight(1f, fill = false)
+                    .then(if (hazeState != null) Modifier.glassPill(hazeState) else Modifier.tintedGlassPill()),
                 shape = PillShape,
                 color = Color.Transparent,
                 contentColor = MaterialTheme.colorScheme.onSurface,

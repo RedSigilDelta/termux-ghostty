@@ -1,63 +1,42 @@
-@file:OptIn(ExperimentalMaterial3Api::class)
-
 package com.mrndtvndv.term.ui.review
 
-import androidx.compose.foundation.layout.Arrangement
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.CompareArrows
-import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FormatListNumbered
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.IconToggleButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.PlainTooltip
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TooltipAnchorPosition
-import androidx.compose.material3.TooltipBox
-import androidx.compose.material3.TooltipDefaults
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.mrndtvndv.term.ui.components.FloatingPill
+import com.mrndtvndv.term.ui.components.PillActions
+import com.mrndtvndv.term.ui.components.PillDivider
+import com.mrndtvndv.term.ui.components.PillIconButton
+import com.mrndtvndv.term.ui.components.PillSearchInput
 
 @Suppress("LongParameterList")
 @Composable
 internal fun DiffPane(
-    title: String,
-    subtitle: String,
     state: ReviewScreenState,
     search: DiffSearch,
     showFullFileToggle: Boolean,
@@ -66,273 +45,193 @@ internal fun DiffPane(
     onToggleWordDiff: () -> Unit,
     onCloseSearch: () -> Unit,
     onBack: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    tabsButton: (@Composable () -> Unit)? = null
 ) {
-    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior(
-        canScroll = { !search.isVisible }
-    )
-    LaunchedEffect(search.isVisible) {
-        if (search.isVisible) {
-            scrollBehavior.state.heightOffset = 0f
-        }
-    }
-    Scaffold(
-        modifier = modifier
-            .fillMaxSize()
-            .nestedScroll(scrollBehavior.nestedScrollConnection),
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        topBar = {
-            TopAppBar(
-                scrollBehavior = scrollBehavior,
-                windowInsets = WindowInsets(0, 0, 0, 0),
-                title = { DiffPaneTitle(title = title, subtitle = subtitle, search = search) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back"
-                        )
-                    }
-                },
-                actions = {
-                    DiffPaneActions(
-                        state = state,
-                        search = search,
-                        showFullFileToggle = showFullFileToggle,
-                        onToggleFullFileMode = onToggleFullFileMode,
-                        onToggleLineNumbers = onToggleLineNumbers,
-                        onToggleWordDiff = onToggleWordDiff,
-                        onCloseSearch = onCloseSearch
-                    )
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
-            )
-        }
-    ) { padding ->
-        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
-            DiffViewer(
-                hasSelection = state.selectedFile != null || state.selectedCommit != null,
-                diffContent = state.diffContent,
-                showLineNumbers = state.showLineNumbers,
-                isWordDiffEnabled = state.isWordDiffEnabled,
-                search = search
-            )
-        }
-    }
-}
-
-@Composable
-private fun DiffPaneTitle(title: String, subtitle: String, search: DiffSearch) {
-    if (search.isVisible) {
-        DiffSearchField(
-            query = search.query,
-            onQueryChange = search::updateQuery,
-            onNext = { search.moveMatch(1) }
+    BackHandler(enabled = search.isVisible) { onCloseSearch() }
+    Box(modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
+        // No Haze source here: recording the WebView into a blur layer makes it flash.
+        DiffViewer(
+            hasSelection = state.selectedFile != null || state.selectedCommit != null,
+            diffContent = state.diffContent,
+            showLineNumbers = state.showLineNumbers,
+            isWordDiffEnabled = state.isWordDiffEnabled,
+            search = search
         )
-    } else {
-        Column {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-            )
-        }
+        DiffActionPill(
+            state = state,
+            search = search,
+            showFullFileToggle = showFullFileToggle,
+            onToggleFullFileMode = onToggleFullFileMode,
+            onToggleLineNumbers = onToggleLineNumbers,
+            onToggleWordDiff = onToggleWordDiff,
+            onCloseSearch = onCloseSearch,
+            onBack = onBack,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(bottom = 16.dp),
+            trailing = tabsButton
+        )
     }
 }
 
 @Suppress("LongParameterList")
 @Composable
-private fun DiffPaneActions(
+private fun DiffActionPill(
     state: ReviewScreenState,
     search: DiffSearch,
     showFullFileToggle: Boolean,
     onToggleFullFileMode: () -> Unit,
     onToggleLineNumbers: () -> Unit,
     onToggleWordDiff: () -> Unit,
-    onCloseSearch: () -> Unit
+    onCloseSearch: () -> Unit,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+    trailing: (@Composable () -> Unit)? = null
 ) {
-    if (search.isVisible) {
-        DiffSearchActions(
-            query = search.query,
-            currentMatchIndex = search.matchIndex,
-            matchCount = search.matchCount,
-            onPrevious = { search.moveMatch(-1) },
-            onNext = { search.moveMatch(1) },
-            onClose = onCloseSearch
-        )
-        return
-    }
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.padding(end = 8.dp)
-    ) {
-        IconButton(onClick = search::open) {
-            Icon(
-                imageVector = Icons.Default.Search,
-                contentDescription = "Search diff"
+    FloatingPill(
+        state = search.isVisible,
+        hazeState = null,
+        modifier = modifier,
+        label = "DiffActionPill",
+        trailing = trailing
+    ) { active ->
+        if (active) {
+            DiffSearchRow(search = search, onClose = onCloseSearch)
+        } else {
+            DiffActions(
+                state = state,
+                showFullFileToggle = showFullFileToggle,
+                onBack = onBack,
+                onOpenSearch = search::open,
+                onToggleWordDiff = onToggleWordDiff,
+                onToggleLineNumbers = onToggleLineNumbers,
+                onToggleFullFileMode = onToggleFullFileMode
             )
         }
-        DiffToggle(
-            tooltip = if (state.isWordDiffEnabled) "Word-level diff on" else "Word-level diff off",
-            checked = state.isWordDiffEnabled,
-            icon = Icons.AutoMirrored.Filled.CompareArrows,
-            contentDescription = if (state.isWordDiffEnabled) {
-                "Disable word-level diff"
+    }
+}
+
+@Composable
+private fun DiffActions(
+    state: ReviewScreenState,
+    showFullFileToggle: Boolean,
+    onBack: () -> Unit,
+    onOpenSearch: () -> Unit,
+    onToggleWordDiff: () -> Unit,
+    onToggleLineNumbers: () -> Unit,
+    onToggleFullFileMode: () -> Unit
+) {
+    PillActions {
+        PillIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Back", onBack)
+        PillDivider()
+        PillIconButton(Icons.Default.Search, "Search diff", onOpenSearch)
+        PillIconButton(
+            Icons.AutoMirrored.Filled.CompareArrows,
+            if (state.isWordDiffEnabled) "Disable word-level diff" else "Enable word-level diff",
+            onToggleWordDiff,
+            tint = if (state.isWordDiffEnabled) {
+                MaterialTheme.colorScheme.primary
             } else {
-                "Enable word-level diff"
-            },
-            onToggle = onToggleWordDiff
+                MaterialTheme.colorScheme.onSurfaceVariant
+            }
         )
-        DiffToggle(
-            tooltip = "Line Numbers",
-            checked = state.showLineNumbers,
-            icon = Icons.Default.FormatListNumbered,
-            contentDescription = "Toggle line numbers",
-            onToggle = onToggleLineNumbers
+        PillIconButton(
+            Icons.Default.FormatListNumbered,
+            "Toggle line numbers",
+            onToggleLineNumbers,
+            tint = if (state.showLineNumbers) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            }
         )
         if (showFullFileToggle) {
-            DiffToggle(
-                tooltip = if (state.isFullFileMode) "Full File" else "Diff Only",
-                checked = state.isFullFileMode,
-                icon = if (state.isFullFileMode) Icons.Default.Visibility else Icons.Default.UnfoldMore,
-                contentDescription = "Toggle full file mode",
-                onToggle = onToggleFullFileMode
+            PillIconButton(
+                if (state.isFullFileMode) Icons.Default.Visibility else Icons.Default.UnfoldMore,
+                "Toggle full file mode",
+                onToggleFullFileMode,
+                tint = if (state.isFullFileMode) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                }
             )
         }
     }
 }
 
 @Composable
-private fun DiffToggle(
-    tooltip: String,
-    checked: Boolean,
-    icon: ImageVector,
-    contentDescription: String,
-    onToggle: () -> Unit
-) {
-    TooltipBox(
-        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(
-            positioning = TooltipAnchorPosition.Above
-        ),
-        tooltip = { PlainTooltip { Text(tooltip) } },
-        state = rememberTooltipState()
-    ) {
-        IconToggleButton(
-            checked = checked,
-            onCheckedChange = { onToggle() }
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = contentDescription,
-                modifier = Modifier.size(16.dp)
-            )
-        }
-    }
-}
-
-@Composable
-private fun DiffSearchField(
-    query: String,
-    onQueryChange: (String) -> Unit,
-    onNext: () -> Unit
-) {
-    val focusRequester = remember { FocusRequester() }
-    val keyboardController = LocalSoftwareKeyboardController.current
-
-    LaunchedEffect(Unit) {
-        focusRequester.requestFocus()
-        keyboardController?.show()
-    }
-
-    OutlinedTextField(
-        value = query,
-        onValueChange = onQueryChange,
+private fun DiffSearchRow(search: DiffSearch, onClose: () -> Unit) {
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .focusRequester(focusRequester),
-        placeholder = { Text("Search diff") },
-        leadingIcon = {
+            .widthIn(max = 560.dp)
+            .height(56.dp)
+            .padding(horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        IconButton(
+            onClick = onClose,
+            modifier = Modifier.size(44.dp)
+        ) {
             Icon(
-                imageVector = Icons.Default.Search,
-                contentDescription = "Search diff"
+                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                contentDescription = "Close search",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
-        },
-        trailingIcon = {
-            if (query.isNotEmpty()) {
-                IconButton(onClick = { onQueryChange("") }) {
-                    Icon(
-                        imageVector = Icons.Default.Clear,
-                        contentDescription = "Clear search"
-                    )
-                }
-            }
-        },
-        singleLine = true,
-        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-        keyboardActions = KeyboardActions(onSearch = { onNext() })
-    )
+        }
+
+        PillSearchInput(
+            query = search.query,
+            onQueryChange = search::updateQuery,
+            placeholder = "Search diff…",
+            onSearch = { search.moveMatch(1) },
+            modifier = Modifier.weight(1f)
+        )
+
+        DiffMatchControls(search)
+    }
 }
 
 @Composable
-private fun DiffSearchActions(
-    query: String,
-    currentMatchIndex: Int,
-    matchCount: Int,
-    onPrevious: () -> Unit,
-    onNext: () -> Unit,
-    onClose: () -> Unit
-) {
+private fun DiffMatchControls(search: DiffSearch) {
     val matchLabel = when {
-        query.isEmpty() -> null
-        matchCount == 0 -> "No matches"
-        else -> "${currentMatchIndex + 1}/$matchCount"
+        search.query.isEmpty() -> null
+        search.matchCount == 0 -> "No matches"
+        else -> "${search.matchIndex + 1}/${search.matchCount}"
     }
 
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.padding(end = 8.dp)
+    matchLabel?.let { label ->
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            modifier = Modifier.padding(horizontal = 4.dp)
+        )
+    }
+    IconButton(
+        onClick = { search.moveMatch(-1) },
+        enabled = search.matchCount > 0,
+        modifier = Modifier.size(44.dp)
     ) {
-        matchLabel?.let { label ->
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                modifier = Modifier.padding(horizontal = 4.dp)
-            )
-        }
-        IconButton(
-            onClick = onPrevious,
-            enabled = matchCount > 0
-        ) {
-            Icon(
-                imageVector = Icons.Default.KeyboardArrowUp,
-                contentDescription = "Previous match"
-            )
-        }
-        IconButton(
-            onClick = onNext,
-            enabled = matchCount > 0
-        ) {
-            Icon(
-                imageVector = Icons.Default.KeyboardArrowDown,
-                contentDescription = "Next match"
-            )
-        }
-        IconButton(onClick = onClose) {
-            Icon(
-                imageVector = Icons.Default.Close,
-                contentDescription = "Close search"
-            )
-        }
+        Icon(
+            imageVector = Icons.Default.KeyboardArrowUp,
+            contentDescription = "Previous match",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+    IconButton(
+        onClick = { search.moveMatch(1) },
+        enabled = search.matchCount > 0,
+        modifier = Modifier.size(44.dp)
+    ) {
+        Icon(
+            imageVector = Icons.Default.KeyboardArrowDown,
+            contentDescription = "Next match",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
