@@ -210,9 +210,14 @@ private fun LazyItemScope.WorkspaceGroupItem(
     onClosePane: suspend (HerdrPane) -> Boolean,
 ) {
     val motion = MaterialTheme.motionScheme
+    val headerBackground = if (!expanded && workspace.id == snapshot.focusedWorkspaceId) {
+        MaterialTheme.colorScheme.primaryContainer
+    } else {
+        Color.Transparent
+    }
     Column(modifier = itemMotion()) {
         Row(
-            modifier = Modifier.fillMaxWidth().clickable(onClick = onToggle)
+            modifier = Modifier.fillMaxWidth().background(headerBackground).clickable(onClick = onToggle)
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
