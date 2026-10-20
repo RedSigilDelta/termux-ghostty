@@ -25,6 +25,7 @@ import com.mrndtvndv.term.ui.settings.categories.debuggingSettings
 import com.mrndtvndv.term.ui.settings.categories.keyboardSettings
 import com.mrndtvndv.term.ui.settings.categories.terminalSettings
 import com.mrndtvndv.term.ui.settings.categories.wallpaperSettings
+import com.mrndtvndv.term.ui.settings.categories.workspacesSettings
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -60,6 +61,7 @@ fun SettingsCategoryScreen(category: SettingsCategory, state: SettingsState, onB
                 SettingsCategory.APPEARANCE -> appearanceSettings(state)
                 SettingsCategory.WALLPAPER -> wallpaperSettings(state)
                 SettingsCategory.TERMINAL -> terminalSettings(state)
+                SettingsCategory.WORKSPACES -> workspacesSettings(state)
                 SettingsCategory.KEYBOARD -> keyboardSettings(state)
                 SettingsCategory.DEBUGGING -> debuggingSettings(state)
             }

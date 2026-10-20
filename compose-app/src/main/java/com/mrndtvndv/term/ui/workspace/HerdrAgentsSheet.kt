@@ -2,6 +2,7 @@
     androidx.compose.material3.ExperimentalMaterial3Api::class,
     androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class,
 )
+@file:Suppress("TooManyFunctions")
 
 package com.mrndtvndv.term.ui.workspace
 
@@ -46,6 +47,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.VerticalSplit
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -53,9 +55,14 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.SheetValue
+import androidx.compose.material3.SplitButtonDefaults
+import androidx.compose.material3.SplitButtonLayout
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -94,10 +101,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
-/** Normal Herdr workspace/tab/pane browser, backed by the shared socket cache rather than CLI polling. */
+/** Full-height Herdr workspace/tab/pane sidebar, backed by the shared socket cache rather than CLI polling. */
 @Suppress("LongMethod", "LongParameterList", "CyclomaticComplexMethod")
 @Composable
-fun HerdrAgentsSheet(
+fun HerdrAgentsSidebar(
     state: HerdrState,
     currentServer: ServerConfig,
     serverListState: ServerListUiState,
@@ -289,6 +296,208 @@ fun HerdrAgentsSheet(
             onSplitPane = { id, direction -> dismissAndFocus { onSplitPane(id, direction) } },
         )
     }
+}
+
+/** Classic modal sheet for browsing Herdr workspaces, tabs, and panes. */
+@Suppress("LongMethod", "LongParameterList")
+@Composable
+fun HerdrAgentsSheet(
+    state: HerdrState,
+    collapsedWorkspaceIds: Set<String>,
+    onWorkspaceCollapsedChange: (workspaceId: String, collapsed: Boolean) -> Unit,
+    overlayAgentsFab: Boolean,
+    onNewTab: (workspaceId: String) -> Unit,
+    onNewWorkspace: (sourceWorkspaceId: String) -> Unit,
+    onSplitPane: (paneId: String, direction: String) -> Unit,
+    onFocusPane: (HerdrPane) -> Unit,
+    onFocusTab: (HerdrTab) -> Unit,
+    onClosePane: suspend (HerdrPane) -> Boolean,
+    onDismiss: () -> Unit,
+) {
+    val snapshot = state.snapshot
+    val sheetState = rememberBottomSheetState(
+        initialValue = SheetValue.Hidden,
+        enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
+    )
+    val scope = rememberCoroutineScope()
+    var selecting by remember { mutableStateOf(false) }
+    val workspaceId = snapshot?.focusedWorkspaceId
+    val paneId = snapshot?.focusedPaneId
+
+    fun dismissAndFocus(action: () -> Unit) {
+        if (selecting) return
+        selecting = true
+        action()
+        scope.launch {
+            try {
+                sheetState.hide()
+                onDismiss()
+            } finally {
+                selecting = false
+            }
+        }
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+    ) {
+        KeepSheetAboveIme()
+        @Composable
+        fun splitButton(modifier: Modifier) {
+            AgentsSplitButton(
+                enabled = workspaceId != null,
+                workspaceId = workspaceId,
+                paneId = paneId,
+                elevated = overlayAgentsFab,
+                onNewTab = { id -> dismissAndFocus { onNewTab(id) } },
+                onNewWorkspace = { id -> dismissAndFocus { onNewWorkspace(id) } },
+                onSplitPane = { id, direction -> dismissAndFocus { onSplitPane(id, direction) } },
+                modifier = modifier,
+            )
+        }
+
+        Box(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                state.error?.message?.let {
+                    Text(it, modifier = Modifier.padding(16.dp), color = MaterialTheme.colorScheme.error)
+                }
+                when {
+                    snapshot == null && state.error == null -> Box(
+                        modifier = Modifier.fillMaxWidth().padding(32.dp),
+                        contentAlignment = Alignment.Center,
+                    ) { CircularProgressIndicator() }
+                    snapshot != null && snapshot.workspaces.isEmpty() -> Text(
+                        "No Herdr workspaces or agents",
+                        modifier = Modifier.padding(16.dp),
+                    )
+                    snapshot != null -> LazyColumn(
+                        modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
+                    ) {
+                        snapshot.workspaces.sortedBy { it.number }.forEach { workspace ->
+                            val expanded = workspace.id !in collapsedWorkspaceIds
+                            item(key = "workspace:${workspace.id}") {
+                                WorkspaceGroupItem(
+                                    workspace = workspace,
+                                    expanded = expanded,
+                                    snapshot = snapshot,
+                                    onToggle = {
+                                        onWorkspaceCollapsedChange(workspace.id, expanded)
+                                    },
+                                    onFocusTab = { tab -> dismissAndFocus { onFocusTab(tab) } },
+                                    onFocusPane = { pane -> dismissAndFocus { onFocusPane(pane) } },
+                                    onClosePane = onClosePane,
+                                )
+                            }
+                        }
+                    }
+                }
+                if (!overlayAgentsFab) {
+                    splitButton(
+                        Modifier
+                            .align(Alignment.End)
+                            .padding(end = 16.dp),
+                    )
+                }
+            }
+            if (overlayAgentsFab) {
+                splitButton(
+                    Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(end = 16.dp, bottom = 16.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+@Suppress("LongMethod", "LongParameterList")
+private fun AgentsSplitButton(
+    enabled: Boolean,
+    workspaceId: String?,
+    paneId: String?,
+    elevated: Boolean,
+    onNewTab: (workspaceId: String) -> Unit,
+    onNewWorkspace: (sourceWorkspaceId: String) -> Unit,
+    onSplitPane: (paneId: String, direction: String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var menuOpen by remember { mutableStateOf(false) }
+    val height = SplitButtonDefaults.MediumContainerHeight
+    val elevation = if (elevated) {
+        ButtonDefaults.buttonElevation(
+            defaultElevation = 6.dp,
+            pressedElevation = 6.dp,
+            focusedElevation = 6.dp,
+            hoveredElevation = 8.dp,
+        )
+    } else {
+        null
+    }
+    SplitButtonLayout(
+        modifier = modifier,
+        leadingButton = {
+            SplitButtonDefaults.TonalLeadingButton(
+                onClick = { workspaceId?.let { id -> onNewTab(id) } },
+                enabled = enabled,
+                shapes = SplitButtonDefaults.leadingButtonShapesFor(height),
+                elevation = elevation,
+                contentPadding = SplitButtonDefaults.leadingButtonContentPaddingFor(height),
+            ) {
+                Icon(
+                    Icons.Default.Add,
+                    contentDescription = "New tab",
+                    modifier = Modifier.size(SplitButtonDefaults.leadingButtonIconSizeFor(height)),
+                )
+            }
+        },
+        trailingButton = {
+            Box {
+                SplitButtonDefaults.TonalTrailingButton(
+                    checked = menuOpen,
+                    onCheckedChange = { menuOpen = it },
+                    enabled = enabled,
+                    shapes = SplitButtonDefaults.trailingButtonShapesFor(height),
+                    elevation = elevation,
+                    contentPadding = SplitButtonDefaults.trailingButtonContentPaddingFor(height),
+                ) {
+                    Icon(
+                        Icons.Default.ExpandMore,
+                        contentDescription = "More actions",
+                        modifier = Modifier.size(SplitButtonDefaults.trailingButtonIconSizeFor(height)),
+                    )
+                }
+                DropdownMenu(
+                    expanded = menuOpen,
+                    onDismissRequest = { menuOpen = false },
+                    properties = PopupProperties(focusable = false),
+                ) {
+                    DropdownMenuItem(text = { Text("New workspace") }, onClick = {
+                        menuOpen = false
+                        workspaceId?.let { id -> onNewWorkspace(id) }
+                    })
+                    DropdownMenuItem(
+                        text = { Text("Split right") },
+                        enabled = paneId != null,
+                        onClick = {
+                            menuOpen = false
+                            paneId?.let { id -> onSplitPane(id, "right") }
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Split down") },
+                        enabled = paneId != null,
+                        onClick = {
+                            menuOpen = false
+                            paneId?.let { id -> onSplitPane(id, "down") }
+                        },
+                    )
+                }
+            }
+        },
+    )
 }
 
 @Composable

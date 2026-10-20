@@ -30,6 +30,8 @@ private object Key {
     const val LastSoftKeyboardState = "last_soft_keyboard_state"
     const val ArrowJoystickMode = "arrow_joystick_mode"
     const val OverlayKeyBar = "overlay_key_bar"
+    const val AgentsSidebar = "agents_sidebar"
+    const val OverlayAgentsFab = "overlay_agents_fab"
     const val KeyBarLayout = "key_bar_layout"
     const val WallpaperUri = "terminal_wallpaper_uri"
     const val WallpaperName = "terminal_wallpaper_name"
@@ -84,6 +86,8 @@ private fun SharedPreferences.Editor.write(settings: AppSettings) {
     }
     putString(Key.ArrowJoystickMode, settings.arrowJoystickMode.name)
     putBoolean(Key.OverlayKeyBar, settings.overlayKeyBar)
+    putBoolean(Key.AgentsSidebar, settings.agentsSidebar)
+    putBoolean(Key.OverlayAgentsFab, settings.overlayAgentsFab)
     writeKeyBarLayout(settings.keyBarLayout)
     putString(Key.WallpaperUri, settings.wallpaperUri)
     putString(Key.WallpaperName, settings.wallpaperName)
@@ -141,6 +145,8 @@ class AppPreferences(
                 it.name == prefs.getString(Key.ArrowJoystickMode, null)
             } ?: ArrowJoystickMode.Swipe,
             overlayKeyBar = prefs.getBoolean(Key.OverlayKeyBar, false),
+            agentsSidebar = prefs.getBoolean(Key.AgentsSidebar, true),
+            overlayAgentsFab = prefs.getBoolean(Key.OverlayAgentsFab, false),
             keyBarLayout = loadKeyBarLayout(prefs),
             wallpaperUri = prefs.getString(Key.WallpaperUri, null),
             wallpaperName = prefs.getString(Key.WallpaperName, null),

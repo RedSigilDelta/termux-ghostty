@@ -167,6 +167,7 @@ fun HerdrSessionRoute(
         onDispose { sheetRequests.cancel() }
     }
     var sidebarOpen by rememberSaveable { mutableStateOf(false) }
+    var agentsSheetVisible by rememberSaveable { mutableStateOf(false) }
     var sidebarSide by rememberSaveable { mutableStateOf(SidebarSide.Left) }
     val revealAnimatable = remember { Animatable(0f) }
     val animationsEnabled = LocalAnimationsEnabled.current
@@ -214,6 +215,13 @@ fun HerdrSessionRoute(
             revealAnimatable.snapTo(target)
         }
     }
+    LaunchedEffect(settings.agentsSidebar) {
+        if (settings.agentsSidebar) {
+            agentsSheetVisible = false
+        } else {
+            sidebarOpen = false
+        }
+    }
 
     if (server == null || tab == null) {
         HerdrLoading()
@@ -226,13 +234,16 @@ fun HerdrSessionRoute(
         sidebarOpen = true
     }
 
-    BackHandler(enabled = sidebarOpen && sheet == null) {
+    BackHandler(enabled = sidebarOpen && sheet == null && !agentsSheetVisible) {
         sidebarOpen = false
     }
-    BackHandler(enabled = activeTabId != tab.id && sheet == null && !sidebarOpen) {
+    BackHandler(enabled = activeTabId != tab.id && sheet == null && !sidebarOpen && !agentsSheetVisible) {
         appViewModel.activateTab(tab.id)
     }
-    PredictiveBackHandler(enabled = activeTabId == tab.id && sheet == null && !sidebarOpen) { progressFlow ->
+    PredictiveBackHandler(
+        enabled = settings.agentsSidebar && activeTabId == tab.id && sheet == null &&
+            !sidebarOpen && !agentsSheetVisible,
+    ) { progressFlow ->
         var detectedEdge: Int? = null
         try {
             progressFlow.collect { backEvent ->
@@ -262,7 +273,7 @@ fun HerdrSessionRoute(
 
     // The sheet shows at once as Opening; the coherent capture runs in parallel with its entrance animation.
     fun openSheet(kind: HerdrSheetKind) {
-        if (!sidebarOpen) sheetRequests.open(kind)
+        if (!sidebarOpen && !agentsSheetVisible) sheetRequests.open(kind)
     }
 
     val onHostAction: (KeyBarHostAction) -> Unit = { kind ->
@@ -309,7 +320,11 @@ fun HerdrSessionRoute(
                     .clickable(interactionSource = interactionSource, indication = null, role = Role.Button) {
                         sheetRequests.cancel()
                         appViewModel.refreshHerdrContext(serverId)
-                        openSidebar()
+                        if (settings.agentsSidebar) {
+                            openSidebar()
+                        } else {
+                            agentsSheetVisible = true
+                        }
                     },
                 contentAlignment = Alignment.Center,
             ) {
@@ -346,7 +361,7 @@ fun HerdrSessionRoute(
                     },
             ) {
                 sheetStates.SaveableStateProvider("agents:$serverId") {
-                    HerdrAgentsSheet(
+                    HerdrAgentsSidebar(
                         state = herdrState,
                         currentServer = server.config,
                         serverListState = serverListState,
@@ -410,7 +425,7 @@ fun HerdrSessionRoute(
                         serverId = serverId,
                         tab = page,
                         entry = terminals[page.id],
-                        isActive = isActive && sheet == null && !sidebarOpen,
+                        isActive = isActive && sheet == null && !sidebarOpen && !agentsSheetVisible,
                         appViewModel = appViewModel,
                         workspaceViewModel = workspaceViewModel,
                         settings = settings,
@@ -458,7 +473,42 @@ fun HerdrSessionRoute(
                         .fillMaxSize()
                         .pointerInput(Unit) {
                             detectTapGestures { sidebarOpen = false }
-                        },
+                    },
+                )
+            }
+        }
+        if (!settings.agentsSidebar && agentsSheetVisible) {
+            sheetStates.SaveableStateProvider("agents:$serverId") {
+                HerdrAgentsSheet(
+                    state = herdrState,
+                    collapsedWorkspaceIds = workspaceState.collapsedHerdrAgentWorkspaces(serverId),
+                    onWorkspaceCollapsedChange = { workspaceId, collapsed ->
+                        appViewModel.setHerdrAgentWorkspaceCollapsed(serverId, workspaceId, collapsed)
+                    },
+                    overlayAgentsFab = settings.overlayAgentsFab,
+                    onNewTab = { workspaceId -> appViewModel.createHerdrTab(serverId, workspaceId) },
+                    onNewWorkspace = { sourceWorkspaceId ->
+                        appViewModel.createHerdrWorkspace(serverId, sourceWorkspaceId)
+                    },
+                    onSplitPane = { paneId, direction ->
+                        val terminalId = herdrState.snapshot?.panes?.firstOrNull { it.id == paneId }?.terminalId
+                        if (terminalId == null) {
+                            appViewModel.notificationState.post("Couldn't split pane", "That pane has closed")
+                        } else {
+                            appViewModel.splitHerdrPane(serverId, terminalId, direction)
+                        }
+                    },
+                    onFocusPane = { pane -> appViewModel.focusHerdrTerminal(serverId, pane.terminalId) },
+                    onFocusTab = { remoteTab ->
+                        val anchor = herdrState.snapshot?.panesIn(remoteTab.id)?.firstOrNull()?.terminalId
+                        if (anchor == null) {
+                            appViewModel.notificationState.post("Couldn't focus tab", "That tab has closed")
+                        } else {
+                            appViewModel.focusHerdrTabOf(serverId, anchor)
+                        }
+                    },
+                    onClosePane = { pane -> appViewModel.closeHerdrPane(serverId, pane.terminalId) },
+                    onDismiss = { agentsSheetVisible = false },
                 )
             }
         }

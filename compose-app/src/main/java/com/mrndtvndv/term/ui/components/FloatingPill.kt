@@ -75,19 +75,19 @@ fun Modifier.glassPill(hazeState: HazeState, shape: Shape = PillShape): Modifier
  * GL backdrop blur regions.
  */
 @Composable
-fun Modifier.tintedGlassPill(shape: Shape = PillShape): Modifier {
+fun Modifier.tintedGlassPill(shape: Shape = PillShape, alpha: Float = 0.55f): Modifier {
     val glassTint = MaterialTheme.colorScheme.surfaceContainerHighest
     return this
         .shadow(elevation = 6.dp, shape = shape)
         .clip(shape)
-        .background(glassTint.copy(alpha = 0.55f))
+        .background(glassTint.copy(alpha = alpha))
         .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), shape)
 }
 
 /**
  * Floating pill that springs between [state] contents. Callers place it and own the insets.
  * [trailing] sits to the right of the pill, vertically centered with it. A null [hazeState] uses
- * [tintedGlassPill], for content that cannot be a Haze source.
+ * a near-opaque [tintedGlassPill], for content that cannot be a Haze source and so is not blurred.
  */
 @Composable
 fun <T> FloatingPill(
@@ -111,7 +111,13 @@ fun <T> FloatingPill(
             Surface(
                 modifier = Modifier
                     .weight(1f, fill = false)
-                    .then(if (hazeState != null) Modifier.glassPill(hazeState) else Modifier.tintedGlassPill()),
+                    .then(
+                        if (hazeState != null) {
+                            Modifier.glassPill(hazeState)
+                        } else {
+                            Modifier.tintedGlassPill(alpha = 0.94f)
+                        }
+                    ),
                 shape = PillShape,
                 color = Color.Transparent,
                 contentColor = MaterialTheme.colorScheme.onSurface,
