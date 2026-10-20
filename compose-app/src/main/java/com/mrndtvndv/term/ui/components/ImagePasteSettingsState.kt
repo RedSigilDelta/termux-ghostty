@@ -1,26 +1,22 @@
 package com.mrndtvndv.term.ui.components
 
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.mrndtvndv.term.clipboard.ClipboardImageHandler
 import com.mrndtvndv.term.clipboard.ClipboardPathResolver
 import com.mrndtvndv.term.domain.ServerConfig
+import com.mrndtvndv.term.ui.settings.SwitchOption
 
 class ImagePasteSettingsState(
     initialEnabled: Boolean,
@@ -73,45 +69,22 @@ fun ImagePasteSettingsSection(
         modifier = Modifier.fillMaxWidth(),
     )
 
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text("Media Upload & Paste", style = MaterialTheme.typography.bodyLarge)
-            Text(
-                if (state.hasDirectory) activeSupportingText else "Provide a cache directory above to enable",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        Switch(
-            checked = state.isPasteActive,
-            onCheckedChange = { state.enabled = it },
-            enabled = state.hasDirectory,
-        )
-    }
+    SwitchOption(
+        title = "Media Upload & Paste",
+        checked = state.isPasteActive,
+        onCheckedChange = { state.enabled = it },
+        summary = if (state.hasDirectory) activeSupportingText else "Provide a cache directory above to enable",
+        enabled = state.hasDirectory,
+    )
 
     if (state.isPasteActive) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text("Auto Cleanup", style = MaterialTheme.typography.bodyLarge)
-                Text(
-                    "Automatically remove older clipboard images when pasting",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Switch(
-                checked = state.autoCleanup,
-                onCheckedChange = { state.autoCleanup = it },
-            )
-        }
+        SwitchOption(
+            title = "Auto Cleanup",
+            checked = state.autoCleanup,
+            onCheckedChange = { state.autoCleanup = it },
+            modifier = Modifier.padding(top = 4.dp),
+            summary = "Automatically remove older clipboard images when pasting",
+        )
 
         if (state.autoCleanup) {
             OutlinedTextField(

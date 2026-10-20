@@ -45,6 +45,7 @@ import com.mrndtvndv.term.ui.notification.InAppNotificationBanner
 import com.mrndtvndv.term.ui.serverlist.ServerListScreen
 import com.mrndtvndv.term.ui.settings.KeyBarEditorRoute
 import com.mrndtvndv.term.ui.settings.KeyBarItemEditorRoute
+import com.mrndtvndv.term.ui.settings.SettingsCategoryRoute
 import com.mrndtvndv.term.ui.settings.SettingsRoute
 import com.mrndtvndv.term.ui.settings.SettingsViewModel
 import com.mrndtvndv.term.ui.theme.TerminalThemeSync
@@ -222,10 +223,18 @@ fun TermApp(
                             }
 
                             entry<AppRoute.Settings> {
+                                SettingsRoute(
+                                    onOpenCategory = { navigator.navigate(AppRoute.SettingsCategory(it)) },
+                                    onBack = onBack,
+                                )
+                            }
+
+                            entry<AppRoute.SettingsCategory> { route ->
                                 val settingsViewModel = viewModel {
                                     SettingsViewModel(container.preferences, container.fontStore)
                                 }
-                                SettingsRoute(
+                                SettingsCategoryRoute(
+                                    category = route.category,
                                     viewModel = settingsViewModel,
                                     wallpaperController = wallpaperController,
                                     notificationState = appViewModel.notificationState,

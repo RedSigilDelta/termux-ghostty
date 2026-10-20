@@ -24,6 +24,11 @@ sealed interface AppRoute : NavKey {
     data object Settings : AppRoute
 
     @Serializable
+    data class SettingsCategory(
+        val category: com.mrndtvndv.term.ui.settings.SettingsCategory,
+    ) : AppRoute
+
+    @Serializable
     data object KeyBarEditor : AppRoute
 
     /** Editor for one key bar item. A null [itemId] adds a new item. */

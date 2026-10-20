@@ -15,6 +15,7 @@ class SettingsViewModel(
     private val fontStore: CustomFontStore,
 ) : ViewModel() {
     val settings: StateFlow<AppSettings> = preferences.settings
+    val fontSizeRange: IntRange = preferences.fontSizeRange
 
     fun update(transform: (AppSettings) -> AppSettings) = preferences.update(transform)
 

@@ -9,7 +9,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -18,6 +17,7 @@ import com.mrndtvndv.term.domain.ServerConfig
 import com.mrndtvndv.term.herdr.FocusBridgeUiState
 import com.mrndtvndv.term.ui.components.ImagePasteSettingsSection
 import com.mrndtvndv.term.ui.components.rememberImagePasteSettingsState
+import com.mrndtvndv.term.ui.settings.SwitchOption
 
 @Suppress("LongMethod")
 @OptIn(ExperimentalMaterial3Api::class)
@@ -100,20 +100,12 @@ fun AddServerScreen(
                 modifier = Modifier.fillMaxWidth(),
             )
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Use xterm-ghostty")
-                    Text(
-                        "Needs Ghostty's terminfo on the server",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Switch(checked = useGhosttyTerm, onCheckedChange = { useGhosttyTerm = it })
-            }
+            SwitchOption(
+                title = "Use xterm-ghostty",
+                checked = useGhosttyTerm,
+                onCheckedChange = { useGhosttyTerm = it },
+                summary = "Needs Ghostty's terminfo on the server",
+            )
 
             HerdrSection(
                 herdrEnabled = herdrEnabled,
@@ -174,21 +166,13 @@ private fun HerdrSection(
     socketPathValid: Boolean,
     focusBridge: FocusBridgeControls?,
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text("herdr workspaces")
-            Text(
-                "Shows herdr workspaces from the server and attaches to their terminals directly. " +
-                    "Plain tabs stay login shells. herdr must be installed there.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        Switch(checked = herdrEnabled, onCheckedChange = onHerdrEnabledChange)
-    }
+    SwitchOption(
+        title = "herdr workspaces",
+        checked = herdrEnabled,
+        onCheckedChange = onHerdrEnabledChange,
+        summary = "Shows herdr workspaces from the server and attaches to their terminals directly. " +
+            "Plain tabs stay login shells. herdr must be installed there.",
+    )
     if (herdrEnabled) {
         OutlinedTextField(
             value = herdrSocketPath,

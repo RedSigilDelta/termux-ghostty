@@ -24,7 +24,13 @@ import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicLong
 
 @Composable
-fun SettingsRoute(
+fun SettingsRoute(onOpenCategory: (SettingsCategory) -> Unit, onBack: () -> Unit) {
+    SettingsHomeScreen(onBack = onBack, onOpen = onOpenCategory)
+}
+
+@Composable
+fun SettingsCategoryRoute(
+    category: SettingsCategory,
     viewModel: SettingsViewModel,
     wallpaperController: WallpaperController,
     notificationState: NotificationState,
@@ -37,16 +43,17 @@ fun SettingsRoute(
     }
     val wallpaperPicker = rememberWallpaperPicker(viewModel, wallpaperController, notificationState)
 
-    SettingsScreen(
+    val state = SettingsState(
         settings = settings,
+        fontSizeRange = viewModel.fontSizeRange,
         onUpdate = viewModel::update,
         onSelectFont = { pickFont.launch("*/*") },
         onClearFont = viewModel::clearFont,
         onSelectWallpaper = wallpaperPicker.select,
         onClearWallpaper = wallpaperPicker.clear,
         onEditKeyBar = onEditKeyBar,
-        onBack = onBack,
     )
+    SettingsCategoryScreen(category = category, state = state, onBack = onBack)
 }
 
 private class WallpaperPicker(
