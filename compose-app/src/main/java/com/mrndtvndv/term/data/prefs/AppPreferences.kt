@@ -37,7 +37,6 @@ private object Key {
     const val WallpaperOpacity = "terminal_wallpaper_opacity"
     const val WallpaperScaling = "terminal_wallpaper_scaling"
     const val WallpaperId = "terminal_wallpaper_id"
-    const val OverlayAgentsFab = "overlay_agents_fab"
 }
 
 /**
@@ -92,7 +91,6 @@ private fun SharedPreferences.Editor.write(settings: AppSettings) {
     putFloat(Key.WallpaperOpacity, settings.wallpaperOpacity)
     putString(Key.WallpaperScaling, settings.wallpaperScaling.name)
     putLong(Key.WallpaperId, settings.wallpaperId)
-    putBoolean(Key.OverlayAgentsFab, settings.overlayAgentsFab)
 }
 
 class AppPreferences(
@@ -150,7 +148,6 @@ class AppPreferences(
             wallpaperOpacity = prefs.getFloat(Key.WallpaperOpacity, TerminalWallpaperConfig.DefaultBackgroundOpacity),
             wallpaperScaling = wallpaperScalingFromPref(prefs.getString(Key.WallpaperScaling, null)),
             wallpaperId = prefs.getLong(Key.WallpaperId, 0L),
-            overlayAgentsFab = prefs.getBoolean(Key.OverlayAgentsFab, false),
         ),
     )
 

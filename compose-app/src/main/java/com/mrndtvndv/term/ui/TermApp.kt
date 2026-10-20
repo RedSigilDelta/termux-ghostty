@@ -291,6 +291,8 @@ fun TermApp(
                                     settings = settings,
                                     appearance = terminalAppearance,
                                     host = terminalHost,
+                                    onOpenServerList = onBack,
+                                    onOpenSettings = { navigator.navigate(AppRoute.Settings) },
                                 )
                             }
                         },

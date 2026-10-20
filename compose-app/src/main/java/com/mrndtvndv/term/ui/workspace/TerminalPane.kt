@@ -28,8 +28,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
@@ -90,18 +91,18 @@ private fun agentsSlot(state: ProgramStatusState, onOpen: () -> Unit): (@Composa
 
 /** Fills the page above the IME and inside the horizontal cutouts; the status and navigation bars sit over it. */
 @Composable
-private fun Modifier.terminalCanvasLayout(onBounds: (Rect) -> Unit): Modifier = this
+private fun Modifier.terminalCanvasLayout(onCoordinates: (LayoutCoordinates) -> Unit): Modifier = this
     .fillMaxSize()
     .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
     .windowInsetsPadding(WindowInsets.ime)
-    .onGloballyPositioned { onBounds(it.boundsInRoot()) }
+    .onGloballyPositioned(onCoordinates)
 
 /** Lifts the bar above the navigation bar or the IME, and reports its top edge. */
 @Composable
-private fun Modifier.keyBarLayout(onTop: (Float) -> Unit): Modifier = this
+private fun Modifier.keyBarLayout(onCoordinates: (LayoutCoordinates) -> Unit): Modifier = this
     .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))
     .padding(bottom = KeyBarBottomGap)
-    .onGloballyPositioned { onTop(it.boundsInRoot().top) }
+    .onGloballyPositioned(onCoordinates)
 
 /**
  * The terminal fills the page, so the wallpaper and rows run under the status and navigation bars.
@@ -129,7 +130,34 @@ fun TerminalPane(
     var canvasBounds by remember { mutableStateOf(Rect.Zero) }
     var keyBarTop by remember { mutableFloatStateOf(0f) }
     var keyBarPill by remember { mutableStateOf(Rect.Zero) }
+    var canvasCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    var keyBarCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    var pillCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
     var showAgents by remember { mutableStateOf(false) }
+
+    fun updatePaneGeometry(
+        currentCanvasCoords: LayoutCoordinates?,
+        currentKeyBarCoords: LayoutCoordinates?,
+        currentPillCoords: LayoutCoordinates?,
+    ) {
+        if (currentCanvasCoords?.isAttached != true) return
+        canvasBounds = Rect(
+            0f,
+            0f,
+            currentCanvasCoords.size.width.toFloat(),
+            currentCanvasCoords.size.height.toFloat(),
+        )
+        keyBarTop = if (currentKeyBarCoords?.isAttached == true) {
+            currentCanvasCoords.localPositionOf(currentKeyBarCoords, Offset.Zero).y
+        } else {
+            0f
+        }
+        keyBarPill = if (currentPillCoords?.isAttached == true) {
+            currentCanvasCoords.localBoundingBoxOf(currentPillCoords, clipBounds = false)
+        } else {
+            Rect.Zero
+        }
+    }
 
     SoftKeyboardStateEffects(
         session = session,
@@ -162,7 +190,10 @@ fun TerminalPane(
                 settings.overlayKeyBar,
             ),
             blurRegions = keyBarBlurRegions(keyBarPill, canvasBounds),
-            modifier = Modifier.terminalCanvasLayout { canvasBounds = it },
+            modifier = Modifier.terminalCanvasLayout { coordinates ->
+                canvasCoords = coordinates
+                updatePaneGeometry(coordinates, keyBarCoords, pillCoords)
+            },
         )
         KeyBar(
             modifiers = modifierKeys,
@@ -177,8 +208,14 @@ fun TerminalPane(
                 onProgramStatusOpened()
             },
             onHostAction = onHostAction,
-            modifier = Modifier.align(Alignment.BottomCenter).keyBarLayout { keyBarTop = it },
-            pillModifier = Modifier.onGloballyPositioned { keyBarPill = it.boundsInRoot() },
+            modifier = Modifier.align(Alignment.BottomCenter).keyBarLayout { coordinates ->
+                keyBarCoords = coordinates
+                updatePaneGeometry(canvasCoords, coordinates, pillCoords)
+            },
+            pillModifier = Modifier.onGloballyPositioned { coordinates ->
+                pillCoords = coordinates
+                updatePaneGeometry(canvasCoords, keyBarCoords, coordinates)
+            },
         )
         TerminalProgressStrip(
             progress = progress, modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding(),
