@@ -25,6 +25,8 @@ import java.util.Locale
  * https://github.com/simple-icons/simple-icons/blob/develop/icons/bun.svg
  * The Git mark is sourced from Simple Icons (CC0 1.0):
  * https://github.com/simple-icons/simple-icons/blob/develop/icons/git.svg
+ * The Gradle mark is sourced from Simple Icons (CC0 1.0):
+ * https://github.com/simple-icons/simple-icons/blob/develop/icons/gradle.svg
  * The fx mark is sourced from https://fx.sh/favicon.png.
  * The Cargo process icon is an original generic crate mark and does not reproduce
  * the Rust/Cargo trademarks.
@@ -58,7 +60,7 @@ fun agentIconResource(agent: String?): Int? = when (agent?.lowercase(Locale.ROOT
 
 @DrawableRes
 fun processIconResource(processName: String?): Int? = when (
-    processName?.lowercase(Locale.ROOT)
+    processName?.substringAfterLast('/')?.lowercase(Locale.ROOT)
 ) {
     "nvim" -> R.drawable.agent_nvim
     "fish" -> R.drawable.agent_fish
@@ -66,6 +68,7 @@ fun processIconResource(processName: String?): Int? = when (
     "java", "javac", "openjdk" -> R.drawable.agent_java
     "bun", "bunx" -> R.drawable.agent_bun
     "cargo", "rustc" -> R.drawable.agent_cargo
+    "gradle", "gradlew" -> R.drawable.agent_gradle
     "git", "lazygit", "gitui", "tig" -> R.drawable.agent_git
     "pig" -> R.drawable.agent_pig
     else -> null
